@@ -1,0 +1,14 @@
+FPGAPlacementOptimization UnifiedTask constraints:
+1) Only modify `scripts/init.py`.
+2) Preserve the output contract: the program must produce a `solution.pl`
+   file in Bookshelf format with one line per instance: <name> <x> <y> <z>
+3) Do not modify benchmark assets, documentation, references, verification
+   code, runtime helpers, or `frontier_eval/` metadata.
+4) Fixed instances (IO pads, PLLs) must remain at their original (x, y, z)
+   coordinates from the input .pl file.
+5) Every movable instance must be assigned to a legal (x, y, z) coordinate.
+6) The placement must satisfy all three legality gates:
+   - G1: Site-type compatibility (LUT/FF on SLICE, DSP on DSP, BRAM on BRAM)
+   - G2: Resource capacity (max 16 LUT and 16 FF per SLICE site)
+   - G3: Carry-chain integrity (adjacent vertical placement)
+7) Prioritize correctness (legal placement) before optimization (HPWL).

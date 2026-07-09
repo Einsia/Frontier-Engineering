@@ -1,0 +1,30 @@
+add_subdirectory(utility)
+add_subdirectory(dct)
+add_subdirectory(pin_pos)
+add_subdirectory(density_map)
+#add_subdirectory(density_overflow)
+add_subdirectory(density_potential)
+add_subdirectory(logsumexp_wirelength)
+add_subdirectory(draw_place)
+add_subdirectory(electric_potential)
+add_subdirectory(hpwl)
+add_subdirectory(move_boundary)
+add_subdirectory(weighted_average_wirelength)
+#add_subdirectory(rmst_wl)
+add_subdirectory(place_io)
+add_subdirectory(precondWL)
+add_subdirectory(sortNode2Pin)
+add_subdirectory(demandMap)
+# legalization operators 
+add_subdirectory(dsp_ram_legalization)
+add_subdirectory(lut_ff_legalization)
+# routing congestion operator 
+add_subdirectory(pin_utilization)
+add_subdirectory(rudy)
+add_subdirectory(adjust_node_area)
+add_subdirectory(clustering_compatibility)
+
+file(GLOB INSTALL_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/*.py")
+install(
+    FILES ${INSTALL_SRCS} DESTINATION dreamplacefpga/ops
+    )

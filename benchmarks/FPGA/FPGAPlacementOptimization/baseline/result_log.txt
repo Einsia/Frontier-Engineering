@@ -1,0 +1,16 @@
+Baseline Result: FPGAPlacementOptimization (fpga-example1)
+=========================================================
+Date: 2026-07-09
+Program: scripts/init.py (row-scan placer)
+
+Metrics:
+  combined_score: -210721.0
+  hpwl: 210721.0
+  valid: 1.0
+  gate_site_type: 1.0
+  gate_capacity: 1.0
+  gate_carry_chain: 1.0
+  runtime_s: 0.19
+
+All three legality gates pass.
+Total instances: 3336 (72 fixed, 3264 movable)

@@ -1,0 +1,21 @@
+Command: python verification/evaluator.py scripts/init.cpp
+
+{
+  "baseline_total_monthly_cost_per_tib": 74.21482581936795,
+  "candidate_compression_ratio": 1.0000755310058593,
+  "candidate_decode_gib_s": 35.02579991081217,
+  "candidate_encode_gib_s": 16.717838409707195,
+  "candidate_query_batch_gib_s": 3.2003934172792485,
+  "candidate_source_matches_baseline": 1.0,
+  "candidate_total_monthly_cost_per_tib": 74.21482581936795,
+  "combined_score": 1.0,
+  "correctness": 1.0,
+  "mean_score_ratio": 1.0,
+  "min_score_ratio": 1.0,
+  "scenario_count": 3.0,
+  "timeout": 0.0,
+  "valid": 1.0
+}
+
+Throughput and cost components are measured and therefore host-dependent. The
+starter score remains exactly 1.0 because its source matches the immutable baseline.

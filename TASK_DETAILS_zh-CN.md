@@ -204,13 +204,17 @@ Frontier-Eng 目前已覆盖以下领域的任务。每个任务均配有可运�
       <td>偏振复用全息</td>
     </tr>
     <tr>
-      <td rowspan="2"><b>ComputerSystems</b></td>
+      <td rowspan="3"><b>ComputerSystems</b></td>
       <td><code>MallocLab</code></td>
       <td>高性能 C 动态内存分配器（utilization &amp; throughput）</td>
     </tr>
     <tr>
       <td><code>DuckDBWorkloadOptimization</code></td>
       <td>基于 DuckDB 官方 workload 的索引 / 物化视图选择与查询改写</td>
+    </tr>
+    <tr>
+      <td><code>AdaptiveCompressedTelemetryExecution</code></td>
+      <td>实测 CPU 的自适应遥测数据压缩、无损解码、压缩态查询与存储/计算成本权衡</td>
     </tr>
     <tr>
       <td><b>EngDesign</b></td>

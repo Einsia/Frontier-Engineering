@@ -19,6 +19,10 @@
 
 ## 子任务索引
 
+- `AdaptiveLinkScheduling/`: 在队列、信道、时延、公平性与功率预算约束下优化下行资源块调度、MCS 选择和发射功率。
+  - `frontier_eval` 任务: `task=unified task.benchmark=CommunicationEngineering/AdaptiveLinkScheduling`
+  - 快速运行: `python -m frontier_eval task=unified task.benchmark=CommunicationEngineering/AdaptiveLinkScheduling algorithm.iterations=0`
+
 - `LDPCErrorFloor/`: 使用重要性采样估计LDPC码的错误地板，处理罕见的trapping set事件。
   - `frontier_eval` 任务: `task=unified task.benchmark=CommunicationEngineering/LDPCErrorFloor`
   - 快速运行: `python -m frontier_eval task=unified task.benchmark=CommunicationEngineering/LDPCErrorFloor algorithm.iterations=0`
@@ -30,4 +34,3 @@
 - `PMDSimulation/`: 使用重要性采样仿真光纤系统中的极化模色散(PMD)，处理罕见的停机事件。
   - `frontier_eval` 任务: `task=unified task.benchmark=CommunicationEngineering/PMDSimulation`
   - 快速运行: `python -m frontier_eval task=unified task.benchmark=CommunicationEngineering/PMDSimulation algorithm.iterations=0`
-

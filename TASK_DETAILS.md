@@ -82,7 +82,11 @@ We welcome new engineering problem ideas — even without complete verification 
       <td>C++ SHA3-256 throughput (OpenSSL verified)</td>
     </tr>
     <tr>
-      <td rowspan="3"><b>CommunicationEngineering</b></td>
+      <td rowspan="4"><b>CommunicationEngineering</b></td>
+      <td><code>AdaptiveLinkScheduling</code></td>
+      <td>Downlink resource-block scheduling with MCS and power control under queue, latency, fairness, and power-budget constraints</td>
+    </tr>
+    <tr>
       <td><code>LDPCErrorFloor</code></td>
       <td>LDPC code error floor estimation via importance sampling on trapping sets</td>
     </tr>
@@ -298,7 +302,11 @@ We welcome new engineering problem ideas — even without complete verification 
       <td>pyMOTO-based 2D beam topology optimization (SIMP + OC/MMA) under a volume-fraction constraint</td>
     </tr>
     <tr>
-      <td rowspan="6"><b>Robotics</b></td>
+      <td rowspan="7"><b>Robotics</b></td>
+      <td><code>AGVWarehouseRouting</code></td>
+      <td>Warehouse AGV pick-sequence optimization with aisle obstacles, congestion, and turn costs</td>
+    </tr>
+    <tr>
       <td><code>DynamicObstacleAvoidanceNavigation</code></td>
       <td>Navigate a differential-drive robot from start to goal in a dynamic environment</td>
     </tr>
@@ -337,9 +345,13 @@ We welcome new engineering problem ideas — even without complete verification 
       <td>Importance-sampling BER estimator for Hamming(127,120)</td>
     </tr>
     <tr>
-      <td><b>PowerSystems</b></td>
+      <td rowspan="2"><b>PowerSystems</b></td>
       <td><code>EV2GymSmartCharging</code></td>
       <td>Upstream-aligned EV smart charging scheduling</td>
+    </tr>
+    <tr>
+      <td><code>MicrogridBatteryDispatch</code></td>
+      <td>Commercial microgrid battery dispatch under solar forecasts, tariffs, demand charges, and degradation cost</td>
     </tr>
     <tr>
       <td><b>AdditiveManufacturing</b></td>

@@ -1,0 +1,6 @@
+AdaptiveLinkScheduling constraints:
+1) Modify only scripts/init.py.
+2) Keep schedule_frame(frame) as the public entrypoint.
+3) Return one decision per resource block with user, mcs, and power_dbm fields.
+4) Do not use external packages, file I/O, network access, or randomness.
+5) Keep EVOLVE-BLOCK markers intact and place editable scheduler logic inside them.

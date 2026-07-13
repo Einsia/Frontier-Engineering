@@ -1,0 +1,15 @@
+{
+  "baseline_expected_power_w": 14562813.187886339,
+  "candidate_expected_power_w": 14562813.187886339,
+  "candidate_runtime_s": 0.05653033405542374,
+  "combined_score": 0.0,
+  "evaluator_runtime_s": 0.2937989681959152,
+  "n_conditions": 24.0,
+  "n_turbines": 9.0,
+  "relative_energy_gain_pct": 0.0,
+  "valid": 1.0,
+  "weighted_mean_abs_yaw_deg": 0.0,
+  "yaw_effort_penalty": 0.0,
+  "yaw_smoothness_deg": 0.0,
+  "yaw_smoothness_penalty": 0.0
+}

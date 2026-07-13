@@ -1,0 +1,401 @@
+{
+    "synthetic_01": {
+        "name": "synthetic_01",
+        "file": "instances/synthetic/synthetic_01.fjswf",
+        "aliases": [
+            "smoke01"
+        ],
+        "num_jobs": 2,
+        "num_machines": 2,
+        "num_workers": 2,
+        "total_operations": 4,
+        "source": "synthetic (smoke test only)",
+        "ci_only": true
+    },
+    "synthetic_02": {
+        "name": "synthetic_02",
+        "file": "instances/synthetic/synthetic_02.fjswf",
+        "aliases": [
+            "smoke02"
+        ],
+        "num_jobs": 3,
+        "num_machines": 3,
+        "num_workers": 2,
+        "total_operations": 7,
+        "source": "synthetic (smoke test only)",
+        "ci_only": true
+    },
+    "synthetic_03": {
+        "name": "synthetic_03",
+        "file": "instances/synthetic/synthetic_03.fjswf",
+        "aliases": [
+            "smoke03"
+        ],
+        "num_jobs": 4,
+        "num_machines": 3,
+        "num_workers": 3,
+        "total_operations": 9,
+        "source": "synthetic (smoke test only)",
+        "ci_only": true
+    },
+    "0_BehnkeGeiger_42_workers": {
+        "name": "0_BehnkeGeiger_42_workers",
+        "file": "instances/official/0_BehnkeGeiger_42_workers.fjs",
+        "aliases": [
+            "behnkegeiger_42",
+            "bg42"
+        ],
+        "num_jobs": 10,
+        "num_machines": 60,
+        "num_workers": 90,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "0_BehnkeGeiger_46_workers": {
+        "name": "0_BehnkeGeiger_46_workers",
+        "file": "instances/official/0_BehnkeGeiger_46_workers.fjs",
+        "aliases": [
+            "behnkegeiger_46",
+            "bg46"
+        ],
+        "num_jobs": 20,
+        "num_machines": 60,
+        "num_workers": 90,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "0_BehnkeGeiger_60_workers": {
+        "name": "0_BehnkeGeiger_60_workers",
+        "file": "instances/official/0_BehnkeGeiger_60_workers.fjs",
+        "aliases": [
+            "behnkegeiger_60",
+            "bg60"
+        ],
+        "num_jobs": 100,
+        "num_machines": 60,
+        "num_workers": 90,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "1_Brandimarte_7_workers": {
+        "name": "1_Brandimarte_7_workers",
+        "file": "instances/official/1_Brandimarte_7_workers.fjs",
+        "aliases": [
+            "brandimarte_mk07",
+            "mk07"
+        ],
+        "num_jobs": 20,
+        "num_machines": 5,
+        "num_workers": 7,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "1_Brandimarte_12_workers": {
+        "name": "1_Brandimarte_12_workers",
+        "file": "instances/official/1_Brandimarte_12_workers.fjs",
+        "aliases": [
+            "brandimarte_mk12",
+            "mk12"
+        ],
+        "num_jobs": 30,
+        "num_machines": 10,
+        "num_workers": 15,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "1_Brandimarte_14_workers": {
+        "name": "1_Brandimarte_14_workers",
+        "file": "instances/official/1_Brandimarte_14_workers.fjs",
+        "aliases": [
+            "brandimarte_mk14",
+            "mk14"
+        ],
+        "num_jobs": 30,
+        "num_machines": 15,
+        "num_workers": 22,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "2a_Hurink_sdata_1_workers": {
+        "name": "2a_Hurink_sdata_1_workers",
+        "file": "instances/official/2a_Hurink_sdata_1_workers.fjs",
+        "aliases": [
+            "hurink_sdata_01",
+            "hs01"
+        ],
+        "num_jobs": 6,
+        "num_machines": 6,
+        "num_workers": 9,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "2a_Hurink_sdata_18_workers": {
+        "name": "2a_Hurink_sdata_18_workers",
+        "file": "instances/official/2a_Hurink_sdata_18_workers.fjs",
+        "aliases": [
+            "hurink_sdata_18",
+            "hs18"
+        ],
+        "num_jobs": 20,
+        "num_machines": 5,
+        "num_workers": 7,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "2a_Hurink_sdata_38_workers": {
+        "name": "2a_Hurink_sdata_38_workers",
+        "file": "instances/official/2a_Hurink_sdata_38_workers.fjs",
+        "aliases": [
+            "hurink_sdata_38",
+            "hs38"
+        ],
+        "num_jobs": 30,
+        "num_machines": 10,
+        "num_workers": 15,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "2a_Hurink_sdata_40_workers": {
+        "name": "2a_Hurink_sdata_40_workers",
+        "file": "instances/official/2a_Hurink_sdata_40_workers.fjs",
+        "aliases": [
+            "hurink_sdata_40",
+            "hs40"
+        ],
+        "num_jobs": 15,
+        "num_machines": 15,
+        "num_workers": 22,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "2a_Hurink_sdata_54_workers": {
+        "name": "2a_Hurink_sdata_54_workers",
+        "file": "instances/official/2a_Hurink_sdata_54_workers.fjs",
+        "aliases": [
+            "hurink_sdata_54",
+            "hs54"
+        ],
+        "num_jobs": 8,
+        "num_machines": 9,
+        "num_workers": 13,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "2a_Hurink_sdata_61_workers": {
+        "name": "2a_Hurink_sdata_61_workers",
+        "file": "instances/official/2a_Hurink_sdata_61_workers.fjs",
+        "aliases": [
+            "hurink_sdata_61",
+            "hs61"
+        ],
+        "num_jobs": 10,
+        "num_machines": 10,
+        "num_workers": 15,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "2a_Hurink_sdata_63_workers": {
+        "name": "2a_Hurink_sdata_63_workers",
+        "file": "instances/official/2a_Hurink_sdata_63_workers.fjs",
+        "aliases": [
+            "hurink_sdata_63",
+            "hs63"
+        ],
+        "num_jobs": 10,
+        "num_machines": 10,
+        "num_workers": 15,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "2b_Hurink_edata_1_workers": {
+        "name": "2b_Hurink_edata_1_workers",
+        "file": "instances/official/2b_Hurink_edata_1_workers.fjs",
+        "aliases": [
+            "hurink_edata_01",
+            "he01"
+        ],
+        "num_jobs": 6,
+        "num_machines": 6,
+        "num_workers": 9,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "2b_Hurink_edata_6_workers": {
+        "name": "2b_Hurink_edata_6_workers",
+        "file": "instances/official/2b_Hurink_edata_6_workers.fjs",
+        "aliases": [
+            "hurink_edata_06",
+            "he06"
+        ],
+        "num_jobs": 10,
+        "num_machines": 5,
+        "num_workers": 7,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "2c_Hurink_rdata_28_workers": {
+        "name": "2c_Hurink_rdata_28_workers",
+        "file": "instances/official/2c_Hurink_rdata_28_workers.fjs",
+        "aliases": [
+            "hurink_rdata_28",
+            "hr28"
+        ],
+        "num_jobs": 15,
+        "num_machines": 10,
+        "num_workers": 15,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "2c_Hurink_rdata_38_workers": {
+        "name": "2c_Hurink_rdata_38_workers",
+        "file": "instances/official/2c_Hurink_rdata_38_workers.fjs",
+        "aliases": [
+            "hurink_rdata_38",
+            "hr38"
+        ],
+        "num_jobs": 30,
+        "num_machines": 10,
+        "num_workers": 15,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "2c_Hurink_rdata_50_workers": {
+        "name": "2c_Hurink_rdata_50_workers",
+        "file": "instances/official/2c_Hurink_rdata_50_workers.fjs",
+        "aliases": [
+            "hurink_rdata_50",
+            "hr50"
+        ],
+        "num_jobs": 13,
+        "num_machines": 4,
+        "num_workers": 6,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "2d_Hurink_vdata_5_workers": {
+        "name": "2d_Hurink_vdata_5_workers",
+        "file": "instances/official/2d_Hurink_vdata_5_workers.fjs",
+        "aliases": [
+            "hurink_vdata_05",
+            "hv05"
+        ],
+        "num_jobs": 10,
+        "num_machines": 5,
+        "num_workers": 7,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "2d_Hurink_vdata_18_workers": {
+        "name": "2d_Hurink_vdata_18_workers",
+        "file": "instances/official/2d_Hurink_vdata_18_workers.fjs",
+        "aliases": [
+            "hurink_vdata_18",
+            "hv18"
+        ],
+        "num_jobs": 20,
+        "num_machines": 5,
+        "num_workers": 7,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "2d_Hurink_vdata_30_workers": {
+        "name": "2d_Hurink_vdata_30_workers",
+        "file": "instances/official/2d_Hurink_vdata_30_workers.fjs",
+        "aliases": [
+            "hurink_vdata_30",
+            "hv30"
+        ],
+        "num_jobs": 20,
+        "num_machines": 10,
+        "num_workers": 15,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "3_DPpaulli_1_workers": {
+        "name": "3_DPpaulli_1_workers",
+        "file": "instances/official/3_DPpaulli_1_workers.fjs",
+        "aliases": [
+            "dppaulli_01",
+            "dp01"
+        ],
+        "num_jobs": 10,
+        "num_machines": 5,
+        "num_workers": 7,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "3_DPpaulli_9_workers": {
+        "name": "3_DPpaulli_9_workers",
+        "file": "instances/official/3_DPpaulli_9_workers.fjs",
+        "aliases": [
+            "dppaulli_09",
+            "dp09"
+        ],
+        "num_jobs": 15,
+        "num_machines": 8,
+        "num_workers": 12,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "3_DPpaulli_15_workers": {
+        "name": "3_DPpaulli_15_workers",
+        "file": "instances/official/3_DPpaulli_15_workers.fjs",
+        "aliases": [
+            "dppaulli_15",
+            "dp15"
+        ],
+        "num_jobs": 20,
+        "num_machines": 10,
+        "num_workers": 15,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "3_DPpaulli_18_workers": {
+        "name": "3_DPpaulli_18_workers",
+        "file": "instances/official/3_DPpaulli_18_workers.fjs",
+        "aliases": [
+            "dppaulli_18",
+            "dp18"
+        ],
+        "num_jobs": 20,
+        "num_machines": 10,
+        "num_workers": 15,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "4_ChambersBarnes_10_workers": {
+        "name": "4_ChambersBarnes_10_workers",
+        "file": "instances/official/4_ChambersBarnes_10_workers.fjs",
+        "aliases": [
+            "chambersbarnes_10",
+            "cb10"
+        ],
+        "num_jobs": 15,
+        "num_machines": 13,
+        "num_workers": 19,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "5_Kacem_3_workers": {
+        "name": "5_Kacem_3_workers",
+        "file": "instances/official/5_Kacem_3_workers.fjs",
+        "aliases": [
+            "kacem_03",
+            "kc03"
+        ],
+        "num_jobs": 10,
+        "num_machines": 10,
+        "num_workers": 15,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "5_Kacem_4_workers": {
+        "name": "5_Kacem_4_workers",
+        "file": "instances/official/5_Kacem_4_workers.fjs",
+        "aliases": [
+            "kacem_04",
+            "kc04"
+        ],
+        "num_jobs": 15,
+        "num_machines": 10,
+        "num_workers": 15,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "6_Fattahi_14_workers": {
+        "name": "6_Fattahi_14_workers",
+        "file": "instances/official/6_Fattahi_14_workers.fjs",
+        "aliases": [
+            "fattahi_14",
+            "ft14"
+        ],
+        "num_jobs": 7,
+        "num_machines": 7,
+        "num_workers": 10,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    },
+    "6_Fattahi_20_workers": {
+        "name": "6_Fattahi_20_workers",
+        "file": "instances/official/6_Fattahi_20_workers.fjs",
+        "aliases": [
+            "fattahi_20",
+            "ft20"
+        ],
+        "num_jobs": 12,
+        "num_machines": 8,
+        "num_workers": 12,
+        "source": "GECCO FJSSP-WU Competition (Apache-2.0)"
+    }
+}

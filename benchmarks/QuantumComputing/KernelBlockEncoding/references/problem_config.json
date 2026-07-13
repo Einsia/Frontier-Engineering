@@ -1,0 +1,98 @@
+{
+  "benchmark_id": "kernel_block_encoding",
+  "matrix_scale": 1048576,
+  "angle_denominator": 268435456,
+  "objective": {
+    "rotation_weight": 16.0,
+    "cnot_weight": 1.0,
+    "hadamard_weight": 0.25,
+    "depth_weight": 0.25,
+    "normalization_exponent": 1.0
+  },
+  "limits": {
+    "max_candidate_bytes": 1000000,
+    "max_certificate_bytes": 262144,
+    "max_dimension": 64,
+    "max_scale_multiplier": 16,
+    "candidate_timeout_s_per_workload": 5.0,
+    "compile_timeout_s": 30.0,
+    "memory_limit_mb": 1024
+  },
+  "workloads": [
+    {
+      "id": "clustered_rbf_16",
+      "kind": "rbf",
+      "dimension": 16,
+      "feature_dimensions": 3,
+      "clusters": 4,
+      "cluster_separation": 11,
+      "jitter": 3,
+      "bandwidth_squared": 38,
+      "seed": 1229782938247303441,
+      "relative_error_ppm": 18000,
+      "expected_sha256": "7de83c53135924eb3967f0ee622b9fdb9f55cc19bae3f6b4ceee1d6938b1f39e"
+    },
+    {
+      "id": "anisotropic_rbf_32",
+      "kind": "rbf",
+      "dimension": 32,
+      "feature_dimensions": 5,
+      "clusters": 8,
+      "cluster_separation": 9,
+      "jitter": 4,
+      "bandwidth_squared": 52,
+      "seed": 2459565876494606882,
+      "relative_error_ppm": 15000,
+      "expected_sha256": "0a1d779961b02ffbb39ad8a99fa0456c108711af0fd5467cea84ac24ebcaaa84"
+    },
+    {
+      "id": "polynomial_gram_32",
+      "kind": "polynomial",
+      "dimension": 32,
+      "feature_dimensions": 7,
+      "feature_bound": 5,
+      "bias": 96,
+      "degree": 3,
+      "seed": 3689348814741910323,
+      "relative_error_ppm": 12000,
+      "expected_sha256": "dc9a5b6390679ba3fad120bb89e6cd5bde89e75f933c9623be7716204b4f5374"
+    },
+    {
+      "id": "rational_quadratic_32",
+      "kind": "rational_quadratic",
+      "dimension": 32,
+      "feature_dimensions": 4,
+      "feature_bound": 16,
+      "length_squared": 75,
+      "seed": 4919131752989213764,
+      "relative_error_ppm": 14000,
+      "expected_sha256": "b043f769c9cc82076cadeaac67e08e1237418b82bcb5abf619ff43f86b4ddbd5"
+    },
+    {
+      "id": "walk_feature_gram_32",
+      "kind": "walk_gram",
+      "dimension": 32,
+      "shortcut_stride": 7,
+      "walk_steps": 4,
+      "self_weight": 2,
+      "relative_error_ppm": 10000,
+      "expected_sha256": "a04110306f423eb5d12c1ced0c38cfe8dddfba88f7b596540f4c39faa63440f0"
+    },
+    {
+      "id": "multiscale_rbf_64",
+      "kind": "multiscale_rbf",
+      "dimension": 64,
+      "feature_dimensions": 4,
+      "clusters": 8,
+      "cluster_separation": 13,
+      "jitter": 4,
+      "bandwidth_squared_small": 36,
+      "bandwidth_squared_large": 180,
+      "small_weight_numerator": 3,
+      "weight_denominator": 5,
+      "seed": 6148914691236517205,
+      "relative_error_ppm": 9000,
+      "expected_sha256": "5bb408adb4839e8817d11397fa014fff09d6f93407396439664640445b4ddd2c"
+    }
+  ]
+}

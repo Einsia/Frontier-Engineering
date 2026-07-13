@@ -1,0 +1,10 @@
+README.md
+Task.md
+scripts/init.cpp
+verification/construction_runtime.hpp
+references/problem_config.json
+references/README.md
+verification/evaluator.py
+verification/limited_exec.py
+verification/test_evaluator.py
+frontier_eval/constraints.txt

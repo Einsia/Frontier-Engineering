@@ -1,0 +1,1 @@
+bash frontier_eval/run_eval.sh {python} {candidate} metrics.json artifacts.json

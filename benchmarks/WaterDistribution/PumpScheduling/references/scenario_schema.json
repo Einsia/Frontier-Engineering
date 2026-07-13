@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["id", "demand_multipliers", "tariff", "initial_tank_offsets_m", "leak"],
+  "properties": {
+    "id": {"type": "string"},
+    "demand_multipliers": {"type": "array", "minItems": 24, "maxItems": 24, "items": {"type": "number", "minimum": 0.5, "maximum": 1.6}},
+    "tariff": {"type": "array", "minItems": 24, "maxItems": 24, "items": {"type": "number", "minimum": 0.01}},
+    "initial_tank_offsets_m": {"type": "object"},
+    "leak": {"type": ["object", "null"]}
+  }
+}

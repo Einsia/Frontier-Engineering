@@ -1,0 +1,7 @@
+PumpScheduling unified constraints:
+1) Modify only code between EVOLVE-BLOCK-START and EVOLVE-BLOCK-END in scripts/init.py.
+2) Preserve control(observation) and return exactly pump keys 10 and 335.
+3) Pump speeds must be finite numbers in [0, 1].
+4) Use only the causal observation; do not access evaluator or hidden-case files.
+5) All six scenarios must converge and satisfy pressure, tank-bound, and terminal-storage constraints.
+6) Do not modify documentation, references, verification, tests, or frontier_eval metadata.

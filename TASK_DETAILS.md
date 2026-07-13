@@ -204,6 +204,11 @@ We welcome new engineering problem ideas — even without complete verification 
       <td>Polarization-multiplexed holography</td>
     </tr>
     <tr>
+      <td><b>ElectronicDesignAutomation</b></td>
+      <td><code>CertifiedAIGResynthesis</code></td>
+      <td>Proof-carrying, DAG-aware Boolean resynthesis with exact local equivalence checking and area/depth optimization</td>
+    </tr>
+    <tr>
       <td rowspan="2"><b>ComputerSystems</b></td>
       <td><code>MallocLab</code></td>
       <td>High-performance C memory allocator (utilization &amp; throughput)</td>

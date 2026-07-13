@@ -204,6 +204,11 @@ Frontier-Eng 目前已覆盖以下领域的任务。每个任务均配有可运�
       <td>偏振复用全息</td>
     </tr>
     <tr>
+      <td><b>ElectronicDesignAutomation</b></td>
+      <td><code>CertifiedAIGResynthesis</code></td>
+      <td>带证明证书的 DAG 感知布尔重综合，精确验证局部等价性并优化面积与深度</td>
+    </tr>
+    <tr>
       <td rowspan="2"><b>ComputerSystems</b></td>
       <td><code>MallocLab</code></td>
       <td>高性能 C 动态内存分配器（utilization &amp; throughput）</td>

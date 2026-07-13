@@ -1,0 +1,71 @@
+{
+  "benchmark_id": "certified_aig_resynthesis",
+  "version": 1,
+  "description": "Deterministic combinational AIG workloads with independently replayed local equivalence certificates.",
+  "objective": {
+    "area_weight": 0.75,
+    "depth_weight": 0.25
+  },
+  "limits": {
+    "candidate_timeout_s_per_workload": 4.0,
+    "compile_timeout_s": 30.0,
+    "max_candidate_bytes": 1000000,
+    "max_certificate_bytes": 16000000,
+    "max_cut_leaves": 8,
+    "max_divisors": 16,
+    "max_local_ands": 64,
+    "max_rewrites": 20000,
+    "max_total_nodes": 300000
+  },
+  "workloads": [
+    {
+      "id": "ripple_adder_96",
+      "kind": "ripple_adder",
+      "width": 96,
+      "lowering_period": 7,
+      "expected_sha256": "d5c682f1e9d665177ef675298c20050cdca904f56e4ba75b8bf2ea116eb652c2",
+      "expected_live_ands": 962,
+      "expected_depth": 230
+    },
+    {
+      "id": "barrel_shifter_64",
+      "kind": "barrel_shifter",
+      "width": 64,
+      "lowering_period": 5,
+      "expected_sha256": "2534c2e949d7cfd9d3e1c87948c2375a014b9cb87ec03ca7177f9f875000e292",
+      "expected_live_ands": 1329,
+      "expected_depth": 19
+    },
+    {
+      "id": "priority_arbiter_128",
+      "kind": "priority_arbiter",
+      "width": 128,
+      "lowering_period": 4,
+      "expected_sha256": "c712ad116b4b427c399c689f2357a38d508dd3845ebfe18c3a50f2fa5596251e",
+      "expected_live_ands": 403,
+      "expected_depth": 129
+    },
+    {
+      "id": "packet_classifier_48x12",
+      "kind": "packet_classifier",
+      "header_bits": 32,
+      "rules": 48,
+      "bits_per_rule": 12,
+      "lowering_period": 3,
+      "expected_sha256": "a6edceef1c7b0620b8f4b7e477c048a470440e8ffa7c58d0aee0c936e6ea2733",
+      "expected_live_ands": 1107,
+      "expected_depth": 96
+    },
+    {
+      "id": "crc32_update_64",
+      "kind": "crc_update",
+      "state_bits": 32,
+      "data_bits": 64,
+      "polynomial": 79764919,
+      "lowering_period": 6,
+      "expected_sha256": "2fce8a90bc9e71715f35c567f89b7f695bd7b393da833b55890aabac078fa066",
+      "expected_live_ands": 3459,
+      "expected_depth": 106
+    }
+  ]
+}

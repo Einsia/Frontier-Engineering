@@ -1,0 +1,19 @@
+{
+  "benchmark_id": "Robotics/WarehouseRobotRouting",
+  "data_license": "CC0-1.0",
+  "generated_from_seeds": true,
+  "sources": [
+    {
+      "citation_only": true,
+      "final_url": "https://arxiv.org/abs/1705.10868",
+      "id": "src-e38f3ddb2a6f24cf",
+      "license": "citation-only",
+      "location": "references/citations/src-e38f3ddb2a6f24cf.json",
+      "origin": "https://arxiv.org/abs/1705.10868",
+      "publishable": true,
+      "retrieved_at": "2026-07-14T09:48:03.938950+00:00",
+      "sha256": "e38f3ddb2a6f24cf13669520173cd6a0ae8af9c3eac47ea93fa47c6ea93fb065",
+      "title": "Lifelong Multi-Agent Path Finding for Online Pickup and Delivery Tasks"
+    }
+  ]
+}

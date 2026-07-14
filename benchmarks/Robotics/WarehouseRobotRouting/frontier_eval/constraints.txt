@@ -1,0 +1,199 @@
+带碰撞与载重约束的多仓储机器人路径规划 constraints:
+1) Candidate file is `scripts/init.py` and must expose `solve(instance)`.
+2) Candidate input must match this JSON Schema:
+{
+  "additionalProperties": false,
+  "properties": {
+    "graph": {
+      "additionalProperties": false,
+      "properties": {
+        "edges": {
+          "items": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "nodes": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 2,
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "nodes",
+        "edges"
+      ],
+      "type": "object"
+    },
+    "horizon": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "instance_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "orders": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "dropoff_node": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "pickup_node": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "weight": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "pickup_node",
+          "dropoff_node",
+          "weight"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "robots": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "capacity": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "start_node": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "start_node",
+          "capacity"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "instance_id",
+    "graph",
+    "robots",
+    "orders",
+    "horizon"
+  ],
+  "type": "object"
+}
+3) Candidate output must match this JSON Schema:
+{
+  "additionalProperties": false,
+  "properties": {
+    "robots": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "actions": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "order_id": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "time": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "enum": [
+                    "pickup",
+                    "dropoff"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "time",
+                "type",
+                "order_id"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "path": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "minItems": 2,
+            "type": "array"
+          },
+          "robot_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "robot_id",
+          "path",
+          "actions"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "robots"
+  ],
+  "type": "object"
+}
+4) Every hard constraint is recomputed by the frozen verifier.
+5) Candidate timeout is 15 seconds per instance.
+6) Candidate output is limited to 8000000 bytes.
+7) Read-only benchmark assets include verification/, baseline/, reference/, data/, and references/.
+8) Publish evaluation requires Docker image `python:3.12.11-slim-bookworm@sha256:519591d6871b7bc437060736b9f7456b8731f1499a57e22e6c285135ae657bf7`; candidate and verifier
+   run in separate network-disabled, non-root containers.
+9) Frontier unified must use its process isolation mode because the benchmark evaluator owns the
+   inner candidate/verifier containers; do not wrap this evaluator in another Docker runtime.

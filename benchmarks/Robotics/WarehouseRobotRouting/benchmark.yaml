@@ -1,0 +1,211 @@
+api_version: benchgen/v1
+benchmark_id: Robotics/WarehouseRobotRouting
+title: 带碰撞与载重约束的多仓储机器人路径规划
+summary: 给定离散仓库通行图、机器人初始位置、载重上限、规划时域，以及包含取货点、送货点和货物重量的订单，参赛系统输出每台机器人的逐时刻路径与取送货动作。实例覆盖不同仓库布局、机器人密度、订单规模和拥堵程度，并以全部订单完成后的机器人总移动距离衡量方案质量。
+archetype: structured-solution
+candidate:
+  path: scripts/init.py
+  function: solve
+  input_schema:
+    type: object
+    additionalProperties: false
+    required:
+    - instance_id
+    - graph
+    - robots
+    - orders
+    - horizon
+    properties:
+      instance_id:
+        type: string
+        minLength: 1
+        maxLength: 128
+      graph:
+        type: object
+        additionalProperties: false
+        required:
+        - nodes
+        - edges
+        properties:
+          nodes:
+            type: array
+            minItems: 2
+            uniqueItems: true
+            items:
+              type: string
+              minLength: 1
+              maxLength: 128
+          edges:
+            type: array
+            items:
+              type: array
+              minItems: 2
+              maxItems: 2
+              items:
+                type: string
+                minLength: 1
+                maxLength: 128
+      robots:
+        type: array
+        minItems: 1
+        items:
+          type: object
+          additionalProperties: false
+          required:
+          - id
+          - start_node
+          - capacity
+          properties:
+            id:
+              type: string
+              minLength: 1
+              maxLength: 128
+            start_node:
+              type: string
+              minLength: 1
+              maxLength: 128
+            capacity:
+              type: integer
+              minimum: 1
+      orders:
+        type: array
+        minItems: 1
+        items:
+          type: object
+          additionalProperties: false
+          required:
+          - id
+          - pickup_node
+          - dropoff_node
+          - weight
+          properties:
+            id:
+              type: string
+              minLength: 1
+              maxLength: 128
+            pickup_node:
+              type: string
+              minLength: 1
+              maxLength: 128
+            dropoff_node:
+              type: string
+              minLength: 1
+              maxLength: 128
+            weight:
+              type: integer
+              minimum: 1
+      horizon:
+        type: integer
+        minimum: 1
+  output_schema:
+    type: object
+    additionalProperties: false
+    required:
+    - robots
+    properties:
+      robots:
+        type: array
+        minItems: 1
+        items:
+          type: object
+          additionalProperties: false
+          required:
+          - robot_id
+          - path
+          - actions
+          properties:
+            robot_id:
+              type: string
+              minLength: 1
+              maxLength: 128
+            path:
+              type: array
+              minItems: 2
+              items:
+                type: string
+                minLength: 1
+                maxLength: 128
+            actions:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required:
+                - time
+                - type
+                - order_id
+                properties:
+                  time:
+                    type: integer
+                    minimum: 0
+                  type:
+                    type: string
+                    enum:
+                    - pickup
+                    - dropoff
+                  order_id:
+                    type: string
+                    minLength: 1
+                    maxLength: 128
+  timeout_s: 15.0
+  max_output_bytes: 8000000
+instances:
+  generator_module: verification.problem
+  public_seeds:
+  - 101
+  - 103
+  - 107
+  - 109
+  - 113
+  evaluation_seeds:
+  - 1009
+  - 1013
+  - 1019
+  - 1021
+  - 1031
+  instances_per_seed: 2
+objective:
+  raw_metric: verified_total_move_distance_plus_one
+  direction: minimize
+  aggregation: mean
+  normalization: log2_baseline_ratio
+  invalid_score: -1.0e+18
+baseline:
+  module: baseline.heuristic
+  callable: solve
+reference:
+  module: reference.exact
+  callable: solve
+runtime:
+  isolation: docker
+  docker_image: python:3.12.11-slim-bookworm@sha256:519591d6871b7bc437060736b9f7456b8731f1499a57e22e6c285135ae657bf7
+  timeout_s: 240.0
+  cpus: 1.0
+  memory_mb: 512
+  pids_limit: 128
+  network_disabled: true
+provenance:
+  sources:
+  - id: src-e38f3ddb2a6f24cf
+    title: Lifelong Multi-Agent Path Finding for Online Pickup and Delivery Tasks
+    location: references/citations/src-e38f3ddb2a6f24cf.json
+    sha256: e38f3ddb2a6f24cf13669520173cd6a0ae8af9c3eac47ea93fa47c6ea93fb065
+    license: citation-only
+    retrieved_at: '2026-07-14T09:48:03.938950+00:00'
+    origin: https://arxiv.org/abs/1705.10868
+    final_url: https://arxiv.org/abs/1705.10868
+    citation_only: true
+    publishable: true
+  data_license: CC0-1.0
+  generated_from_seeds: true
+frontier:
+  enabled: true
+  domain: Robotics
+  task: WarehouseRobotRouting
+  languages:
+  - en
+  - zh-CN
+calibration:
+  minimum_reference_score: 0.05
+  deterministic_tolerance: 1.0e-12
+  unified_score_tolerance: 1.0e-09

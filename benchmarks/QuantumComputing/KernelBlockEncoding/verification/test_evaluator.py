@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import math
+import tempfile
 import unittest
+from pathlib import Path
 
 import evaluator
 
@@ -135,6 +137,48 @@ class KernelBlockEncodingTests(unittest.TestCase):
             int(config["limits"]["max_candidate_bytes"]),
         )
         self.assertEqual(source, evaluator.BASELINE_PATH.read_bytes())
+
+    def test_baseline_evaluates_to_valid_one(self) -> None:
+        metrics, artifacts = evaluator.evaluate(
+            evaluator.TASK_DIR / "scripts" / "init.cpp"
+        )
+        self.assertEqual(metrics["valid"], 1.0)
+        self.assertAlmostEqual(metrics["combined_score"], 1.0)
+        self.assertEqual(metrics["successful_scenario_count"], 6.0)
+        self.assertEqual(metrics["failed_scenario_count"], 0.0)
+        self.assertNotIn("failure_summary", artifacts)
+
+    def test_candidate_workload_failure_is_isolated(self) -> None:
+        source = (evaluator.TASK_DIR / "scripts" / "init.cpp").read_text(
+            encoding="utf-8"
+        )
+        function_start = "void optimize(Construction &construction) {\n"
+        injected_start = function_start + (
+            '  if (construction.workload_id() == "polynomial_gram_32")\n'
+            '    throw std::runtime_error("intentional isolated failure");\n'
+        )
+        self.assertIn(function_start, source)
+        source = source.replace(function_start, injected_start, 1)
+
+        with tempfile.TemporaryDirectory(prefix="kbe_isolation_test_") as temporary:
+            candidate = Path(temporary) / "candidate.cpp"
+            candidate.write_text(source, encoding="utf-8")
+            metrics, artifacts = evaluator.evaluate(candidate)
+
+        self.assertEqual(metrics["valid"], 0.0)
+        self.assertEqual(metrics["combined_score"], 0.0)
+        self.assertAlmostEqual(metrics["partial_combined_score"], 1.0)
+        self.assertEqual(metrics["successful_scenario_count"], 5.0)
+        self.assertEqual(metrics["failed_scenario_count"], 1.0)
+        self.assertEqual(
+            artifacts["failed_workloads"], ["polynomial_gram_32"]
+        )
+        failed = artifacts["workloads"]["polynomial_gram_32"]
+        self.assertIn("intentional isolated failure", failed["candidate_error"])
+        self.assertIn("candidate:", failed["error"])
+        self.assertAlmostEqual(
+            artifacts["workloads"]["multiscale_rbf_64"]["score"], 1.0
+        )
 
 
 if __name__ == "__main__":

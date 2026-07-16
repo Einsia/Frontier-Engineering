@@ -14,7 +14,10 @@ Environment:
 Summary:
   valid=1.0
   combined_score=1.0
+  partial_combined_score=1.0
   scenario_count=6
+  successful_scenario_count=6
+  failed_scenario_count=0
   checked_matrix_entries=8448
   total_rotations=6936
   total_cnots=7788

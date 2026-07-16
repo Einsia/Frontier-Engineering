@@ -103,6 +103,7 @@ def _validated_config() -> dict[str, Any]:
         "max_candidate_bytes",
         "max_certificate_bytes",
         "max_dimension",
+        "max_processes",
         "max_scale_multiplier",
         "memory_limit_mb",
     ):
@@ -779,6 +780,7 @@ def _run_program(
     timeout_s: float,
     maximum_certificate_bytes: int,
     memory_mb: int,
+    maximum_processes: int,
 ) -> ProgramRun:
     run_dir.mkdir(parents=True, exist_ok=False)
     input_path = run_dir / "kernel.kbe"
@@ -793,6 +795,7 @@ def _run_program(
         str(memory_mb),
         str(cpu_seconds),
         str(file_limit),
+        str(maximum_processes),
         str(run_dir),
         "--",
         str(executable),
@@ -948,85 +951,18 @@ def evaluate(
             candidate_compile_s = time.perf_counter() - compile_started
 
             scores: list[float] = []
-            minimum_score = math.inf
             total_candidate_rotations = 0
             total_candidate_cnots = 0
             total_baseline_rotations = 0
             total_baseline_cnots = 0
             total_checked_entries = 0
             candidate_alpha_sum = 0.0
+            candidate_checked_scenarios = 0
             results: dict[str, Any] = {}
-            for index, workload in enumerate(workloads):
-                baseline_run = _run_program(
-                    baseline_executable,
-                    workload,
-                    temp / f"baseline_{index}",
-                    timeout_s,
-                    int(limits["max_certificate_bytes"]),
-                    int(limits["memory_limit_mb"]),
-                )
-                candidate_run = _run_program(
-                    candidate_executable,
-                    workload,
-                    temp / f"candidate_{index}",
-                    timeout_s,
-                    int(limits["max_certificate_bytes"]),
-                    int(limits["memory_limit_mb"]),
-                )
-                baseline_certificate = _parse_certificate(
-                    baseline_run.certificate, workload, config
-                )
-                candidate_certificate = _parse_certificate(
-                    candidate_run.certificate, workload, config
-                )
-                baseline_checked = _check_construction(
-                    baseline_certificate, workload, config
-                )
-                candidate_checked = _check_construction(
-                    candidate_certificate, workload, config
-                )
-                score = baseline_checked.objective / candidate_checked.objective
-                if not math.isfinite(score) or score <= 0.0:
-                    raise EvaluationError("scenario score is non-positive or non-finite")
-                scores.append(score)
-                minimum_score = min(minimum_score, score)
-                total_candidate_rotations += candidate_checked.rotations
-                total_candidate_cnots += candidate_checked.cnots
-                total_baseline_rotations += baseline_checked.rotations
-                total_baseline_cnots += baseline_checked.cnots
-                total_checked_entries += workload.dimension * workload.dimension
-                candidate_alpha_sum += candidate_checked.alpha
-                results[workload.workload_id] = {
-                    "score": score,
-                    "epsilon": workload.epsilon,
-                    "input_sha256": workload.sha256,
-                    "baseline": _construction_artifact(
-                        baseline_certificate, baseline_checked, baseline_run
-                    ),
-                    "candidate": _construction_artifact(
-                        candidate_certificate, candidate_checked, candidate_run
-                    ),
-                }
+            failure_summaries: list[str] = []
+            failed_workloads: list[str] = []
+            any_timeout = False
 
-            combined_score = math.exp(
-                math.fsum(math.log(score) for score in scores) / len(scores)
-            )
-            runtime_s = time.perf_counter() - started
-            metrics = {
-                "combined_score": combined_score,
-                "valid": 1.0,
-                "timeout": 0.0,
-                "runtime_s": runtime_s,
-                "scenario_count": float(len(scores)),
-                "mean_score": math.fsum(scores) / len(scores),
-                "min_score": minimum_score,
-                "baseline_total_rotations": float(total_baseline_rotations),
-                "candidate_total_rotations": float(total_candidate_rotations),
-                "baseline_total_cnots": float(total_baseline_cnots),
-                "candidate_total_cnots": float(total_candidate_cnots),
-                "candidate_mean_alpha": candidate_alpha_sum / len(scores),
-                "checked_matrix_entries": float(total_checked_entries),
-            }
             artifacts["compiler"] = compiler
             artifacts["compile"] = {
                 "baseline_s": baseline_compile_s,
@@ -1034,7 +970,136 @@ def evaluate(
             }
             artifacts["objective"] = config["objective"]
             artifacts["limits"] = limits
+
+            for index, workload in enumerate(workloads):
+                workload_result: dict[str, Any] = {
+                    "epsilon": workload.epsilon,
+                    "input_sha256": workload.sha256,
+                }
+                workload_errors: list[str] = []
+                baseline_checked: CheckedConstruction | None = None
+                candidate_checked: CheckedConstruction | None = None
+
+                try:
+                    baseline_run = _run_program(
+                        baseline_executable,
+                        workload,
+                        temp / f"baseline_{index}",
+                        timeout_s,
+                        int(limits["max_certificate_bytes"]),
+                        int(limits["memory_limit_mb"]),
+                        int(limits["max_processes"]),
+                    )
+                    baseline_certificate = _parse_certificate(
+                        baseline_run.certificate, workload, config
+                    )
+                    baseline_checked = _check_construction(
+                        baseline_certificate, workload, config
+                    )
+                    workload_result["baseline"] = _construction_artifact(
+                        baseline_certificate, baseline_checked, baseline_run
+                    )
+                    total_baseline_rotations += baseline_checked.rotations
+                    total_baseline_cnots += baseline_checked.cnots
+                except Exception as exc:
+                    message = str(exc) or type(exc).__name__
+                    workload_result["baseline_error"] = message
+                    workload_errors.append(f"baseline: {message}")
+                    any_timeout = any_timeout or "timed out" in message.lower()
+
+                try:
+                    candidate_run = _run_program(
+                        candidate_executable,
+                        workload,
+                        temp / f"candidate_{index}",
+                        timeout_s,
+                        int(limits["max_certificate_bytes"]),
+                        int(limits["memory_limit_mb"]),
+                        int(limits["max_processes"]),
+                    )
+                    candidate_certificate = _parse_certificate(
+                        candidate_run.certificate, workload, config
+                    )
+                    candidate_checked = _check_construction(
+                        candidate_certificate, workload, config
+                    )
+                    workload_result["candidate"] = _construction_artifact(
+                        candidate_certificate, candidate_checked, candidate_run
+                    )
+                    total_candidate_rotations += candidate_checked.rotations
+                    total_candidate_cnots += candidate_checked.cnots
+                    total_checked_entries += workload.dimension * workload.dimension
+                    candidate_alpha_sum += candidate_checked.alpha
+                    candidate_checked_scenarios += 1
+                except Exception as exc:
+                    message = str(exc) or type(exc).__name__
+                    workload_result["candidate_error"] = message
+                    workload_errors.append(f"candidate: {message}")
+                    any_timeout = any_timeout or "timed out" in message.lower()
+
+                if baseline_checked is not None and candidate_checked is not None:
+                    try:
+                        score = baseline_checked.objective / candidate_checked.objective
+                        if not math.isfinite(score) or score <= 0.0:
+                            raise EvaluationError(
+                                "scenario score is non-positive or non-finite"
+                            )
+                        workload_result["score"] = score
+                        scores.append(score)
+                    except Exception as exc:
+                        message = str(exc) or type(exc).__name__
+                        workload_result["score_error"] = message
+                        workload_errors.append(f"score: {message}")
+
+                if workload_errors:
+                    workload_result["error"] = "; ".join(workload_errors)
+                    failed_workloads.append(workload.workload_id)
+                    failure_summaries.append(
+                        f"{workload.workload_id}: {workload_result['error']}"
+                    )
+                else:
+                    workload_result["status"] = "ok"
+                results[workload.workload_id] = workload_result
+
+            partial_combined_score = (
+                math.exp(math.fsum(math.log(score) for score in scores) / len(scores))
+                if scores
+                else 0.0
+            )
+            all_workloads_valid = len(scores) == len(workloads)
+            runtime_s = time.perf_counter() - started
+            metrics = {
+                "combined_score": (
+                    partial_combined_score if all_workloads_valid else 0.0
+                ),
+                "partial_combined_score": partial_combined_score,
+                "valid": 1.0 if all_workloads_valid else 0.0,
+                "timeout": 1.0 if any_timeout else 0.0,
+                "runtime_s": runtime_s,
+                "scenario_count": float(len(workloads)),
+                "successful_scenario_count": float(len(scores)),
+                "failed_scenario_count": float(len(workloads) - len(scores)),
+                "mean_score": math.fsum(scores) / len(scores) if scores else 0.0,
+                "min_score": min(scores) if scores else 0.0,
+                "baseline_total_rotations": float(total_baseline_rotations),
+                "candidate_total_rotations": float(total_candidate_rotations),
+                "baseline_total_cnots": float(total_baseline_cnots),
+                "candidate_total_cnots": float(total_candidate_cnots),
+                "candidate_mean_alpha": (
+                    candidate_alpha_sum / candidate_checked_scenarios
+                    if candidate_checked_scenarios
+                    else 0.0
+                ),
+                "checked_matrix_entries": float(total_checked_entries),
+            }
             artifacts["workloads"] = results
+            if failure_summaries:
+                artifacts["failed_workloads"] = failed_workloads
+                artifacts["failure_summary"] = "\n".join(failure_summaries)
+                artifacts["error_message"] = (
+                    f"{len(failed_workloads)} of {len(workloads)} workloads failed; "
+                    "see failure_summary and per-workload errors"
+                )
             return metrics, artifacts
     except Exception as exc:
         message = str(exc)

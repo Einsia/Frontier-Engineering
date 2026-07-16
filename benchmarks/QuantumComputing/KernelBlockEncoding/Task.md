@@ -189,13 +189,22 @@ score_i = baseline_effective_cost_i / candidate_effective_cost_i.
 global-threshold starter is frozen as the baseline and scores exactly 1.0. Larger
 is better.
 
+The evaluator isolates workload failures and continues through the full suite. A
+failed workload retains its baseline data and a workload-level error, while every
+successful workload retains its independently checked score. `partial_combined_score`
+is the geometric mean over those successful workloads and is diagnostic only. The
+official `combined_score` remains zero and `valid=0.0` unless all six workloads
+succeed, so skipping a difficult scenario can never improve the optimization
+target.
+
 ## 8. Limits and reproducibility
 
 - matrix dimensions are at most 64;
 - scale is at most 16 times the basis-dependent minimum;
 - angle certificates are at most 256 KiB;
 - candidate source is at most 1 MB;
-- candidate execution is limited to 5 seconds and 1 GiB per workload; and
+- candidate execution is limited to 5 seconds and 1 GiB per workload;
+- candidate processes are subject to `RLIMIT_NPROC=64` where supported; and
 - compilation uses `g++ -std=c++17 -O2`.
 
 There is no network access, external solver, quantum SDK, simulator, container,

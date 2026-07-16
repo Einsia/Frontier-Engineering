@@ -18,17 +18,18 @@ def _positive_integer(text: str, label: str) -> int:
 
 
 def main() -> int:
-    if len(sys.argv) < 7 or sys.argv[5] != "--":
+    if len(sys.argv) < 8 or sys.argv[6] != "--":
         raise SystemExit(
-            "usage: limited_exec.py MEMORY_MB CPU_SECONDS FILE_BYTES CWD -- "
-            "PROGRAM [ARG ...]"
+            "usage: limited_exec.py MEMORY_MB CPU_SECONDS FILE_BYTES "
+            "MAX_PROCESSES CWD -- PROGRAM [ARG ...]"
         )
     memory_mb = _positive_integer(sys.argv[1], "MEMORY_MB")
     cpu_seconds = _positive_integer(sys.argv[2], "CPU_SECONDS")
     file_bytes = _positive_integer(sys.argv[3], "FILE_BYTES")
-    working_directory = os.path.abspath(sys.argv[4])
-    program = os.path.abspath(sys.argv[6])
-    arguments = [program, *sys.argv[7:]]
+    maximum_processes = _positive_integer(sys.argv[4], "MAX_PROCESSES")
+    working_directory = os.path.abspath(sys.argv[5])
+    program = os.path.abspath(sys.argv[7])
+    arguments = [program, *sys.argv[8:]]
 
     # Session creation happens here, in a freshly spawned interpreter, so the
     # multithreaded evaluator never needs a fork-time callback.
@@ -39,6 +40,12 @@ def main() -> int:
     resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds))
     resource.setrlimit(resource.RLIMIT_FSIZE, (file_bytes, file_bytes))
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    try:
+        resource.setrlimit(
+            resource.RLIMIT_NPROC, (maximum_processes, maximum_processes)
+        )
+    except (AttributeError, ValueError, OSError):
+        pass
     try:
         resource.setrlimit(resource.RLIMIT_NOFILE, (64, 64))
     except (ValueError, OSError):

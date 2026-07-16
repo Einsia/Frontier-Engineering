@@ -52,6 +52,12 @@ The minimized raw metric is `C = D + 1`. With baseline raw metric `C_baseline`, 
 
 Distance is the only primary objective. Completion time may be reported as a diagnostic but does not change the score.
 
+## Evaluation Design and Isolation
+
+The task is an offline batch MAPD variant: every order is known before planning. It isolates joint assignment, sequencing, capacity, and collision-free scheduling rather than modeling online arrivals. Total movement is used because complete paths make it deterministic and independently verifiable, and because movement is a useful proxy for fleet energy, wear, and aisle occupancy under mandatory delivery. The cited Ma et al. work motivates MAPD but studies a different lifelong online throughput objective.
+
+The public seed manifest contains public seeds and the evaluation-set size only. Frontier does not include `benchmark.yaml`, `data/`, `verification/`, `baseline/`, or `reference/` in the agent context, and the candidate container receives only its source file plus the current instance. This is runtime isolation, not cryptographic hiding of an open-source repository.
+
 ## Implementation Rules
 
 `scripts/init.py` may contain only the `solve(instance)` function, with imports placed inside that function. Benchgen adds the fixed command-line wrapper. Candidate code must be deterministic for deterministic inputs, must not access the network, secrets, evaluator outputs, or absolute paths, and must finish within the configured resource limits.

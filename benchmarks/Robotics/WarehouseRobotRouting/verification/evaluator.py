@@ -250,10 +250,13 @@ def _canonical_json(value: Any, label: str) -> str:
 def _smoke_instances(problem: ModuleType) -> list[dict[str, Any]]:
     generated = problem.generate_instances(SMOKE_SEED)
     instances = [generated] if isinstance(generated, dict) else list(generated)
-    if len(instances) < INSTANCES_PER_SEED:
-        raise RuntimeError("smoke generator returned too few instances")
+    if len(instances) != INSTANCES_PER_SEED:
+        raise RuntimeError(
+            f"smoke generator returned {len(instances)} instances; "
+            f"expected exactly {INSTANCES_PER_SEED}"
+        )
     checked: list[dict[str, Any]] = []
-    for instance in instances[:INSTANCES_PER_SEED]:
+    for instance in instances:
         if not isinstance(instance, dict) or not _finite(instance):
             raise TypeError("smoke instance must be a finite JSON object")
         _require_schema(instance, INPUT_SCHEMA, "smoke instance")
@@ -336,9 +339,12 @@ def _prepare_payload() -> dict[str, Any]:
     for seed in SEEDS:
         generated = problem.generate_instances(seed)
         instances = [generated] if isinstance(generated, dict) else list(generated)
-        if len(instances) < INSTANCES_PER_SEED:
-            raise RuntimeError(f"seed {seed} generated too few instances")
-        for index, instance in enumerate(instances[:INSTANCES_PER_SEED]):
+        if len(instances) != INSTANCES_PER_SEED:
+            raise RuntimeError(
+                f"seed {seed} generated {len(instances)} instances; "
+                f"expected exactly {INSTANCES_PER_SEED}"
+            )
+        for index, instance in enumerate(instances):
             if not isinstance(instance, dict) or not _finite(instance):
                 raise TypeError("generated instance must be a finite JSON object")
             _require_schema(instance, INPUT_SCHEMA, "generated instance")

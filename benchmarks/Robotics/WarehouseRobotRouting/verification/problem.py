@@ -614,7 +614,7 @@ def generate_instances(seed):
     if type(seed) is not int:
         raise TypeError('seed must be an integer')
     instances = []
-    for index in range(4):
+    for index in range(2):
         instance = _make_instance(seed, index)
         instances.append(instance)
     return instances

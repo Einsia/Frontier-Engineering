@@ -16,9 +16,23 @@ A baseline-equivalent solution scores `0`; lower distance gives a positive score
 
 ## Instances
 
-`generate_instances(seed)` deterministically returns four instances. Public seeds are `101`, `103`, `107`, `109`, and `113`. Evaluation seeds remain reserved by the benchmark configuration.
+`generate_instances(seed)` deterministically returns exactly two instances, matching the evaluator's `instances_per_seed` contract. Public seeds are `101`, `103`, `107`, `109`, and `113`.
 
 Each instance contains an undirected warehouse graph, robot start nodes and capacities, weighted pickup-and-delivery orders, and a finite horizon `H`. Generated layouts use aisle-like grids with narrow cross-aisles and private robot parking nodes.
+
+## Evaluation Design
+
+This benchmark deliberately uses offline batch planning: all orders in an instance are known before `solve(instance)` runs. It evaluates the coupled combinatorial core of warehouse planning - order assignment, service sequencing, capacity management, and collision-free fleet scheduling - without also requiring an online arrival process or a long-running dispatch policy.
+
+Total verified move distance is the primary objective because it is deterministic and independently recomputable from complete submitted paths. Within the fixed horizon and mandatory-delivery constraints, reducing movement is a useful proxy for fleet energy use, equipment wear, and aisle traffic. The benchmark does not claim that distance is a replacement for throughput in an online warehouse system.
+
+Ma et al. provide the MAPD task structure and warehouse coordination motivation. Their lifelong online formulation optimizes throughput, whereas this benchmark isolates an offline distance-minimization formulation so candidate quality can be compared with a compact, reproducible verifier.
+
+## Evaluation-Set Isolation
+
+`data/seeds.json` publishes the public seeds and the evaluation-set size, but not the evaluation seed values. Evaluation seeds remain in the frozen benchmark/verifier configuration for reproducibility. Frontier's `agent_files.txt` excludes `benchmark.yaml`, `data/`, `verification/`, `baseline/`, and `reference/`; an untrusted candidate container mounts only the candidate program and receives one current instance through standard input. This prevents routine agent or candidate access to the held-out seed list during an evaluation run.
+
+Because the benchmark implementation is open source, this is an execution-time isolation boundary rather than cryptographic secrecy against a person who inspects the repository before submitting hand-written code. Moving the seed material to platform-owned private evaluator assets would require corresponding Frontier support and can be done later without changing the candidate schema.
 
 ## Solver contract
 
@@ -42,7 +56,7 @@ Trusted local development may append `--local` to the same Benchgen command. Loc
 
 The benchmark models deterministic unit-time graph movement, vertex conflicts, head-on edge conflicts, and payload changes. It does not model continuous dynamics, acceleration, localization error, temporary obstacles, charging, communication latency, or hardware failure. Deployment requires motion control, safety margins, and online replanning beyond this benchmark.
 
-Reducing valid route distance can lower energy use and equipment wear while improving fulfillment throughput. The benchmark cites Ma et al., *Lifelong Multi-Agent Path Finding for Online Pickup and Delivery Tasks* (AAMAS 2017, arXiv:1705.10868), as its public MAPD evidence source.
+Reducing valid route distance can lower energy use and equipment wear while supporting fulfillment efficiency. The benchmark cites Ma et al., *Lifelong Multi-Agent Path Finding for Online Pickup and Delivery Tasks* (AAMAS 2017, arXiv:1705.10868), as its public MAPD evidence source; the online-throughput and offline-distance formulations are intentionally distinguished above.
 
 <!-- BENCHGEN-PUBLIC-CONTRACT-START -->
 ## Evaluation Contract

@@ -252,6 +252,11 @@ We welcome new engineering problem ideas — even without complete verification 
       <td>Discrete lot-constrained rebalancing with mixed-integer optimization</td>
     </tr>
     <tr>
+      <td><b>MarketMaking</b></td>
+      <td><code>InventoryAwareQuoting</code></td>
+      <td>Inventory-aware DUAL quoting under adverse selection and position limits</td>
+    </tr>
+    <tr>
       <td rowspan="7"><b>JobShop</b></td>
       <td><code>abz</code></td>
       <td>JSSP ABZ family (Adams, Balas, Zawack 1988)</td>

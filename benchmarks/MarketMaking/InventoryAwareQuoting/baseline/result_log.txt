@@ -1,0 +1,29 @@
+Command:
+python verification/evaluator.py scripts/init.py
+
+Environment:
+Windows 11, Python 3.11
+
+Result:
+=== Inventory-Aware Quoting ===
+scenario=calm_balanced score=53.11 feasible=true pnl=-20.26 inv_rms=4.84 risk_rms=0.82 drawdown=29.40 service=0.381 fills=164 violations={}
+scenario=calm_buy_flow score=52.85 feasible=true pnl=53.17 inv_rms=5.79 risk_rms=1.03 drawdown=14.29 service=0.399 fills=152 violations={}
+scenario=calm_sell_flow score=40.99 feasible=true pnl=4.52 inv_rms=5.05 risk_rms=1.31 drawdown=29.25 service=0.362 fills=194 violations={}
+scenario=normal_balanced score=73.56 feasible=true pnl=91.13 inv_rms=6.26 risk_rms=2.06 drawdown=49.31 service=0.365 fills=250 violations={}
+scenario=normal_buy_flow score=20.57 feasible=true pnl=127.71 inv_rms=7.29 risk_rms=1.97 drawdown=37.13 service=0.370 fills=174 violations={}
+scenario=normal_sell_flow score=66.19 feasible=true pnl=-69.23 inv_rms=5.33 risk_rms=1.86 drawdown=82.02 service=0.337 fills=253 violations={}
+scenario=volatile_balanced score=78.29 feasible=true pnl=-129.15 inv_rms=6.32 risk_rms=2.67 drawdown=148.98 service=0.380 fills=314 violations={}
+scenario=volatile_buy_flow score=20.79 feasible=true pnl=122.73 inv_rms=7.33 risk_rms=1.86 drawdown=18.06 service=0.404 fills=178 violations={}
+scenario=volatile_sell_flow score=71.94 feasible=true pnl=25.05 inv_rms=6.33 risk_rms=2.22 drawdown=40.44 service=0.414 fills=203 violations={}
+scenario=rising_volatility score=56.68 feasible=true pnl=-16.48 inv_rms=6.47 risk_rms=1.91 drawdown=84.75 service=0.404 fills=184 violations={}
+scenario=falling_volatility score=32.59 feasible=true pnl=31.42 inv_rms=6.55 risk_rms=1.88 drawdown=49.43 service=0.337 fills=174 violations={}
+scenario=flow_reversal score=57.99 feasible=true pnl=112.16 inv_rms=8.57 risk_rms=2.74 drawdown=54.58 service=0.386 fills=191 violations={}
+---
+feasible_scenarios: 20/20
+diagnostic_score: 51.6297
+combined_score: 51.6297
+
+Regression:
+python -m unittest discover -s verification -p "test_*.py" -v
+Ran 27 tests in 5.708s
+OK

@@ -1,0 +1,11 @@
+Inventory-aware quoting constraints:
+1) Edit only `scripts/init.py` inside the EVOLVE-BLOCK markers.
+2) Keep `decide_quotes(observation) -> dict` working; `reset_policy()` is optional.
+3) Return finite quote offsets in [1, 80] bps and integer sizes in [0, 5] for every symbol.
+4) Interpret each asset's natural-language desk_mandate and satisfy all active liquidity,
+   adverse-selection, and inventory-recovery instructions.
+5) Respect the per-instrument position limit of 50 and do not use leverage or borrowed cash.
+6) Maintain quote_rate >= 0.70 and liquidity_service >= 0.20 in every scenario.
+7) Keep the policy deterministic and self-contained. It runs in an isolated worker process with
+   a 0.25-second budget per decision and receives observations through a JSON-only interface.
+8) Do not read, write, or modify evaluator, simulator, result, or environment-secret files.

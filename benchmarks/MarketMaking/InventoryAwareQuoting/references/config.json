@@ -1,0 +1,41 @@
+{
+  "symbols": ["NVDA", "JPM", "AMZN"],
+  "dual_suffix": "_DUAL",
+  "position_limit": 50,
+  "cash_borrowing_allowed": false,
+  "bounded_short_inventory_allowed": true,
+  "steps_per_scenario": 240,
+  "minimum_quote_rate": 0.70,
+  "minimum_liquidity_service": 0.20,
+  "maker_fee_bps": 0.15,
+  "taker_fee_bps": 1.20,
+  "desk_mandates": {
+    "quiet": "active sizes must be at least 2 lots",
+    "toxic": "maker-only and active sizes must be at most 1 lot",
+    "inventory_recovery_threshold": 25
+  },
+  "development_scenarios": [
+    {"name": "calm_balanced", "seed": 4201},
+    {"name": "calm_buy_flow", "seed": 4202},
+    {"name": "calm_sell_flow", "seed": 4203},
+    {"name": "normal_balanced", "seed": 4204},
+    {"name": "normal_buy_flow", "seed": 4205},
+    {"name": "normal_sell_flow", "seed": 4206},
+    {"name": "volatile_balanced", "seed": 4207},
+    {"name": "volatile_buy_flow", "seed": 4208},
+    {"name": "volatile_sell_flow", "seed": 4209},
+    {"name": "rising_volatility", "seed": 4210},
+    {"name": "falling_volatility", "seed": 4211},
+    {"name": "flow_reversal", "seed": 4212}
+  ],
+  "validation_scenarios": [
+    {"name": "validation_01", "seed": 5301},
+    {"name": "validation_02", "seed": 5302},
+    {"name": "validation_03", "seed": 5303},
+    {"name": "validation_04", "seed": 5304},
+    {"name": "validation_05", "seed": 5305},
+    {"name": "validation_06", "seed": 5306},
+    {"name": "validation_07", "seed": 5307},
+    {"name": "validation_08", "seed": 5308}
+  ]
+}

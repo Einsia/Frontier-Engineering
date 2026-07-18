@@ -121,6 +121,7 @@ The public limits are:
 - at most 20,000 accepted rewrites per workload;
 - at most 300,000 total nodes;
 - a 16 MB certificate; and
+- at most 64 candidate processes per real user where `RLIMIT_NPROC` is supported;
 - 4 seconds of candidate execution per workload by default.
 
 The evaluator additionally limits process address space to 2 GiB and compiles
@@ -145,6 +146,12 @@ for one workload. Its score is
 exactly 1.0. Invalid source edits, compilation failures, timeouts, altered inputs,
 invalid certificates, or degenerate final graphs produce `valid=0.0` and score
 0.0.
+
+Candidate execution and proof replay are isolated per workload. A failed workload
+records its baseline, candidate, or scoring error while later workloads continue.
+Successful workload scores remain visible through `partial_combined_score` for
+diagnosis; the official `combined_score` stays zero unless all five workloads pass,
+so skipping a difficult circuit cannot improve a candidate's result.
 
 The initial policy performs constant propagation, idempotence/complement
 simplification, and exact structural hashing. It intentionally leaves substantial

@@ -21,6 +21,8 @@ reconstructs every accepted transformation from the original AIG and certificate
 - `baseline/result_log.txt`: measured reference run.
 - `verification/evaluator.py`: workload construction, compilation, independent
   certificate replay, and scoring.
+- `verification/test_evaluator.py`: end-to-end, adversarial-certificate, timeout,
+  isolation, and source-integrity regression tests.
 - `frontier_eval/`: unified-task metadata and its argument-safe evaluator wrapper.
 
 ## Requirements

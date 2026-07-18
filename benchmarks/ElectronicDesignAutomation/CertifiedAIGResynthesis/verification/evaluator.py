@@ -74,6 +74,7 @@ def _validated_config() -> dict[str, Any]:
     for key in (
         "max_candidate_bytes",
         "max_certificate_bytes",
+        "max_processes",
         "max_cut_leaves",
         "max_divisors",
         "max_local_ands",
@@ -740,12 +741,18 @@ def _compile(
         )
 
 
-def _resource_limits(cpu_s: float, file_bytes: int) -> None:
+def _resource_limits(cpu_s: float, file_bytes: int, maximum_processes: int) -> None:
     cpu_limit = max(2, int(math.ceil(cpu_s)) + 1)
     resource.setrlimit(resource.RLIMIT_CPU, (cpu_limit, cpu_limit))
     resource.setrlimit(resource.RLIMIT_FSIZE, (file_bytes, file_bytes))
     memory = 2 * 1024 * 1024 * 1024
     resource.setrlimit(resource.RLIMIT_AS, (memory, memory))
+    try:
+        resource.setrlimit(
+            resource.RLIMIT_NPROC, (maximum_processes, maximum_processes)
+        )
+    except (AttributeError, ValueError, OSError):
+        pass
     resource.setrlimit(resource.RLIMIT_NOFILE, (64, 64))
 
 
@@ -762,6 +769,7 @@ def _run_program(
     run_dir: Path,
     timeout_s: float,
     max_certificate_bytes: int,
+    maximum_processes: int,
 ) -> ProgramRun:
     run_dir.mkdir(parents=True, exist_ok=False)
     input_path = run_dir / "input.aag"
@@ -782,7 +790,9 @@ def _run_program(
             stdout=log,
             stderr=subprocess.STDOUT,
             start_new_session=True,
-            preexec_fn=lambda: _resource_limits(timeout_s, max_certificate_bytes),
+            preexec_fn=lambda: _resource_limits(
+                timeout_s, max_certificate_bytes, maximum_processes
+            ),
             env={"PATH": os.environ.get("PATH", ""), "LC_ALL": "C"},
         )
         try:
@@ -810,6 +820,19 @@ def _run_program(
         stdout_tail=_tail(log_path),
         elapsed_s=elapsed,
     )
+
+
+def _replay_artifact(result: ReplayResult, run: ProgramRun) -> dict[str, Any]:
+    return {
+        "live_ands": result.stats.live_ands,
+        "depth": result.stats.depth,
+        "accepted_rewrites": result.rewrites,
+        "checked_truth_rows": result.checked_rows,
+        "appended_ands": result.appended_ands,
+        "certificate_sha256": result.certificate_sha256,
+        "runtime_s": run.elapsed_s,
+        "stdout_tail": run.stdout_tail,
+    }
 
 
 def _invalid_metrics(runtime_s: float, *, timeout: bool = False) -> dict[str, float]:
@@ -916,93 +939,154 @@ def evaluate(
             baseline_depth_sum = 0
             candidate_depth_sum = 0
             total_checked_rows = 0
+            baseline_checked_scenarios = 0
+            candidate_checked_scenarios = 0
             workload_results: dict[str, Any] = {}
+            failed_workloads: list[str] = []
+            failure_summaries: list[str] = []
+            any_timeout = False
+            maximum_processes = int(limits["max_processes"])
             for index, (workload_id, aag) in enumerate(workloads):
-                baseline_run = _run_program(
-                    baseline_executable,
-                    aag,
-                    temp / f"baseline_{index}",
-                    timeout_s,
-                    int(limits["max_certificate_bytes"]),
-                )
-                candidate_run = _run_program(
-                    candidate_executable,
-                    aag,
-                    temp / f"candidate_{index}",
-                    timeout_s,
-                    int(limits["max_certificate_bytes"]),
-                )
-                baseline_result = ProofChecker(aag, limits).replay(
-                    baseline_run.certificate
-                )
-                candidate_result = ProofChecker(aag, limits).replay(
-                    candidate_run.certificate
-                )
-                baseline_stats = baseline_result.stats
-                candidate_stats = candidate_result.stats
-                if (
-                    baseline_stats.live_ands <= 0
-                    or baseline_stats.depth <= 0
-                    or candidate_stats.live_ands <= 0
-                    or candidate_stats.depth <= 0
-                ):
-                    raise EvaluationError("a workload produced a degenerate scored graph")
-                area_ratio = baseline_stats.live_ands / candidate_stats.live_ands
-                depth_ratio = baseline_stats.depth / candidate_stats.depth
-                scenario_score = (area_ratio**area_weight) * (
-                    depth_ratio**depth_weight
-                )
-                if not math.isfinite(scenario_score) or scenario_score <= 0.0:
-                    raise EvaluationError("non-finite workload score")
-                scenario_scores.append(scenario_score)
-                baseline_total_area += baseline_stats.live_ands
-                candidate_total_area += candidate_stats.live_ands
-                baseline_depth_sum += baseline_stats.depth
-                candidate_depth_sum += candidate_stats.depth
-                total_checked_rows += candidate_result.checked_rows
-                workload_results[workload_id] = {
-                    "score": scenario_score,
-                    "area_ratio": area_ratio,
-                    "depth_ratio": depth_ratio,
-                    "baseline": {
-                        "live_ands": baseline_stats.live_ands,
-                        "depth": baseline_stats.depth,
-                        "accepted_rewrites": baseline_result.rewrites,
-                        "checked_truth_rows": baseline_result.checked_rows,
-                        "appended_ands": baseline_result.appended_ands,
-                        "certificate_sha256": baseline_result.certificate_sha256,
-                        "runtime_s": baseline_run.elapsed_s,
-                        "stdout_tail": baseline_run.stdout_tail,
-                    },
-                    "candidate": {
-                        "live_ands": candidate_stats.live_ands,
-                        "depth": candidate_stats.depth,
-                        "accepted_rewrites": candidate_result.rewrites,
-                        "checked_truth_rows": candidate_result.checked_rows,
-                        "appended_ands": candidate_result.appended_ands,
-                        "certificate_sha256": candidate_result.certificate_sha256,
-                        "runtime_s": candidate_run.elapsed_s,
-                        "stdout_tail": candidate_run.stdout_tail,
-                    },
-                }
+                workload_result: dict[str, Any] = {}
+                workload_errors: list[str] = []
+                baseline_result: ReplayResult | None = None
+                candidate_result: ReplayResult | None = None
 
-            combined_score = math.exp(
-                sum(math.log(score) for score in scenario_scores)
-                / len(scenario_scores)
+                try:
+                    baseline_run = _run_program(
+                        baseline_executable,
+                        aag,
+                        temp / f"baseline_{index}",
+                        timeout_s,
+                        int(limits["max_certificate_bytes"]),
+                        maximum_processes,
+                    )
+                    baseline_result = ProofChecker(aag, limits).replay(
+                        baseline_run.certificate
+                    )
+                    baseline_stats = baseline_result.stats
+                    if baseline_stats.live_ands <= 0 or baseline_stats.depth <= 0:
+                        raise EvaluationError(
+                            "baseline produced a degenerate scored graph"
+                        )
+                    workload_result["baseline"] = _replay_artifact(
+                        baseline_result, baseline_run
+                    )
+                    baseline_total_area += baseline_stats.live_ands
+                    baseline_depth_sum += baseline_stats.depth
+                    baseline_checked_scenarios += 1
+                except Exception as exc:
+                    message = str(exc) or type(exc).__name__
+                    workload_result["baseline_error"] = message
+                    workload_errors.append(f"baseline: {message}")
+                    any_timeout = any_timeout or "timed out" in message.lower()
+
+                try:
+                    candidate_run = _run_program(
+                        candidate_executable,
+                        aag,
+                        temp / f"candidate_{index}",
+                        timeout_s,
+                        int(limits["max_certificate_bytes"]),
+                        maximum_processes,
+                    )
+                    candidate_result = ProofChecker(aag, limits).replay(
+                        candidate_run.certificate
+                    )
+                    candidate_stats = candidate_result.stats
+                    if candidate_stats.live_ands <= 0 or candidate_stats.depth <= 0:
+                        raise EvaluationError(
+                            "candidate produced a degenerate scored graph"
+                        )
+                    workload_result["candidate"] = _replay_artifact(
+                        candidate_result, candidate_run
+                    )
+                    candidate_total_area += candidate_stats.live_ands
+                    candidate_depth_sum += candidate_stats.depth
+                    total_checked_rows += candidate_result.checked_rows
+                    candidate_checked_scenarios += 1
+                except Exception as exc:
+                    message = str(exc) or type(exc).__name__
+                    workload_result["candidate_error"] = message
+                    workload_errors.append(f"candidate: {message}")
+                    any_timeout = any_timeout or "timed out" in message.lower()
+
+                if baseline_result is not None and candidate_result is not None:
+                    try:
+                        baseline_stats = baseline_result.stats
+                        candidate_stats = candidate_result.stats
+                        area_ratio = (
+                            baseline_stats.live_ands / candidate_stats.live_ands
+                        )
+                        depth_ratio = baseline_stats.depth / candidate_stats.depth
+                        scenario_score = (area_ratio**area_weight) * (
+                            depth_ratio**depth_weight
+                        )
+                        if (
+                            not math.isfinite(scenario_score)
+                            or scenario_score <= 0.0
+                        ):
+                            raise EvaluationError("non-finite workload score")
+                        workload_result["score"] = scenario_score
+                        workload_result["area_ratio"] = area_ratio
+                        workload_result["depth_ratio"] = depth_ratio
+                        scenario_scores.append(scenario_score)
+                    except Exception as exc:
+                        message = str(exc) or type(exc).__name__
+                        workload_result["score_error"] = message
+                        workload_errors.append(f"score: {message}")
+
+                if workload_errors:
+                    workload_result["error"] = "; ".join(workload_errors)
+                    failed_workloads.append(workload_id)
+                    failure_summaries.append(
+                        f"{workload_id}: {workload_result['error']}"
+                    )
+                else:
+                    workload_result["status"] = "ok"
+                workload_results[workload_id] = workload_result
+
+            partial_combined_score = (
+                math.exp(
+                    sum(math.log(score) for score in scenario_scores)
+                    / len(scenario_scores)
+                )
+                if scenario_scores
+                else 0.0
             )
+            all_workloads_valid = len(scenario_scores) == len(workloads)
             runtime_s = time.perf_counter() - started
             metrics = {
-                "combined_score": combined_score,
-                "valid": 1.0,
-                "timeout": 0.0,
+                "combined_score": (
+                    partial_combined_score if all_workloads_valid else 0.0
+                ),
+                "partial_combined_score": partial_combined_score,
+                "valid": 1.0 if all_workloads_valid else 0.0,
+                "timeout": 1.0 if any_timeout else 0.0,
                 "runtime_s": runtime_s,
-                "scenario_count": float(len(scenario_scores)),
-                "mean_score": sum(scenario_scores) / len(scenario_scores),
-                "min_score": min(scenario_scores),
+                "scenario_count": float(len(workloads)),
+                "successful_scenario_count": float(len(scenario_scores)),
+                "failed_scenario_count": float(
+                    len(workloads) - len(scenario_scores)
+                ),
+                "mean_score": (
+                    sum(scenario_scores) / len(scenario_scores)
+                    if scenario_scores
+                    else 0.0
+                ),
+                "min_score": min(scenario_scores) if scenario_scores else 0.0,
                 "baseline_total_area": float(baseline_total_area),
                 "candidate_total_area": float(candidate_total_area),
-                "baseline_mean_depth": baseline_depth_sum / len(scenario_scores),
-                "candidate_mean_depth": candidate_depth_sum / len(scenario_scores),
+                "baseline_mean_depth": (
+                    baseline_depth_sum / baseline_checked_scenarios
+                    if baseline_checked_scenarios
+                    else 0.0
+                ),
+                "candidate_mean_depth": (
+                    candidate_depth_sum / candidate_checked_scenarios
+                    if candidate_checked_scenarios
+                    else 0.0
+                ),
                 "checked_truth_rows": float(total_checked_rows),
             }
             artifacts["compiler"] = compiler
@@ -1013,6 +1097,13 @@ def evaluate(
             artifacts["objective"] = config["objective"]
             artifacts["limits"] = limits
             artifacts["workloads"] = workload_results
+            if failure_summaries:
+                artifacts["failed_workloads"] = failed_workloads
+                artifacts["failure_summary"] = "\n".join(failure_summaries)
+                artifacts["error_message"] = (
+                    f"{len(failed_workloads)} of {len(workloads)} workloads failed; "
+                    "see failure_summary and per-workload errors"
+                )
             return metrics, artifacts
     except Exception as exc:
         message = str(exc)

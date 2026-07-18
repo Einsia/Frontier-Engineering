@@ -9,6 +9,7 @@
   "limits": {
     "candidate_timeout_s_per_workload": 4.0,
     "compile_timeout_s": 30.0,
+    "max_processes": 64,
     "max_candidate_bytes": 1000000,
     "max_certificate_bytes": 16000000,
     "max_cut_leaves": 8,
@@ -21,6 +22,7 @@
     {
       "id": "ripple_adder_96",
       "kind": "ripple_adder",
+      "description": "96-bit ripple-carry adder with front-end lowering artifacts",
       "width": 96,
       "lowering_period": 7,
       "expected_sha256": "d5c682f1e9d665177ef675298c20050cdca904f56e4ba75b8bf2ea116eb652c2",
@@ -30,6 +32,7 @@
     {
       "id": "barrel_shifter_64",
       "kind": "barrel_shifter",
+      "description": "64-bit logarithmic barrel shifter with shared select logic",
       "width": 64,
       "lowering_period": 5,
       "expected_sha256": "2534c2e949d7cfd9d3e1c87948c2375a014b9cb87ec03ca7177f9f875000e292",
@@ -39,6 +42,7 @@
     {
       "id": "priority_arbiter_128",
       "kind": "priority_arbiter",
+      "description": "128-request priority arbiter with a deep grant chain",
       "width": 128,
       "lowering_period": 4,
       "expected_sha256": "c712ad116b4b427c399c689f2357a38d508dd3845ebfe18c3a50f2fa5596251e",
@@ -48,6 +52,7 @@
     {
       "id": "packet_classifier_48x12",
       "kind": "packet_classifier",
+      "description": "48-rule packet classifier over 12-bit rule predicates",
       "header_bits": 32,
       "rules": 48,
       "bits_per_rule": 12,
@@ -59,6 +64,7 @@
     {
       "id": "crc32_update_64",
       "kind": "crc_update",
+      "description": "Parallel 64-bit update of a 32-bit CRC state",
       "state_bits": 32,
       "data_bits": 64,
       "polynomial": 79764919,

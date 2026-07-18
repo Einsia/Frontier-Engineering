@@ -1,21 +1,62 @@
-Command: python verification/evaluator.py scripts/init.cpp
+AdaptiveCompressedTelemetryExecution baseline validation
+Date: 2026-07-17
 
-{
-  "baseline_total_monthly_cost_per_tib": 74.21482581936795,
-  "candidate_compression_ratio": 1.0000755310058593,
-  "candidate_decode_gib_s": 35.02579991081217,
-  "candidate_encode_gib_s": 16.717838409707195,
-  "candidate_query_batch_gib_s": 3.2003934172792485,
-  "candidate_source_matches_baseline": 1.0,
-  "candidate_total_monthly_cost_per_tib": 74.21482581936795,
-  "combined_score": 1.0,
-  "correctness": 1.0,
-  "mean_score_ratio": 1.0,
-  "min_score_ratio": 1.0,
-  "scenario_count": 3.0,
-  "timeout": 0.0,
-  "valid": 1.0
-}
+Host
+  OS: Linux 5.15.0-153-generic x86_64
+  CPU: 2 x AMD EPYC 7313 (32 physical / 64 logical cores total)
+  Python: 3.10.12
+  Compiler: g++ 11.4.0
+  Compile target: -O3 -march=native (measurements are host-dependent)
+  Candidate process cap: RLIMIT_NPROC=64 where supported
+  GPU/container/external service: not used
 
-Throughput and cost components are measured and therefore host-dependent. The
-starter score remains exactly 1.0 because its source matches the immutable baseline.
+Direct command (from task directory)
+  python verification/evaluator.py scripts/init.cpp \
+    --metrics-out metrics.json --artifacts-out artifacts.json
+
+Direct metrics
+  valid: 1.0
+  combined_score: 1.0
+  partial_combined_score: 1.0
+  runtime_s: 6.591881075873971
+  scenario_count: 3
+  successful_scenario_count: 3
+  failed_scenario_count: 0
+  candidate_compression_ratio: 1.0000755310058593
+  candidate_encode_gib_s: 15.891468137733515
+  candidate_decode_gib_s: 36.09563159308368
+  candidate_query_batch_gib_s: 3.204557804794705
+  candidate_total_monthly_cost_per_tib: 74.20395162021418
+
+Per-scenario frozen starter result
+  steady_api_traffic
+    compression_ratio=1.0000755310058593
+    encode_gib_s=16.26411464925721
+    decode_gib_s=35.57928773112305
+    query_scanned_gib_s=26.527365035557704
+    monthly_cost_per_logical_tib=25.678239670068667
+    score_ratio=1.0
+  bursty_multitenant_observability
+    compression_ratio=1.0000755310058593
+    encode_gib_s=16.092824855684697
+    decode_gib_s=36.23796783506379
+    query_scanned_gib_s=27.275291745248598
+    monthly_cost_per_logical_tib=24.575535172063333
+    score_ratio=1.0
+  incident_distribution_shift
+    compression_ratio=1.0000755310058593
+    encode_gib_s=15.347782218457338
+    decode_gib_s=36.48177895660945
+    query_scanned_gib_s=23.440786398253035
+    monthly_cost_per_logical_tib=23.950176778082177
+    score_ratio=1.0
+
+Development headroom check
+  A temporary fixed-width delta codec was validated by the same evaluator. It
+  stored timestamp deltas plus narrowed service, severity, duration, and payload
+  fields; it was not committed as the starter. The candidate passed byte-exact
+  decoding and all independent query oracles, scored 2.556401106833809, reduced
+  compression ratio from 1.0000755310058593 to 0.32512435913085935, and reduced
+  total modeled monthly cost from 74.1947212474412 to 29.255996084436042. Its
+  minimum per-scenario score was 2.248306349794879. This confirms substantial
+  headroom for richer adaptive formats and compressed execution strategies.

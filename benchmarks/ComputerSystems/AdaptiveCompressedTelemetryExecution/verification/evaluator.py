@@ -32,6 +32,8 @@ UINT64_BYTES = 8
 COLUMN_COUNT = 5
 TIB_BYTES = 1 << 40
 MAX_TEXT_CAPTURE = 12_000
+START_MARKER = "// EVOLVE-BLOCK-START"
+END_MARKER = "// EVOLVE-BLOCK-END"
 
 
 class EvaluationFailure(RuntimeError):
@@ -111,6 +113,7 @@ def _load_problem() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], lis
         "run_timeout_s",
         "source_limit_bytes",
         "memory_limit_mb",
+        "max_processes",
     ):
         _positive_int(execution.get(key), f"execution.{key}")
     _positive_number(execution.get("max_encoded_ratio"), "execution.max_encoded_ratio")
@@ -339,6 +342,39 @@ def _write_queries(path: Path, queries: list[dict[str, Any]]) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _immutable_parts(source: str) -> tuple[str, str]:
+    if source.count(START_MARKER) != 1 or source.count(END_MARKER) != 1:
+        raise EvaluationFailure("candidate must contain exactly one EVOLVE marker pair")
+    start = source.index(START_MARKER)
+    start_line_end = source.find("\n", start)
+    if start_line_end < 0:
+        raise EvaluationFailure("EVOLVE-BLOCK-START must end with a newline")
+    editable_start = start_line_end + 1
+    end = source.index(END_MARKER, editable_start)
+    if end <= editable_start:
+        raise EvaluationFailure("EVOLVE markers are out of order")
+    return source[:editable_start], source[end:]
+
+
+def _validate_candidate_shell(candidate_path: Path, max_bytes: int) -> bytes:
+    if not candidate_path.is_file():
+        raise EvaluationFailure(f"candidate source not found: {candidate_path}")
+    if candidate_path.stat().st_size > max_bytes:
+        raise EvaluationFailure(f"candidate source exceeds {max_bytes} bytes")
+    candidate = candidate_path.read_bytes()
+    baseline = BASELINE_SOURCE.read_bytes()
+    try:
+        candidate_text = candidate.decode("utf-8")
+        baseline_text = baseline.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise EvaluationFailure(f"candidate source is not UTF-8: {exc}") from exc
+    if _immutable_parts(candidate_text) != _immutable_parts(baseline_text):
+        raise EvaluationFailure(
+            "code outside the EVOLVE block differs from the frozen shell"
+        )
+    return candidate
+
+
 def _compile(
     compiler: str,
     source: Path,
@@ -387,7 +423,12 @@ def _compile(
     return result
 
 
-def _preexec_limits(memory_limit_mb: int, cpu: int | None, timeout_s: int) -> Any:
+def _preexec_limits(
+    memory_limit_mb: int,
+    maximum_processes: int,
+    cpu: int | None,
+    timeout_s: int,
+) -> Any:
     def apply() -> None:
         memory_bytes = memory_limit_mb * 1024 * 1024
         resource.setrlimit(resource.RLIMIT_AS, (memory_bytes, memory_bytes))
@@ -395,6 +436,12 @@ def _preexec_limits(memory_limit_mb: int, cpu: int | None, timeout_s: int) -> An
         resource.setrlimit(resource.RLIMIT_CPU, (cpu_limit, cpu_limit + 1))
         file_limit = 512 * 1024 * 1024
         resource.setrlimit(resource.RLIMIT_FSIZE, (file_limit, file_limit))
+        try:
+            resource.setrlimit(
+                resource.RLIMIT_NPROC, (maximum_processes, maximum_processes)
+            )
+        except (AttributeError, ValueError, OSError):
+            pass
         if cpu is not None and hasattr(os, "sched_setaffinity"):
             os.sched_setaffinity(0, {cpu})
 
@@ -432,6 +479,7 @@ def _run_driver(
     cwd: Path,
     timeout_s: int,
     memory_limit_mb: int,
+    maximum_processes: int,
     cpu: int | None,
 ) -> tuple[dict[str, float], dict[str, Any]]:
     cwd.mkdir(parents=True, exist_ok=True)
@@ -455,7 +503,9 @@ def _run_driver(
             timeout=timeout_s,
             check=False,
             env=environment,
-            preexec_fn=_preexec_limits(memory_limit_mb, cpu, timeout_s),
+            preexec_fn=_preexec_limits(
+                memory_limit_mb, maximum_processes, cpu, timeout_s
+            ),
         )
     except subprocess.TimeoutExpired as exc:
         raise EvaluationFailure(
@@ -580,17 +630,12 @@ def evaluate(
         source_limit = _positive_int(
             execution.get("source_limit_bytes"), "execution.source_limit_bytes"
         )
-        if candidate_path.stat().st_size > source_limit:
-            raise EvaluationFailure(
-                f"candidate source exceeds {source_limit} bytes"
-            )
+        candidate_source = _validate_candidate_shell(candidate_path, source_limit)
         compiler = shutil.which("g++")
         if not compiler:
             raise EvaluationFailure("g++ is required but was not found")
 
-        candidate_matches_baseline = (
-            candidate_path.read_bytes() == BASELINE_SOURCE.read_bytes()
-        )
+        candidate_matches_baseline = candidate_source == BASELINE_SOURCE.read_bytes()
         artifacts["candidate_source_matches_baseline"] = candidate_matches_baseline
         evaluation_seed = (
             int(seed_override)
@@ -617,6 +662,9 @@ def evaluate(
         memory_limit_mb = _positive_int(
             execution.get("memory_limit_mb"), "execution.memory_limit_mb"
         )
+        maximum_processes = _positive_int(
+            execution.get("max_processes"), "execution.max_processes"
+        )
         block_rows = _positive_int(execution.get("block_rows"), "execution.block_rows")
         warmup_rounds = _positive_int(
             execution.get("warmup_rounds"), "execution.warmup_rounds"
@@ -630,9 +678,11 @@ def evaluate(
 
         with tempfile.TemporaryDirectory(prefix="adaptive_telemetry_eval_") as tmp_text:
             tmp = Path(tmp_text)
+            candidate_copy = tmp / "candidate.cpp"
+            candidate_copy.write_bytes(candidate_source)
             candidate_binary = tmp / "candidate_driver"
             artifacts["candidate_compile"] = _compile(
-                compiler, candidate_path, candidate_binary, compile_timeout
+                compiler, candidate_copy, candidate_binary, compile_timeout
             )
             baseline_binary = candidate_binary
             if not candidate_matches_baseline:
@@ -654,24 +704,53 @@ def evaluate(
             candidate_query_ns = 0.0
             baseline_total_cost = 0.0
             candidate_total_cost = 0.0
+            failed_scenarios: list[str] = []
+            failure_summaries: list[str] = []
+            any_timeout = False
             for scenario_index, scenario in enumerate(scenarios):
                 scenario_id = str(scenario["id"])
-                scenario_dir = tmp / scenario_id
-                scenario_dir.mkdir()
-                columns = _generate_columns(scenario, evaluation_seed)
-                queries = _build_queries(columns)
-                raw_path = scenario_dir / "input.raw"
-                query_path = scenario_dir / "queries.tsv"
-                _write_raw(raw_path, columns)
-                _write_queries(query_path, queries)
-                raw_payload = raw_path.read_bytes()
-                raw_sha256 = hashlib.sha256(raw_payload).hexdigest()
-                expected_queries = {
-                    str(query["name"]): int(query["expected"]) for query in queries
+                scenario_result: dict[str, Any] = {
+                    "pattern": scenario["pattern"],
+                    "rows": scenario["rows"],
                 }
-                del columns
+                scenario_errors: list[str] = []
+                try:
+                    scenario_dir = tmp / scenario_id
+                    scenario_dir.mkdir()
+                    columns = _generate_columns(scenario, evaluation_seed)
+                    queries = _build_queries(columns)
+                    raw_path = scenario_dir / "input.raw"
+                    query_path = scenario_dir / "queries.tsv"
+                    _write_raw(raw_path, columns)
+                    _write_queries(query_path, queries)
+                    raw_payload = raw_path.read_bytes()
+                    raw_sha256 = hashlib.sha256(raw_payload).hexdigest()
+                    expected_queries = {
+                        str(query["name"]): int(query["expected"])
+                        for query in queries
+                    }
+                    scenario_result["dataset_sha256"] = raw_sha256
+                    scenario_result["query_expected"] = expected_queries
+                    del columns
+                except Exception as exc:
+                    message = str(exc) or type(exc).__name__
+                    scenario_result["scenario_error"] = message
+                    scenario_result["error"] = f"scenario setup: {message}"
+                    scenario_artifacts[scenario_id] = scenario_result
+                    failed_scenarios.append(scenario_id)
+                    failure_summaries.append(
+                        f"{scenario_id}: {scenario_result['error']}"
+                    )
+                    any_timeout = any_timeout or (
+                        isinstance(exc, EvaluationFailure) and exc.timeout
+                    ) or "timed out" in message.lower()
+                    continue
 
-                labels = ["candidate"] if candidate_matches_baseline else ["baseline", "candidate"]
+                labels = (
+                    ["candidate"]
+                    if candidate_matches_baseline
+                    else ["baseline", "candidate"]
+                )
                 if not candidate_matches_baseline and scenario_index % 2 == 1:
                     labels.reverse()
                 phase_metrics: dict[str, dict[str, dict[str, float]]] = {}
@@ -682,171 +761,243 @@ def evaluate(
                     label_dir.mkdir()
                     encoded_path = label_dir / "encoded.bin"
                     encode_metrics_path = label_dir / "encode.metrics"
-                    encode_metrics, encode_run = _run_driver(
-                        binaries[label],
-                        [
-                            "encode",
-                            str(raw_path),
-                            str(encoded_path),
-                            str(encode_metrics_path),
-                            str(block_rows),
-                            str(warmup_rounds),
-                            str(measured_rounds),
-                            str(max_encoded_ratio),
-                        ],
-                        encode_metrics_path,
-                        cwd=label_dir / "encode_work",
-                        timeout_s=run_timeout,
-                        memory_limit_mb=memory_limit_mb,
-                        cpu=pinned_cpu,
-                    )
-                    phase_metrics[label] = {"encode": encode_metrics}
-                    phase_runs[label] = {"encode": encode_run}
-                    encoded_paths[label] = encoded_path
+                    try:
+                        encode_metrics, encode_run = _run_driver(
+                            binaries[label],
+                            [
+                                "encode",
+                                str(raw_path),
+                                str(encoded_path),
+                                str(encode_metrics_path),
+                                str(block_rows),
+                                str(warmup_rounds),
+                                str(measured_rounds),
+                                str(max_encoded_ratio),
+                            ],
+                            encode_metrics_path,
+                            cwd=label_dir / "encode_work",
+                            timeout_s=run_timeout,
+                            memory_limit_mb=memory_limit_mb,
+                            maximum_processes=maximum_processes,
+                            cpu=pinned_cpu,
+                        )
+                        phase_metrics[label] = {"encode": encode_metrics}
+                        phase_runs[label] = {"encode": encode_run}
+                        encoded_paths[label] = encoded_path
+                    except Exception as exc:
+                        message = str(exc) or type(exc).__name__
+                        scenario_result[f"{label}_error"] = message
+                        scenario_errors.append(f"{label}: {message}")
+                        any_timeout = any_timeout or (
+                            isinstance(exc, EvaluationFailure) and exc.timeout
+                        ) or "timed out" in message.lower()
 
                 # Decoding happens in a fresh process after the original input has
                 # been removed, so candidate globals or file references cannot serve
                 # as a substitute for a self-contained encoded representation.
-                raw_path.unlink()
+                try:
+                    raw_path.unlink()
+                except Exception as exc:
+                    message = str(exc) or type(exc).__name__
+                    scenario_result["scenario_error"] = message
+                    scenario_errors.append(f"raw input removal: {message}")
                 for label in labels:
+                    if label not in encoded_paths or "scenario_error" in scenario_result:
+                        continue
                     label_dir = scenario_dir / label
                     decoded_path = label_dir / "decoded.raw"
                     decode_metrics_path = label_dir / "decode.metrics"
-                    decode_metrics, decode_run = _run_driver(
-                        binaries[label],
-                        [
-                            "decode",
-                            str(encoded_paths[label]),
-                            str(decoded_path),
-                            str(decode_metrics_path),
-                            str(warmup_rounds),
-                            str(measured_rounds),
-                        ],
-                        decode_metrics_path,
-                        cwd=label_dir / "decode_work",
-                        timeout_s=run_timeout,
-                        memory_limit_mb=memory_limit_mb,
-                        cpu=pinned_cpu,
-                    )
-                    if not decoded_path.is_file() or decoded_path.read_bytes() != raw_payload:
-                        raise EvaluationFailure(
-                            f"{scenario_id}: {label} decode does not exactly match input"
+                    try:
+                        decode_metrics, decode_run = _run_driver(
+                            binaries[label],
+                            [
+                                "decode",
+                                str(encoded_paths[label]),
+                                str(decoded_path),
+                                str(decode_metrics_path),
+                                str(warmup_rounds),
+                                str(measured_rounds),
+                            ],
+                            decode_metrics_path,
+                            cwd=label_dir / "decode_work",
+                            timeout_s=run_timeout,
+                            memory_limit_mb=memory_limit_mb,
+                            maximum_processes=maximum_processes,
+                            cpu=pinned_cpu,
                         )
-                    decoded_path.unlink()
+                        phase_metrics[label]["decode"] = decode_metrics
+                        phase_runs[label]["decode"] = decode_run
+                        if (
+                            not decoded_path.is_file()
+                            or decoded_path.read_bytes() != raw_payload
+                        ):
+                            raise EvaluationFailure(
+                                f"{label} decode does not exactly match input"
+                            )
+                        decoded_path.unlink()
 
-                    query_results_path = label_dir / "query_results.tsv"
-                    query_metrics_path = label_dir / "query.metrics"
-                    query_metrics, query_run = _run_driver(
-                        binaries[label],
-                        [
-                            "query",
-                            str(encoded_paths[label]),
-                            str(query_path),
-                            str(query_results_path),
-                            str(query_metrics_path),
-                            str(warmup_rounds),
-                            str(measured_rounds),
-                        ],
-                        query_metrics_path,
-                        cwd=label_dir / "query_work",
-                        timeout_s=run_timeout,
-                        memory_limit_mb=memory_limit_mb,
-                        cpu=pinned_cpu,
-                    )
-                    actual_queries = _read_query_results(query_results_path)
-                    if actual_queries != expected_queries:
-                        mismatches = {
-                            key: {
-                                "expected": expected_queries.get(key),
-                                "actual": actual_queries.get(key),
+                        query_results_path = label_dir / "query_results.tsv"
+                        query_metrics_path = label_dir / "query.metrics"
+                        query_metrics, query_run = _run_driver(
+                            binaries[label],
+                            [
+                                "query",
+                                str(encoded_paths[label]),
+                                str(query_path),
+                                str(query_results_path),
+                                str(query_metrics_path),
+                                str(warmup_rounds),
+                                str(measured_rounds),
+                            ],
+                            query_metrics_path,
+                            cwd=label_dir / "query_work",
+                            timeout_s=run_timeout,
+                            memory_limit_mb=memory_limit_mb,
+                            maximum_processes=maximum_processes,
+                            cpu=pinned_cpu,
+                        )
+                        actual_queries = _read_query_results(query_results_path)
+                        if actual_queries != expected_queries:
+                            mismatches = {
+                                key: {
+                                    "expected": expected_queries.get(key),
+                                    "actual": actual_queries.get(key),
+                                }
+                                for key in sorted(
+                                    set(expected_queries) | set(actual_queries)
+                                )
+                                if expected_queries.get(key)
+                                != actual_queries.get(key)
                             }
-                            for key in sorted(set(expected_queries) | set(actual_queries))
-                            if expected_queries.get(key) != actual_queries.get(key)
-                        }
-                        raise EvaluationFailure(
-                            f"{scenario_id}: {label} compressed query mismatch: {mismatches}"
-                        )
-                    phase_metrics[label]["decode"] = decode_metrics
-                    phase_metrics[label]["query"] = query_metrics
-                    phase_runs[label]["decode"] = decode_run
-                    phase_runs[label]["query"] = query_run
+                            raise EvaluationFailure(
+                                f"{label} compressed query mismatch: {mismatches}"
+                            )
+                        phase_metrics[label]["query"] = query_metrics
+                        phase_runs[label]["query"] = query_run
+                    except Exception as exc:
+                        message = str(exc) or type(exc).__name__
+                        scenario_result[f"{label}_error"] = message
+                        scenario_errors.append(f"{label}: {message}")
+                        any_timeout = any_timeout or (
+                            isinstance(exc, EvaluationFailure) and exc.timeout
+                        ) or "timed out" in message.lower()
 
-                if candidate_matches_baseline:
+                if candidate_matches_baseline and not scenario_errors:
                     phase_metrics["baseline"] = phase_metrics["candidate"]
                     phase_runs["baseline"] = phase_runs["candidate"]
 
-                costs = {
-                    label: _economic_cost(
-                        phase_metrics[label]["encode"],
-                        phase_metrics[label]["decode"],
-                        phase_metrics[label]["query"],
-                        scenario,
-                        pricing,
+                if not scenario_errors:
+                    try:
+                        costs = {
+                            label: _economic_cost(
+                                phase_metrics[label]["encode"],
+                                phase_metrics[label]["decode"],
+                                phase_metrics[label]["query"],
+                                scenario,
+                                pricing,
+                            )
+                            for label in ("baseline", "candidate")
+                        }
+                        ratio = (
+                            costs["baseline"]["monthly_cost_per_logical_tib"]
+                            / costs["candidate"]["monthly_cost_per_logical_tib"]
+                        )
+                        if not math.isfinite(ratio) or ratio <= 0.0:
+                            raise EvaluationFailure("invalid score ratio")
+                        ratios.append(ratio)
+                        baseline_total_cost += costs["baseline"][
+                            "monthly_cost_per_logical_tib"
+                        ]
+                        candidate_total_cost += costs["candidate"][
+                            "monthly_cost_per_logical_tib"
+                        ]
+
+                        candidate_encode = phase_metrics["candidate"]["encode"]
+                        candidate_decode = phase_metrics["candidate"]["decode"]
+                        candidate_query = phase_metrics["candidate"]["query"]
+                        total_logical_bytes += candidate_encode["logical_bytes"]
+                        candidate_encoded_bytes += candidate_encode["encoded_bytes"]
+                        candidate_encode_ns += candidate_encode["median_ns"]
+                        candidate_decode_ns += candidate_decode["median_ns"]
+                        candidate_query_ns += candidate_query["median_ns"]
+                        scenario_result["score_ratio"] = ratio
+                        scenario_result["baseline"] = {
+                            "measurements": phase_metrics["baseline"],
+                            "economic_cost": costs["baseline"],
+                        }
+                        scenario_result["candidate"] = {
+                            "measurements": phase_metrics["candidate"],
+                            "economic_cost": costs["candidate"],
+                        }
+                    except Exception as exc:
+                        message = str(exc) or type(exc).__name__
+                        scenario_result["score_error"] = message
+                        scenario_errors.append(f"score: {message}")
+                        any_timeout = any_timeout or (
+                            isinstance(exc, EvaluationFailure) and exc.timeout
+                        ) or "timed out" in message.lower()
+
+                scenario_result["driver_runs"] = phase_runs
+                if scenario_errors:
+                    scenario_result["error"] = "; ".join(scenario_errors)
+                    failed_scenarios.append(scenario_id)
+                    failure_summaries.append(
+                        f"{scenario_id}: {scenario_result['error']}"
                     )
-                    for label in ("baseline", "candidate")
-                }
-                ratio = (
-                    costs["baseline"]["monthly_cost_per_logical_tib"]
-                    / costs["candidate"]["monthly_cost_per_logical_tib"]
-                )
-                if not math.isfinite(ratio) or ratio <= 0.0:
-                    raise EvaluationFailure(f"{scenario_id}: invalid score ratio")
-                ratios.append(ratio)
-                baseline_total_cost += costs["baseline"]["monthly_cost_per_logical_tib"]
-                candidate_total_cost += costs["candidate"]["monthly_cost_per_logical_tib"]
+                else:
+                    scenario_result["status"] = "ok"
+                scenario_artifacts[scenario_id] = scenario_result
 
-                candidate_encode = phase_metrics["candidate"]["encode"]
-                candidate_decode = phase_metrics["candidate"]["decode"]
-                candidate_query = phase_metrics["candidate"]["query"]
-                total_logical_bytes += candidate_encode["logical_bytes"]
-                candidate_encoded_bytes += candidate_encode["encoded_bytes"]
-                candidate_encode_ns += candidate_encode["median_ns"]
-                candidate_decode_ns += candidate_decode["median_ns"]
-                candidate_query_ns += candidate_query["median_ns"]
-                scenario_artifacts[scenario_id] = {
-                    "pattern": scenario["pattern"],
-                    "rows": scenario["rows"],
-                    "dataset_sha256": raw_sha256,
-                    "query_expected": expected_queries,
-                    "score_ratio": ratio,
-                    "baseline": {
-                        "measurements": phase_metrics["baseline"],
-                        "economic_cost": costs["baseline"],
-                    },
-                    "candidate": {
-                        "measurements": phase_metrics["candidate"],
-                        "economic_cost": costs["candidate"],
-                    },
-                    "driver_runs": phase_runs,
-                }
-
-            combined_score = math.exp(
-                sum(math.log(value) for value in ratios) / len(ratios)
+            partial_combined_score = (
+                math.exp(sum(math.log(value) for value in ratios) / len(ratios))
+                if ratios
+                else 0.0
             )
+            all_scenarios_valid = len(ratios) == len(scenarios)
             seconds_per_ns = 1e-9
             gib = 1 << 30
             metrics = {
-                "combined_score": combined_score,
-                "valid": 1.0,
-                "correctness": 1.0,
-                "timeout": 0.0,
+                "combined_score": (
+                    partial_combined_score if all_scenarios_valid else 0.0
+                ),
+                "partial_combined_score": partial_combined_score,
+                "valid": 1.0 if all_scenarios_valid else 0.0,
+                "correctness": 1.0 if all_scenarios_valid else 0.0,
+                "timeout": 1.0 if any_timeout else 0.0,
                 "runtime_s": time.perf_counter() - started,
-                "scenario_count": float(len(ratios)),
-                "mean_score_ratio": sum(ratios) / len(ratios),
-                "min_score_ratio": min(ratios),
+                "scenario_count": float(len(scenarios)),
+                "successful_scenario_count": float(len(ratios)),
+                "failed_scenario_count": float(len(scenarios) - len(ratios)),
+                "mean_score_ratio": sum(ratios) / len(ratios) if ratios else 0.0,
+                "min_score_ratio": min(ratios) if ratios else 0.0,
                 "candidate_total_monthly_cost_per_tib": candidate_total_cost,
                 "baseline_total_monthly_cost_per_tib": baseline_total_cost,
-                "candidate_compression_ratio": candidate_encoded_bytes
-                / total_logical_bytes,
-                "candidate_encode_gib_s": total_logical_bytes
-                / gib
-                / (candidate_encode_ns * seconds_per_ns),
-                "candidate_decode_gib_s": total_logical_bytes
-                / gib
-                / (candidate_decode_ns * seconds_per_ns),
-                "candidate_query_batch_gib_s": total_logical_bytes
-                / gib
-                / (candidate_query_ns * seconds_per_ns),
+                "candidate_compression_ratio": (
+                    candidate_encoded_bytes / total_logical_bytes
+                    if total_logical_bytes > 0.0
+                    else 0.0
+                ),
+                "candidate_encode_gib_s": (
+                    total_logical_bytes
+                    / gib
+                    / (candidate_encode_ns * seconds_per_ns)
+                    if candidate_encode_ns > 0.0
+                    else 0.0
+                ),
+                "candidate_decode_gib_s": (
+                    total_logical_bytes
+                    / gib
+                    / (candidate_decode_ns * seconds_per_ns)
+                    if candidate_decode_ns > 0.0
+                    else 0.0
+                ),
+                "candidate_query_batch_gib_s": (
+                    total_logical_bytes
+                    / gib
+                    / (candidate_query_ns * seconds_per_ns)
+                    if candidate_query_ns > 0.0
+                    else 0.0
+                ),
                 "candidate_source_matches_baseline": 1.0
                 if candidate_matches_baseline
                 else 0.0,
@@ -858,6 +1009,13 @@ def evaluate(
                 "All candidate functions were timed in compiled, CPU-pinned child "
                 "processes; file loading, result writing, and compilation were excluded."
             )
+            if failure_summaries:
+                artifacts["failed_scenarios"] = failed_scenarios
+                artifacts["failure_summary"] = "\n".join(failure_summaries)
+                artifacts["error_message"] = (
+                    f"{len(failed_scenarios)} of {len(scenarios)} scenarios failed; "
+                    "see failure_summary and per-scenario errors"
+                )
             return metrics, artifacts
     except EvaluationFailure as exc:
         artifacts["error_message"] = str(exc)

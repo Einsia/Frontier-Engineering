@@ -122,6 +122,12 @@ The evaluator reports:
 - per-phase timing samples and peak resident memory; and
 - cost components and score for every scenario.
 
+Scenario failures are isolated. The evaluator records baseline, candidate, and
+score errors on the affected scenario and continues through the remaining public
+scenarios. Successful ratios remain available through `partial_combined_score` for
+diagnosis, but any failed scenario keeps the official `valid` and `combined_score`
+at zero so a candidate cannot benefit by skipping a difficult workload.
+
 ## 7. Economic objective
 
 Let:
@@ -165,6 +171,7 @@ The public limits are in `references/problem_config.json`:
 - candidate source: at most 1,000,000 bytes;
 - encoded block: at most twice its raw bytes plus a small fixed allowance;
 - process address space: 1 GiB;
+- at most 64 candidate processes per real user where `RLIMIT_NPROC` is supported;
 - one pinned CPU per timed process; and
 - no external libraries, assets, services, or network access.
 

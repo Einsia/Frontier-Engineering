@@ -22,6 +22,7 @@ and by recent work on composable, query-aware formats such as
 - `verification/codec_api.h`: immutable candidate ABI.
 - `verification/benchmark_driver.cpp`: immutable timed C++ driver.
 - `verification/evaluator.py`: dataset generator, compiler, oracle, and scorer.
+- `verification/test_evaluator.py`: end-to-end and integrity regression tests.
 - `frontier_eval/`: unified-task metadata.
 
 ## Requirements
@@ -45,6 +46,11 @@ The uncompressed starter must be correct and scores exactly `1.0`. Measurements
 vary by CPU, but the evaluator measures the immutable baseline in the same run for
 every changed candidate. A score above `1.0` reduces the modeled monthly cost using
 measured storage bytes and CPU time.
+
+Compilation deliberately uses `-march=native`. Absolute throughput, modeled cost,
+and candidate-to-baseline ratios can therefore vary across CPU models and compiler
+versions. Compare leaderboard runs only within the same evaluation host and
+environment; the co-measured immutable baseline controls within-run comparisons.
 
 To retain detailed measurements:
 

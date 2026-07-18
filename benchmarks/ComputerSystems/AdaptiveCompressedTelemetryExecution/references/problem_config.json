@@ -16,6 +16,7 @@
     "run_timeout_s": 30,
     "source_limit_bytes": 1000000,
     "memory_limit_mb": 1024,
+    "max_processes": 64,
     "max_encoded_ratio": 2.0
   },
   "pricing": {

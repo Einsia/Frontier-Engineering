@@ -25,7 +25,7 @@ This benchmark evaluates whether an AI agent can improve an **existing engineeri
 
 The agent receives:
 
-1. A **working but suboptimal** scheduling program (`solver/scheduler.py`) with a simple greedy algorithm
+1. A **working but suboptimal** scheduling program (`scripts/init.py`) with a simple greedy algorithm
 2. A **task description** explaining the manufacturing problem, the input data format, and the objective
 3. A **scoring evaluator** that objectively measures schedule quality
 
@@ -177,7 +177,7 @@ See `data/sources.md` for complete data provenance and attribution.
 
 ### Solver Interface
 
-The file `solver/scheduler.py` must export the following function:
+The file `scripts/init.py` must export the following function:
 
 ```python
 def solve_instance(instance: dict) -> dict:
@@ -275,8 +275,8 @@ The score is continuous, allowing partial credit and iterative improvement track
 
 ## Implementations in This Folder
 
-- `baseline/scheduler.py`: Greedy EST+SPT (Earliest Start Time + Shortest Processing Time) list scheduling. Pure Python, standard library only. **Read-only** 鈥?serves as the fixed baseline for relative scoring.
-- `solver/scheduler.py`: **Agent-editable artifact**. Starts with the same EST+SPT baseline algorithm. The agent must modify the code inside the EVOLVE-BLOCK markers to improve scheduling performance.
+- `baseline/solution.py`: Greedy EST+SPT (Earliest Start Time + Shortest Processing Time) list scheduling. Pure Python, standard library only. **Read-only** 鈥?serves as the fixed baseline for relative scoring.
+- `scripts/init.py`: **Agent-editable artifact**. Starts with the same EST+SPT baseline algorithm. The agent must modify the code inside the EVOLVE-BLOCK markers to improve scheduling performance.
 - `verification/evaluator.py`: **Read-only** scoring and validation script. Dynamically loads both baseline and candidate solver, executes them on all instances, validates output, and computes scores.
 
 ## How to Run
@@ -284,19 +284,19 @@ The score is continuous, allowing partial credit and iterative improvement track
 ### Run Baseline Only
 
 ```bash
-python solver/scheduler.py --max-instances 3
+python scripts/init.py --max-instances 3
 ```
 
 ### Run Evaluator
 
 ```bash
-python verification/evaluator.py solver/scheduler.py
+python verification/evaluator.py scripts/init.py
 ```
 
 ### Run Evaluator on Specific Instances
 
 ```bash
-python verification/evaluator.py solver/scheduler.py --instances synthetic_01 synthetic_02
+python verification/evaluator.py scripts/init.py --instances synthetic_01 synthetic_02
 ```
 
 ### Run Unified Framework (from repo root)
@@ -307,9 +307,9 @@ python -m frontier_eval task=unified task.benchmark=Manufacturing/FJSP-WF algori
 
 ## Agent Constraints
 
-1. Only modify code between `# EVOLVE-BLOCK-START` and `# EVOLVE-BLOCK-END` markers in `solver/scheduler.py`.
+1. Only modify code between `# EVOLVE-BLOCK-START` and `# EVOLVE-BLOCK-END` markers in `scripts/init.py`.
 2. Keep the marker lines `# EVOLVE-BLOCK-START` and `# EVOLVE-BLOCK-END` intact 鈥?they define the only editable region.
-3. Do not modify `verification/evaluator.py`, `baseline/scheduler.py`, or any file outside `solver/scheduler.py`.
+3. Do not modify `verification/evaluator.py`, `baseline/solution.py`, or any file outside `scripts/init.py`.
 4. Pure Python implementation only (standard library allowed).
 5. No external solvers (OR-Tools, CPLEX, Gurobi, PuLP, etc.).
 6. No external libraries (numpy, pandas, scipy, etc.).

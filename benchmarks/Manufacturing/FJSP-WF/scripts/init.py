@@ -1,5 +1,5 @@
-"""
-FJSP-WF Scheduler — Agent-Editable Artifact.
+﻿"""
+FJSP-WF Scheduler �?Agent-Editable Artifact.
 
 Agent: only modify code between # EVOLVE-BLOCK-START and # EVOLVE-BLOCK-END.
 Everything outside these markers is read-only and must not be changed.
@@ -23,6 +23,94 @@ def _natural_key(name: str) -> list[object]:
     parts = re.split(r"(\d+)", name)
     return [int(p) if p.isdigit() else p for p in parts]
 
+
+def _parse_fjs_file(path: Path) -> dict[str, Any]:
+    """Parse an official .fjs instance file into the benchmark's internal dict format.
+
+    The .fjs format is:
+      Line 0: [num_jobs] [num_machines] [num_workers]
+      Lines 1+: one line per job
+        [n_operations_in_job]
+          [For each op]: [n_machine_options]
+            [machine_id(1)] [n_worker_options] [worker_id(1), duration] ...
+            [machine_id(2)] [n_worker_options] [worker_id(1), duration] ...
+    """
+    with path.open("r", encoding="utf-8") as f:
+        lines = [line.strip() for line in f if line.strip()]
+
+    header = list(map(int, lines[0].split()))
+    num_jobs = header[0]
+    num_machines = header[1]
+    num_workers = header[2]
+
+    all_operations: list[dict[str, Any]] = []
+    worker_machine_pairs: set[tuple[int, int]] = set()
+
+    for job_idx, line in enumerate(lines[1:]):
+        vals = list(map(int, line.split()))
+        idx = 0
+        n_ops_in_job = vals[idx]
+        idx += 1
+
+        for _ in range(n_ops_in_job):
+            n_mach_opts = vals[idx]
+            idx += 1
+            eligible: set[int] = set()
+            pt_rows: dict[int, dict[int, int]] = {}
+
+            for _ in range(n_mach_opts):
+                machine = vals[idx] - 1
+                idx += 1
+                n_worker_opts = vals[idx]
+                idx += 1
+                eligible.add(machine)
+
+                if machine not in pt_rows:
+                    pt_rows[machine] = {}
+
+                for _ in range(n_worker_opts):
+                    worker = vals[idx] - 1
+                    idx += 1
+                    duration = vals[idx]
+                    idx += 1
+                    pt_rows[machine][worker] = duration
+                    worker_machine_pairs.add((worker, machine))
+
+            eligible_list = sorted(eligible)
+            pt_matrix: list[list[int]] = []
+            for m in eligible_list:
+                row = [0] * num_workers
+                for w, d in pt_rows.get(m, {}).items():
+                    row[w] = d
+                pt_matrix.append(row)
+
+            all_operations.append({
+                "job_id": job_idx,
+                "op_idx": len([o for o in all_operations if o["job_id"] == job_idx]),
+                "eligible_machines": eligible_list,
+                "processing_times": pt_matrix,
+            })
+
+    worker_elig: list[list[int]] = [[] for _ in range(num_workers)]
+    for worker, machine in sorted(worker_machine_pairs):
+        if machine not in worker_elig[worker]:
+            worker_elig[worker].append(machine)
+
+    return {
+        "name": path.stem,
+        "description": f"FJSSP-W instance: {num_jobs} jobs, {num_machines} machines, {num_workers} workers",
+        "num_jobs": num_jobs,
+        "num_machines": num_machines,
+        "num_workers": num_workers,
+        "operations": all_operations,
+        "worker_eligibility": worker_elig,
+        "metadata": {
+            "best_known_makespan": None,
+            "lower_bound": None,
+            "source": "GECCO FJSSP-WU Competition (Apache-2.0)",
+            "file_format": "fjs",
+        },
+    }
 
 def _benchmark_json_path() -> Path:
     env_path = os.environ.get("FJSPWF_BENCHMARK_JSON", "").strip()
@@ -55,8 +143,17 @@ def _load_instance_from_file(rel_path: str, base_dir: Path) -> dict[str, Any]:
     path = (base_dir / rel_path).resolve()
     if not path.is_file():
         raise FileNotFoundError(f"Instance file not found: {path}")
-    with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
+    suffix = path.suffix.lower()
+    if suffix == ".fjs":
+        return _parse_fjs_file(path)
+    elif suffix == ".fjswf":
+        with path.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    else:
+        raise ValueError(
+            f"Unsupported instance file format: {suffix}. "
+            f"Expected .fjs or .fjswf"
+        )
 
 
 def load_family_instances() -> list[dict[str, Any]]:
@@ -64,8 +161,6 @@ def load_family_instances() -> list[dict[str, Any]]:
     base_dir = _benchmark_json_path().parent
     instances = []
     for name, meta in data.items():
-        if not name.startswith("synthetic"):
-            continue
         instance = _load_instance_from_file(meta["file"], base_dir)
         instances.append(instance)
     return sorted(instances, key=lambda x: _natural_key(x["name"]))

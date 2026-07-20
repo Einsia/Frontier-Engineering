@@ -8,14 +8,14 @@ This benchmark is based on the **official GECCO 2026 FJSSP-WU Competition** data
 
 **What this benchmark evaluates:**
 - Whether an AI agent can improve an existing scheduling algorithm through iterative code evolution
-- The agent reads `solver/scheduler.py`, understands the problem, modifies the code, and receives quantitative feedback from the evaluator
+- The agent reads `scripts/init.py`, understands the problem, modifies the code, and receives quantitative feedback from the evaluator
 
 ## Benchmark Structure
 
 | Path | Role |
 |------|------|
-| `solver/scheduler.py` | **Agent-editable artifact** — only file the agent can modify |
-| `baseline/scheduler.py` | **Read-only baseline** — fixed reference for relative scoring |
+| `scripts/init.py` | **Agent-editable artifact** — only file the agent can modify |
+| `baseline/solution.py` | **Read-only baseline** — fixed reference for relative scoring |
 | `verification/evaluator.py` | **Read-only evaluator** — parses `.fjs`/`.fjswf` instances, validates, and scores |
 | `Task.md` | Full task specification, I/O spec, scoring rules |
 | `data/instances/official/` | 30 official GECCO FJSSP-WU instances (`.fjs`, included as-is) |
@@ -26,17 +26,17 @@ This benchmark is based on the **official GECCO 2026 FJSSP-WU Competition** data
 
 Evaluate the solver on a synthetic instance (CI smoke test):
 ```bash
-python verification/evaluator.py solver/scheduler.py --instances synthetic_01
+python verification/evaluator.py scripts/init.py --instances synthetic_01
 ```
 
 Evaluate on an official competition instance:
 ```bash
-python verification/evaluator.py solver/scheduler.py --instances mk07
+python verification/evaluator.py scripts/init.py --instances mk07
 ```
 
 Evaluate on multiple instances:
 ```bash
-python verification/evaluator.py solver/scheduler.py --instances mk07 hs01 kc03
+python verification/evaluator.py scripts/init.py --instances mk07 hs01 kc03
 ```
 
 Run via Frontier-Eval framework (from repo root):

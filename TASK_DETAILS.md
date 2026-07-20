@@ -341,6 +341,11 @@ We welcome new engineering problem ideas — even without complete verification 
       <td><code>EV2GymSmartCharging</code></td>
       <td>Upstream-aligned EV smart charging scheduling</td>
     </tr>
+        <tr>
+      <td><b>Manufacturing</b></td>
+      <td><code>FJSP-WF</code></td>
+      <td>Flexible Job Shop Scheduling with Worker Flexibility &#8212; minimize makespan via machine/worker assignment optimization</td>
+    </tr>
     <tr>
       <td><b>AdditiveManufacturing</b></td>
       <td><code>DiffSimThermalControl</code></td>

@@ -1,5 +1,5 @@
 """
-FJSP-WF Evaluator 鈥?Read-only scoring script.
+FJSP-WF Evaluator  - ad-only scoring script.
 
 Supports two instance formats:
   .fjs  : Official GECCO FJSSP-WU Competition format (1-based indices)
@@ -8,8 +8,8 @@ Supports two instance formats:
 Both formats produce the same internal dict representation.
 
 Usage:
-    python verification/evaluator.py solver/scheduler.py
-    python verification/evaluator.py solver/scheduler.py --instances mk01
+    python verification/evaluator.py scripts/init.py
+    python verification/evaluator.py scripts/init.py --instances mk01
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ import argparse
 import importlib.util
 import json
 import numbers
+import subprocess
 import os
 import pathlib
 import re
@@ -168,6 +169,39 @@ def parse_fjs_file(path: Path) -> dict[str, Any]:
 # Module loading and instance resolution
 # ---------------------------------------------------------------------------
 
+
+def _run_candidate_subprocess(candidate_path, instance):
+    """Run candidate solver in subprocess, return (result_dict_or_None, error_msg_or_None)."""
+    runner_path = Path(__file__).parent / '_candidate_runner.py'
+    
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(runner_path), str(candidate_path)],
+            input=json.dumps(instance),
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+    except subprocess.TimeoutExpired:
+        return None, 'subprocess timed out (300s)'
+    except Exception as exc:
+        return None, f'subprocess failed to launch: {exc}'
+    
+    if proc.returncode != 0:
+        try:
+            err_data = json.loads(proc.stdout) if proc.stdout.strip() else {}
+            err_msg = err_data.get('error', proc.stderr.strip() or 'unknown error')
+        except (json.JSONDecodeError, ValueError):
+            err_msg = proc.stderr.strip() or proc.stdout.strip() or f'exit code {proc.returncode}'
+        return None, f'candidate subprocess error: {err_msg}'
+    
+    try:
+        result = json.loads(proc.stdout)
+        return result, None
+    except json.JSONDecodeError as exc:
+        return None, f'candidate subprocess output is not valid JSON: {exc}'
+
+
 def _load_module(module_name: str, path: Path) -> ModuleType:
     spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
@@ -189,6 +223,51 @@ def _coerce_int(value: object, field: str) -> int:
         if float(value) != float(coerced):
             raise ValueError(f"{field} must be an integer")
     return coerced
+
+
+def _check_evolve_block(candidate_path, original_path):
+    """Verify that code outside EVOLVE-BLOCK-START/END markers has not been modified."""
+    EVOLVE_START = '# EVOLVE-BLOCK-START'
+    EVOLVE_END = '# EVOLVE-BLOCK-END'
+    
+    for label, path in [('Original', original_path), ('Candidate', candidate_path)]:
+        if not path.is_file():
+            return False, label + ' file not found: ' + str(path)
+    
+    original_text = original_path.read_text(encoding='utf-8')
+    candidate_text = candidate_path.read_text(encoding='utf-8')
+    
+    def _get_outer_regions(text):
+        lines = text.splitlines(keepends=True)
+        start_idx = None
+        end_idx = None
+        
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped == EVOLVE_START:
+                start_idx = i
+            elif stripped == EVOLVE_END:
+                end_idx = i
+        
+        if start_idx is None:
+            return '', ''
+        if end_idx is None:
+            return '', ''
+        
+        before = ''.join(lines[:start_idx])
+        after = ''.join(lines[end_idx + 1:])
+        return before, after
+    
+    orig_before, orig_after = _get_outer_regions(original_text)
+    cand_before, cand_after = _get_outer_regions(candidate_text)
+    
+    if orig_before != cand_before:
+        return False, 'EVOLVE-BLOCK violation: code before EVOLVE-BLOCK-START was modified'
+    
+    if orig_after != cand_after:
+        return False, 'EVOLVE-BLOCK violation: code after EVOLVE-BLOCK-END was modified'
+    
+    return True, ''
 
 
 def _get_benchmark_dir(solver_path: Path) -> Path:
@@ -479,6 +558,10 @@ def validate_schedule(
                     f"[{machine_id}][{op_pos}] duration {duration} != "
                     f"end - start ({end_time - start_time})"
                 )
+            if duration <= 0:
+                errors.append(
+                    f"[{machine_id}][{op_pos}] non-positive duration {duration}"
+                )
 
             # Processing time match
             if op_def is not None:
@@ -487,7 +570,7 @@ def validate_schedule(
                     m_idx = op_def["eligible_machines"].index(machine_id)
                     if m_idx < len(ptimes) and worker_id < len(ptimes[m_idx]):
                         expected_duration = ptimes[m_idx][worker_id]
-                        if expected_duration > 0 and duration != expected_duration:
+                        if (expected_duration <= 0 < duration) or (expected_duration > 0 and duration != expected_duration):
                             errors.append(
                                 f"[{machine_id}][{op_pos}] duration {duration} != "
                                 f"expected {expected_duration} for (M{machine_id}, W{worker_id})"
@@ -577,7 +660,7 @@ def compute_score(baseline_makespan: int | None, agent_makespan: int | None) -> 
 def evaluate_instances(
     instances: list[dict[str, Any]],
     baseline_mod: ModuleType,
-    agent_mod: ModuleType,
+    candidate_path: Path,
 ) -> list[InstanceResult]:
     results: list[InstanceResult] = []
 
@@ -604,20 +687,19 @@ def evaluate_instances(
             baseline_valid = False
             baseline_note = f"baseline exception: {exc}"
 
-        # Run agent solver
+        # Run agent solver (subprocess)
         t0 = time.perf_counter()
-        try:
-            agent_result = agent_mod.solve_instance(instance)
-            agent_elapsed = time.perf_counter() - t0
+        agent_result, agent_err = _run_candidate_subprocess(candidate_path, instance)
+        agent_elapsed = time.perf_counter() - t0
+        if agent_err:
+            agent_makespan = None
+            agent_valid = False
+            agent_note = agent_err
+        else:
             agent_val = validate_schedule(instance, agent_result)
             agent_makespan = agent_val.actual_makespan if agent_val.valid else None
             agent_valid = agent_val.valid
             agent_note = agent_val.note
-        except Exception as exc:
-            agent_elapsed = time.perf_counter() - t0
-            agent_makespan = None
-            agent_valid = False
-            agent_note = f"agent exception: {exc}"
 
         score = compute_score(baseline_makespan, agent_makespan)
 
@@ -685,7 +767,7 @@ def main() -> int:
         description=f"Evaluate FJSP-WF scheduling solutions."
     )
     parser.add_argument("candidate", type=str,
-                        help="Path to the candidate solver (e.g., solver/scheduler.py)")
+                        help="Path to the candidate solver (e.g., scripts/init.py)")
     parser.add_argument("--instances", nargs="*", default=None,
                         help="Instance names or aliases (e.g., mk01, brandimarte_mk07)")
     parser.add_argument("--max-instances", type=int, default=None,
@@ -702,17 +784,23 @@ def main() -> int:
         return 1
 
     benchmark_dir = _get_benchmark_dir(candidate_path)
-    baseline_path = benchmark_dir / "baseline" / "scheduler.py"
+    baseline_path = benchmark_dir / "baseline" / "solution.py"
     if not baseline_path.is_file():
         print(f"Error: baseline not found at {baseline_path}", file=sys.stderr)
         return 1
 
-    # Load modules
+    # EVOLVE-BLOCK validation
+    original_solver_path = benchmark_dir / "scripts" / "init.py"
+    evolve_ok, evolve_msg = _check_evolve_block(candidate_path, original_solver_path)
+    if not evolve_ok:
+        print(f"Error: {evolve_msg}", file=sys.stderr)
+        return 1
+    
+    # Load baseline module (candidate runs in subprocess)
     try:
-        agent_mod = _load_module("fjspwf_agent", candidate_path)
         baseline_mod = _load_module("fjspwf_baseline", baseline_path)
     except Exception as exc:
-        print(f"Error loading modules: {exc}", file=sys.stderr)
+        print(f"Error loading baseline module: {exc}", file=sys.stderr)
         traceback.print_exc()
         return 1
 
@@ -724,7 +812,7 @@ def main() -> int:
 
     # Evaluate
     t0 = time.perf_counter()
-    results = evaluate_instances(all_instances, baseline_mod, agent_mod)
+    results = evaluate_instances(all_instances, baseline_mod, candidate_path)
     wall_time = time.perf_counter() - t0
 
     # Print report
@@ -779,3 +867,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

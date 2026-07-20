@@ -1,0 +1,6 @@
+1) Only modify `scripts/init.py` — it is the ONLY editable file.
+2) Keep CLI contract unchanged: the candidate must accept `--prepared-input` and `--solution-output`.
+3) Output must be a PDB file with designed amino acid substitutions.
+4) Only use the 20 standard amino acids (no non-canonical residues).
+5) Do NOT modify the backbone coordinates (fixed-backbone design).
+6) Optimize the Rosetta total_score (lower is better). Use the ref2015 score function.

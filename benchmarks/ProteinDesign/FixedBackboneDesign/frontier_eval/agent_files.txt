@@ -1,0 +1,8 @@
+Task.md
+Task_zh-CN.md
+scripts/init.py
+verification/evaluator.py
+verification/requirements.txt
+data/raw_task.json
+references/constants.json
+references/petrobind/1ubq.pdb

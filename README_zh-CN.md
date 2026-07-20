@@ -12,6 +12,7 @@ Frontier-Eng 是一个面向 **generative optimization** 的 benchmark：Agent �
 
 - **2026-06-30** — **新增评测指标：金银铜 Medal Score。** 在 average rank 之外，我们发布同侪相对的 *Medal Score*（归一化到 `[0,1]`）：每道题取 v1 snapshot 中最好的前三名分数冻结为金/银/铜 baseline，模型达到金/银/铜分别得 1.00 / 0.67 / 0.33，对题集求均值；同时汇报 v1（47 题）与 v1-lite（10 题）。它只奖励"达到该题最前沿（领奖台）"，忽略长尾里可忽略的微小差距，使跨题汇总更公平。每题 podium 分数与榜单见 [`leaderboard/`](leaderboard/README.md)。
 - **2026-06-30** — **发布 `v1-lite`。** `v1` 的 10 题代表性子集，覆盖全部五大类、family 各不相同，专选"分数随预算逐步提升（而非一步做满或非高即低）"的题，配置见 `frontier_eval/conf/batch/v1_lite.yaml`。
+- **2026-07-17** — **版本分支说明。** 过往论文版本已冻结为 `v1-arxiv` 分支，用于复现与对标基线；当前 `main` 作为新版本开发主线，欢迎大家持续在 `main` 提交贡献。
 
 ## 这个 benchmark 在测什么
 

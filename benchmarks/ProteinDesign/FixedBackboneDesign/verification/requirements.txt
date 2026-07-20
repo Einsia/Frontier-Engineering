@@ -1,0 +1,6 @@
+# PyRosetta - install from RosettaCommons quarterly release channel:
+#   pip install pyrosetta --find-links https://west.rosettacommons.org/pyrosetta/quarterly/release
+#
+# Or use the official Docker image which has PyRosetta pre-installed:
+#   docker pull rosettacommons/rosetta:serial
+pyrosetta>=2025.0

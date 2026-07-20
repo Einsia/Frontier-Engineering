@@ -1,0 +1,31 @@
+FixedBackboneDesign baseline (no additional indexes beyond initial)
+==============================================================
+Date: 2026-07-14
+Evaluator: verification/evaluator.py (evaluate() function)
+Candidate: scripts/init.py (baseline: single-round PackRotamers with default settings)
+Environment: Docker (rosettacommons/rosetta:serial), PyRosetta ref2015
+
+Results:
+--------
+valid:            1.0
+combined_score:   0.025
+native_energy:   -169.18
+total_energy:   -173.48
+improvement:      +4.30
+
+Energy terms:
+  fa_atr:      -377.73
+  fa_rep:       110.97
+  fa_sol:       245.04
+  fa_elec:     -133.95
+  hbond_bb_sc:   -4.62
+  hbond_sc:      -6.87
+  p_aa_pp:      -23.02
+  ref:           12.74
+
+Note:
+- The baseline uses a single-round PackRotamersMover with packer.task().
+- Non-design positions are prevented from repacking via prevent_repacking().
+- Constraint verification (_verify_constraints) passed: no backbone movement,
+  no unexpected mutations at non-design positions.
+- Random seed fixed to 42 for reproducibility.

@@ -1,0 +1,13 @@
+{
+  "energy_function": "ref2015",
+  "score_terms": {
+    "fa_atr": {"weight": 1.0, "description": "Lennard-Jones attractive (van der Waals)"},
+    "fa_rep": {"weight": 0.55, "description": "Lennard-Jones repulsive (steric clash)"},
+    "fa_sol": {"weight": 1.0, "description": "Lazaridis-Karplus solvation energy"},
+    "fa_elec": {"weight": 1.0, "description": "Coulomb electrostatic potential"},
+    "hbond_bb_sc": {"weight": 1.0, "description": "Backbone-sidechain hydrogen bonds"},
+    "hbond_sc": {"weight": 1.0, "description": "Sidechain-sidechain hydrogen bonds"},
+    "p_aa_pp": {"weight": 0.6, "description": "Ramachandran torsion preference"},
+    "ref": {"weight": 1.0, "description": "Per-residue reference energy"}
+  }
+}

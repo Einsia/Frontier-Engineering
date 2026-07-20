@@ -1,0 +1,14 @@
+{
+  "task_name": "fixed_backbone_design_demo",
+  "description": "Fixed-backbone protein sequence design using PyRosetta ref2015 scoring",
+  "pdb_id": "1ubq",
+  "pdb_path": "references/petrobind/1ubq.pdb",
+  "design_positions": [2, 4, 6, 8, 10, 12, 14, 16],
+  "native_sequence": "MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG",
+  "energy_function": "ref2015",
+  "task_config": {
+    "n_design_positions": 8,
+    "allow_design_of_native": true,
+    "description": "Design 8 core positions of ubiquitin (PDB 1UBQ)"
+  }
+}

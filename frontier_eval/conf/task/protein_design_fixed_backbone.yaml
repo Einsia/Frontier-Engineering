@@ -1,0 +1,7 @@
+name: unified
+benchmark: ProteinDesign/FixedBackboneDesign
+
+runtime:
+  isolation_mode: docker
+  docker_image: rosettacommons/rosetta:serial
+  python_path: python3

@@ -18,6 +18,7 @@ The benchmark currently covers **47 tasks** across computing, quantum informatio
 
 - **2026-06-30** — **New scoring metric: the Medal Score (gold/silver/bronze).** Alongside average rank, we now release a peer-relative *Medal Score* (normalized to `[0,1]`). On each task the top-3 best-feasible scores in the v1 snapshot are frozen as gold/silver/bronze baselines; a model earns 1.00 / 0.67 / 0.33 for reaching each, averaged over the task set, and is reported on both v1 (47 tasks) and v1-lite (10 tasks). It rewards only reaching each task's frontier and ignores negligible long-tail margins, making cross-task aggregation fairer. Per-task podium values and the leaderboard live in [`leaderboard/`](leaderboard/README.md).
 - **2026-06-30** — **`v1-lite` released.** A 10-task representative subset of `v1` covering all five categories with distinct benchmark families, selected for tasks whose scores climb gradually under budget (not one-shot-saturated or all-or-nothing). Run it with `frontier_eval/conf/batch/v1_lite.yaml`.
+- **2026-07-17** — **Version branches clarified.** The historical baseline has been frozen at `v1-arxiv` for reproducibility and arXiv-era compatibility. Active development for the next version is now tracked on `main`, and community contributions are welcome there.
 
 ## 0. Host Requirements
 

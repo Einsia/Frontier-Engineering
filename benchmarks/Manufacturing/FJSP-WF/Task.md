@@ -21,7 +21,7 @@ The economic stakes are high: a 1% improvement in production makespan translates
 
 ### What This Benchmark Evaluates
 
-This benchmark evaluates whether an AI agent can improve an **existing engineering scheduling artifact** 鈥?not whether it can generate a schedule from scratch, and not whether it can solve a math problem.
+This benchmark evaluates whether an AI agent can improve an **existing engineering scheduling artifact** —?not whether it can generate a schedule from scratch, and not whether it can solve a math problem.
 
 The agent receives:
 
@@ -70,8 +70,8 @@ An FJSP-WF instance consists of:
 - A set of **Machines** `M = {M_1, ..., M_m}`
 - A set of **Workers** `W = {W_1, ..., W_w}`
 - Each operation `O_{j,k}` (k-th operation of job j) has:
-  - A set of eligible machines `M_{j,k} 鈯?M`
-  - For each eligible machine `m 鈭?M_{j,k}` and each worker `w 鈭?W`, a processing time `p_{j,k,m,w}`
+  - A set of eligible machines `M_{j,k} ⊆?M`
+  - For each eligible machine `m ∈?M_{j,k}` and each worker `w ∈?W`, a processing time `p_{j,k,m,w}`
 
 ### Constraints
 
@@ -273,7 +273,7 @@ The score is continuous, allowing partial credit and iterative improvement track
 
 ## Implementations in This Folder
 
-- `baseline/solution.py`: Greedy EST+SPT (Earliest Start Time + Shortest Processing Time) list scheduling. Pure Python, standard library only. **Read-only** 鈥?serves as the fixed baseline for relative scoring.
+- `baseline/solution.py`: Greedy EST+SPT (Earliest Start Time + Shortest Processing Time) list scheduling. Pure Python, standard library only. **Read-only** —?serves as the fixed baseline for relative scoring.
 - `scripts/init.py`: **Agent-editable artifact**. Starts with the same EST+SPT baseline algorithm. The agent must modify the code inside the EVOLVE-BLOCK markers to improve scheduling performance.
 - `verification/evaluator.py`: **Read-only** scoring and validation script. Dynamically loads both baseline and candidate solver, executes them on all instances, validates output, and computes scores.
 
@@ -306,7 +306,7 @@ python -m frontier_eval task=unified task.benchmark=Manufacturing/FJSP-WF algori
 ## Agent Constraints
 
 1. Only modify code between `# EVOLVE-BLOCK-START` and `# EVOLVE-BLOCK-END` markers in `scripts/init.py`.
-2. Keep the marker lines `# EVOLVE-BLOCK-START` and `# EVOLVE-BLOCK-END` intact 鈥?they define the only editable region.
+2. Keep the marker lines `# EVOLVE-BLOCK-START` and `# EVOLVE-BLOCK-END` intact —?they define the only editable region.
 3. Do not modify `verification/evaluator.py`, `baseline/solution.py`, or any file outside `scripts/init.py`.
 4. Pure Python implementation only (standard library allowed).
 5. No external solvers (OR-Tools, CPLEX, Gurobi, PuLP, etc.).

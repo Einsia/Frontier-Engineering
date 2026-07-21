@@ -9,15 +9,23 @@ and structural stability under a nearest-neighbor thermodynamic model.
 ```text
 PrimerDesignOptimization/
 ├── README.md
+├── README_zh-CN.md
 ├── Task.md
+├── Task_zh-CN.md
 ├── references/
-│   └── primer_config.json
+│   ├── primer_config.json
+│   └── hidden_templates/
+│       ├── hidden_at_rich_001.json
+│       ├── hidden_gc_rich_001.json
+│       └── hidden_medium_001.json
 ├── scripts/
 │   └── init.py
 ├── baseline/
-│   └── solution.py
+│   ├── solution.py
+│   └── result_log.json
 ├── verification/
 │   ├── evaluator.py
+│   ├── test_evaluator.py
 │   └── requirements.txt
 └── frontier_eval/
     ├── eval_command.txt
@@ -25,6 +33,7 @@ PrimerDesignOptimization/
     ├── agent_files.txt
     ├── artifact_files.txt
     ├── constraints.txt
+    ├── evaluator.py
     └── run_eval.py
 ```
 

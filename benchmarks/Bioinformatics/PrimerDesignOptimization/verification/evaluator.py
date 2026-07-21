@@ -9,7 +9,7 @@ Usage
     python verification/evaluator.py --submission submission.json
     python verification/evaluator.py scripts/init.py
 
-Frozen Spec v2.0 sections referenced throughout.
+See Task.md for the full benchmark specification.
 """
 
 from __future__ import annotations
@@ -328,7 +328,7 @@ def compute_gc_content(seq: str) -> float:
 # ║  Template Alignment  (Spec §4)                                              ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
-# Primer-template alignment and off-target binding (Spec v2.0 §4).
+# Primer-template alignment and off-target binding (Spec §4).
 
 def align_primers(
     fwd: str,
@@ -431,7 +431,7 @@ def count_offtarget_binding(
 # ║  Validation Gates  (Spec §5)                                                ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
-# Hard validation gates (Spec v2.0 §5).
+# Hard validation gates (Spec §5).
 # Any violation sets valid = 0 and combined_score = 0.
 
 def validate_charset(fwd: str, rev: str) -> bool:
@@ -750,7 +750,7 @@ def run_hard_gates(
     """Run every hard validation gate, including template-dependent gates.
 
     This is the single aggregation point for all hard gates defined in
-    Frozen Spec §5.  Short-circuits on the first violation.
+    §5.  Short-circuits on the first violation.
 
     Parameters
     ----------
@@ -822,7 +822,7 @@ def _linear_score(value: float, threshold: float) -> float:
     """
     return max(0.0, 1.0 - value / threshold)
 
-# Metric sub-scores (Spec v2.0 §6).
+# Metric sub-scores (Spec §6).
 # Each returns a value in [0, 100] (higher is better).  Combined via weighted sum.
 
 def length_score(fwd: str, rev: str, cfg: dict[str, Any]) -> float:
@@ -1218,7 +1218,7 @@ def product_length_score(
         return max(0.0, (max_len - product_length) / (max_len - pref_hi))
     return 0.0
 
-# Composite scoring (Spec v2.0 §7).
+# Composite scoring (Spec §7).
 
 # 1. Run hard gates.
 # 2. If violations exist → combined_score = 0.0, valid = 0.
@@ -1558,7 +1558,7 @@ def _load_hidden_templates() -> list[dict[str, Any]]:
 
     Spec
     ----
-    з§7.3 з§ Hidden template validation.
+    §7.3 § Hidden template validation.
     """
     ht_dir = Path(__file__).resolve().parent.parent / "references" / "hidden_templates"
     if not ht_dir.exists():

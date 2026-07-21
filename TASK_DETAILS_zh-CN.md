@@ -252,6 +252,11 @@ Frontier-Eng 目前已覆盖以下领域的任务。每个任务均配有可运�
       <td>带整数手数约束的离散再平衡混合整数优化</td>
     </tr>
     <tr>
+      <td><b>MarketMaking</b></td>
+      <td><code>InventoryAwareQuoting</code></td>
+      <td>在不利选择与仓位约束下进行库存感知的 DUAL 做市报价</td>
+    </tr>
+    <tr>
       <td rowspan="7"><b>JobShop</b></td>
       <td><code>abz</code></td>
       <td>JSSP ABZ 家族（Adams, Balas, Zawack 1988）</td>

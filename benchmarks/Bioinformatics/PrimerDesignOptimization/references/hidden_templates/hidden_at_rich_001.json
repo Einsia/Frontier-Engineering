@@ -1,0 +1,12 @@
+{
+    "template": {
+        "name": "hidden_at_rich_001",
+        "sequence": "TTTGCGTCCACAAGAAAGCGTTATACTCTATCAAGACCTGACATTGCTATATGATAGTCTTTTCAAGGAAGTCGTAGGATAGTTGTCCTATAACAGACTA",
+        "description": "Hidden validation template with AT-rich content (~38%), 100 bp."
+    },
+    "amplicon": {
+        "start_index": 20,
+        "end_index": 80,
+        "strand": "forward"
+    }
+}

@@ -1,4 +1,3 @@
-﻿# EVOLVE-BLOCK-START
 """Baseline PCR primer design optimizer.
 
 DO NOT MODIFY: load_config(), score_primer_pair(), compute_melting_temperature(),
@@ -408,6 +407,9 @@ def score_primer_pair(fwd: str, rev: str, cfg: dict[str, Any]) -> dict[str, Any]
 # ALLOWED TO MODIFY — Primer design optimizer
 # ---------------------------------------------------------------------------
 
+
+# EVOLVE-BLOCK-START
+
 def design_primers() -> dict[str, str]:
     """Design PCR primers for the target template.
 
@@ -431,6 +433,8 @@ def design_primers() -> dict[str, str]:
     )
 
     return {"forward_primer": fwd, "reverse_primer": rev}
+
+# EVOLVE-BLOCK-END
 
 
 # ---------------------------------------------------------------------------
@@ -456,4 +460,3 @@ if __name__ == "__main__":
     with open("submission.json", "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2)
     print("Submission written to submission.json")
-# EVOLVE-BLOCK-END

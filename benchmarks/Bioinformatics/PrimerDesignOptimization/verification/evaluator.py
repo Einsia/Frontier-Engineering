@@ -549,10 +549,11 @@ def validate_gc_clamp(fwd: str, rev: str, cfg: dict[str, Any]) -> bool:
     required = cfg["constraints"]["gc_clamp"]["required"]
     if not required:
         return True
+    max_gc = cfg["constraints"]["gc_clamp"]["max_gc_in_last_5"]
     for primer in (fwd, rev):
         last5 = primer[-5:].upper()
         gc_count = sum(1 for base in last5 if base in "GC")
-        if gc_count < 1:
+        if gc_count < 1 or gc_count > max_gc:
             return False
     return True
 
@@ -1541,6 +1542,64 @@ def main() -> None:
         metrics_path.parent.mkdir(parents=True, exist_ok=True)
         with open(metrics_path, "w", encoding="utf-8") as mf:
             json.dump(result, mf, indent=2)
+
+
+
+def _load_hidden_templates() -> list[dict[str, Any]]:
+    """Load all hidden template configurations.
+
+    Scans ``references/hidden_templates/`` for JSON files, each containing
+    a template sequence and amplicon definition.
+
+    Returns
+    -------
+    list[dict]
+        Each entry has ``{"template": ..., "amplicon": ...}``.
+
+    Spec
+    ----
+    з§7.3 з§ Hidden template validation.
+    """
+    ht_dir = Path(__file__).resolve().parent.parent / "references" / "hidden_templates"
+    if not ht_dir.exists():
+        return []
+    templates: list[dict[str, Any]] = []
+    for fpath in sorted(ht_dir.glob("*.json")):
+        try:
+            with open(fpath, encoding="utf-8") as f:
+                templates.append(json.load(f))
+        except (json.JSONDecodeError, OSError):
+            continue
+    return templates
+
+
+def _make_hidden_config(
+    hidden_template: dict[str, Any],
+    base_cfg: dict[str, Any],
+) -> dict[str, Any]:
+    """Build a full config dict from a hidden template and the base config.
+
+    The returned config uses the hidden template's sequence and amplicon,
+    but inherits all other parameters (constraints, weights, thermodynamics)
+    from the base config.
+
+    Parameters
+    ----------
+    hidden_template : dict
+        Dict with ``"template"`` and ``"amplicon"`` keys.
+    base_cfg : dict
+        The full benchmark config (:func:`load_config`).
+
+    Returns
+    -------
+    dict
+        A new config dict ready for evaluation.
+    """
+    cfg = dict(base_cfg)
+    cfg["template"] = dict(hidden_template["template"])
+    cfg["amplicon"] = dict(hidden_template["amplicon"])
+    return cfg
+
 
 if __name__ == "__main__":
     main()

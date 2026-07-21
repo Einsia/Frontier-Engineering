@@ -1,4 +1,4 @@
-﻿"""Baseline solution for PCR Primer Design Optimization.
+"""Baseline solution for PCR Primer Design Optimization.
 
 This module implements a genetic-algorithm-based primer designer that
 searches for optimal forward/reverse primer pairs given a template
@@ -401,6 +401,7 @@ def design_primers() -> dict[str, str]:
         dict with keys "forward_primer" and "reverse_primer".
     """
     cfg = load_config()
+    random.seed(42)
     template = cfg["template"]["sequence"]
     amp_start = cfg["amplicon"]["start_index"]
     amp_end = cfg["amplicon"]["end_index"]

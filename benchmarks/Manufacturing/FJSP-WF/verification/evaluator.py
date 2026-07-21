@@ -175,12 +175,22 @@ def _run_candidate_subprocess(candidate_path, instance):
     runner_path = Path(__file__).parent / '_candidate_runner.py'
     
     try:
+        if sys.platform != 'win32':
+            import resource
+            _preexec_fn = lambda: (
+                resource.setrlimit(resource.RLIMIT_NPROC, (64, 64)),
+                resource.setrlimit(resource.RLIMIT_AS, (2 * 1024 * 1024 * 1024, 2 * 1024 * 1024 * 1024)),
+                resource.setrlimit(resource.RLIMIT_CPU, (60, 60)),
+            )
+        else:
+            _preexec_fn = None
         proc = subprocess.run(
             [sys.executable, str(runner_path), str(candidate_path)],
             input=json.dumps(instance),
             capture_output=True,
             text=True,
             timeout=300,
+            preexec_fn=_preexec_fn,
         )
     except subprocess.TimeoutExpired:
         return None, 'subprocess timed out (300s)'
@@ -225,16 +235,16 @@ def _coerce_int(value: object, field: str) -> int:
     return coerced
 
 
-def _check_evolve_block(candidate_path, original_path):
+def _check_evolve_block(candidate_path, reference_path):
     """Verify that code outside EVOLVE-BLOCK-START/END markers has not been modified."""
     EVOLVE_START = '# EVOLVE-BLOCK-START'
     EVOLVE_END = '# EVOLVE-BLOCK-END'
     
-    for label, path in [('Original', original_path), ('Candidate', candidate_path)]:
+    for label, path in [('Original', reference_path), ('Candidate', candidate_path)]:
         if not path.is_file():
             return False, label + ' file not found: ' + str(path)
     
-    original_text = original_path.read_text(encoding='utf-8')
+    original_text = reference_path.read_text(encoding='utf-8')
     candidate_text = candidate_path.read_text(encoding='utf-8')
     
     def _get_outer_regions(text):
@@ -790,8 +800,8 @@ def main() -> int:
         return 1
 
     # EVOLVE-BLOCK validation
-    original_solver_path = benchmark_dir / "scripts" / "init.py"
-    evolve_ok, evolve_msg = _check_evolve_block(candidate_path, original_solver_path)
+    reference_solver_path = benchmark_dir / "references" / "solver_reference.py"
+    evolve_ok, evolve_msg = _check_evolve_block(candidate_path, reference_solver_path)
     if not evolve_ok:
         print(f"Error: {evolve_msg}", file=sys.stderr)
         return 1

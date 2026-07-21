@@ -33,7 +33,7 @@ agent 拥有**完全自由**来重新设计布局算法。唯一约束是：
 2. 程序必须按相同格式输出 solution.pl。
 3. 布局必须满足三个合法性门（G1, G2, G3）。
 
-scripts/init.py 中 EVOLVE-BLOCK 内的所有内容——包括解析器、数据结构和布局策略——均可修改、替换或删除。
+scripts/init.py 中 EVOLVE-BLOCK内的代码——布局算法函数——可以修改、替换或删除。benchmark 解析器（.nodes、.pl、.scl）、输出写入器和 CLI 入口点位于 EVOLVE-BLOCK 之外，是冻结的。
 
 ## 基线（Baseline）
 
@@ -101,7 +101,7 @@ FPGAPlacementOptimization/
 ### 1. 安装依赖
 
 `
-pip install numpy scipy
+pip install numpy
 `
 
 ### 2. 运行初始求解器

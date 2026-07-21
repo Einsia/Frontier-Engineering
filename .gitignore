@@ -56,3 +56,4 @@ debug-*.log
 **/outputs/
 **/artifacts/
 **/last_eval.json
+**/solution.pl

@@ -1,5 +1,4 @@
-# EVOLVE-BLOCK-START
-"""FPGA Placement Optimization - Initial Solver.
+﻿"""FPGA Placement Optimization - Initial Solver.
 
 Pipeline
 --------
@@ -16,10 +15,6 @@ The evaluator runs this program, then scores solution.pl independently.
 
 The agent is expected to evolve the placement strategy (step 2).
 All benchmark I/O contracts (steps 1 and 3) should remain unchanged.
-
-- ALLOWED TO MODIFY: Everything inside EVOLVE-BLOCK.
-- DO NOT MODIFY:     The command-line interface, the output file format
-                     (solution.pl), and the contract with evaluator.py.
 """
 
 from __future__ import annotations
@@ -31,9 +26,9 @@ from pathlib import Path
 from typing import Any
 
 
-# ??????????????????????????????????????????????????????????????????????
-# BENCHMARK PARSING
-# ??????????????????????????????????????????????????????????????????????
+# ============================================================================
+# READ-ONLY: Benchmark Parsing  (frozen -- do not modify)
+# ============================================================================
 
 def parse_nodes(path: str) -> list[tuple[str, str]]:
     """Parse .nodes file. Returns list of (instance_name, cell_type)."""
@@ -69,7 +64,7 @@ def parse_scl(path: str) -> dict[str, Any]:
     result: dict[str, Any] = {
         "site_capacities": {},
         "resources": {},
-        "site_map": {},       # (col, row) -> site_type
+        "site_map": {},
         "num_cols": 0,
         "num_rows": 0,
     }
@@ -93,10 +88,6 @@ def parse_scl(path: str) -> dict[str, Any]:
                     cap = int(parts[1]) if parts[1].isdigit() else 1
                     result["site_capacities"][current_site][parts[0]] = cap
 
-            elif line.startswith("RESOURCES"):
-                pass
-            elif line == "END RESOURCES":
-                pass
             elif line.startswith("SITEMAP"):
                 parts = line.split()
                 if len(parts) >= 3:
@@ -111,8 +102,6 @@ def parse_scl(path: str) -> dict[str, Any]:
                     col, row, stype = int(parts[0]), int(parts[1]), parts[2]
                     result["site_map"][(col, row)] = stype
 
-    # Build reverse resource map: cell_type -> site_type
-    # (simplified mapping derived from standard FPGA architecture)
     result["cell_to_site"] = {
         "LUT1": "SLICE", "LUT2": "SLICE", "LUT3": "SLICE",
         "LUT4": "SLICE", "LUT5": "SLICE", "LUT6": "SLICE",
@@ -126,61 +115,69 @@ def parse_scl(path: str) -> dict[str, Any]:
     return result
 
 
-# ??????????????????????????????????????????????????????????????????????
-# INITIAL PLACER: Row-scan
-# ??????????????????????????????????????????????????????????????????????
+# ============================================================================
+# EVOLVE-BLOCK-START
+# The agent may redesign or replace everything below this line.
+# ============================================================================
 
 def is_slice_cell(cell_type: str) -> bool:
-    return cell_type.startswith("LUT") or cell_type == "FDRE" or cell_type.startswith("CARRY")
+    """Check if a cell type belongs to a SLICE site."""
+    return (cell_type.startswith("LUT") or cell_type in ("FDRE",)
+            or cell_type.startswith("CARRY"))
 
 
-def get_site_type(cell_type: str, cell_to_site: dict[str, str]) -> str:
-    """Determine which site type a cell requires."""
-    if is_slice_cell(cell_type):
-        return "SLICE"
-    return cell_to_site.get(cell_type, "SLICE")
+def get_site_type(cell_type: str, cell_to_site: dict[str, str]) -> str | None:
+    """Return the site type required for a given cell type."""
+    return cell_to_site.get(cell_type)
 
 
 def row_scan_place(
     instances: list[tuple[str, str]],
-    fixed_placements: dict[str, tuple[int, int, int]],
+    fixed_pl: dict[str, tuple[int, int, int]],
     scl_data: dict[str, Any],
 ) -> dict[str, tuple[int, int, int]]:
-    """Assign each movable instance to a legal site via row-scan.
+    """Naive row-scan placement: assign each movable instance to the first
+    available legal site.  Guarantees legality by construction.
 
-    Algorithm:
-    1. Separate instances by site type (SLICE, DSP, BRAM).
-    2. For each site type, scan the site map left-to-right, bottom-to-top.
-    3. Assign instances to sites, respecting per-site capacity.
-    4. Fixed instances are placed at their input locations.
+    Parameters
+    ----------
+    instances : list of (name, cell_type) from .nodes
+    fixed_pl : dict of fixed placements from .pl
+    scl_data : parsed .scl data
+
+    Returns
+    -------
+    placements : dict name -> (x, y, z)
     """
-    placements: dict[str, tuple[int, int, int]] = dict(fixed_placements)
-    cell_to_site = scl_data["cell_to_site"]
-    site_map = scl_data["site_map"]
+    placements: dict[str, tuple[int, int, int]] = {}
     capacities = scl_data["site_capacities"]
+    site_map = scl_data["site_map"]
+    cell_to_site = scl_data["cell_to_site"]
+
+    # Collect fixed placements
+    for name, (x, y, z) in fixed_pl.items():
+        placements[name] = (x, y, z)
 
     # Group movable instances by required site type
-    groups: dict[str, list[str]] = {"SLICE": [], "DSP": [], "BRAM": []}
+    groups: dict[str, list[tuple[str, str]]] = {}
     for name, ctype in instances:
-        if name in fixed_placements:
-            continue  # skip fixed IOs
+        if name in placements:
+            continue  # already fixed
         stype = get_site_type(ctype, cell_to_site)
+        if stype is None:
+            continue
         if stype not in groups:
             groups[stype] = []
         groups[stype].append((name, ctype))
 
-    # Collect sites by type
+    # Collect sites of each type (sorted by column, then row for deterministic order)
     sites_by_type: dict[str, list[tuple[int, int]]] = {}
-    for (col, row), stype in site_map.items():
+    for (col, row), stype in sorted(site_map.items()):
         if stype not in sites_by_type:
             sites_by_type[stype] = []
         sites_by_type[stype].append((col, row))
 
-    # Sort sites by column, then row (left-to-right, bottom-to-top)
-    for stype in sites_by_type:
-        sites_by_type[stype].sort(key=lambda p: (p[0], p[1]))
-
-    # Per-site resource usage
+    # Per-site usage tracker
     site_usage: dict[tuple[int, int], dict[str, int]] = {}
 
     def get_usage(site_key: tuple[int, int]) -> dict[str, int]:
@@ -217,7 +214,7 @@ def row_scan_place(
                 usage = get_usage(site)
                 if usage[usage_key] < max_per_site:
                     usage[usage_key] += 1
-                    z = usage[usage_key] - 1  # BEL index 0-based
+                    z = usage[usage_key] - 1
                     placements[name] = (site[0], site[1], z)
                     bel_idx += 1
                     break
@@ -247,6 +244,16 @@ def row_scan_place(
     return placements
 
 
+# ============================================================================
+# EVOLVE-BLOCK-END
+# The agent must NOT modify anything below this line.
+# ============================================================================
+
+
+# ============================================================================
+# READ-ONLY: Output Writer and CLI Entry Point (frozen -- do not modify)
+# ============================================================================
+
 def write_pl(placements: dict[str, tuple[int, int, int]], output_path: str) -> None:
     """Write placements to a .pl file in Bookshelf format."""
     with open(output_path, "w") as f:
@@ -257,7 +264,7 @@ def write_pl(placements: dict[str, tuple[int, int, int]], output_path: str) -> N
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="FPGA Placement Optimization ? initial solver")
+    parser = argparse.ArgumentParser(description="FPGA Placement Optimization -- initial solver")
     parser.add_argument("--nodes", default=None, help="Path to .nodes file")
     parser.add_argument("--pl", default=None, help="Path to input .pl file (fixed instances)")
     parser.add_argument("--scl", default=None, help="Path to .scl file")
@@ -311,4 +318,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-# EVOLVE-BLOCK-END

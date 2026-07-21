@@ -4,7 +4,7 @@
 
 Improve the placement algorithm implemented in `scripts/init.py`. This program reads an FPGA benchmark circuit (in ISPD Bookshelf format) and assigns each logic instance (LUT, FF, DSP, BRAM) to a legal site on the FPGA grid. The goal is to **minimize half-perimeter wirelength (HPWL)** while satisfying all FPGA-specific legality constraints.
 
-This benchmark is based on the **ISPD 2016 FPGA Placement Contest** benchmarks and the **FPGA Bookshelf format** (`.nodes`, `.nets`, `.pl`, `.scl`, `.lib`, `.lc`).
+This benchmark is based on the **ISPD 2016 FPGA Placement Contest** benchmarks and the **FPGA Bookshelf format** (`.nodes`, `.nets`, `.pl`, `.scl`, `.lib`).
 
 The task: **improve the placement algorithm in `scripts/init.py` to produce lower-wirelength placements.** The file contains a naive row-scan placer that produces a legal but high-wirelength placement. An improved algorithm should reduce HPWL while maintaining legality.
 
@@ -14,12 +14,18 @@ This benchmark intentionally does **not** prescribe any specific placement algor
 
 Possible approaches include, but are not limited to:
 
-- **Constructive placement** ¡ª place instances greedily using heuristics (row-scan, quadratic assignment, or partitioning-based methods).
-- **Analytical placement** ¡ª formulate placement as a continuous optimization problem with differentiable wirelength proxies and density penalties.
-- **Simulated annealing** ¡ª start from an initial placement and iteratively perturb and improve.
-- **Reinforcement learning** ¡ª train a policy to place instances sequentially.
-- **Integer programming** ¡ª formulate legality and wirelength as an exact optimization problem.
-- **Hybrid approaches** ¡ª combine multiple strategies (e.g., analytical global placement followed by legalization).
+- **Constructive placement** ï¿½ï¿½ place instances greedily using heuristics (row-scan, quadratic assignment, or partitioning-based methods).
+- **Analytical placement** ï¿½ï¿½ formulate placement as a continuous optimization problem with differentiable wirelength proxies and density penalties.
+- **Simulated annealing** ï¿½ï¿½ start from an initial placement and iteratively perturb and improve.
+- **Reinforcement learning** ï¿½ï¿½ train a policy to place instances sequentially.
+- **Integer programming** ï¿½ï¿½ formulate legality and wirelength as an exact optimization problem.
+- **Hybrid approaches** ï¿½ï¿½ combine multiple strategies (e.g., analytical global placement followed by legalization).
+
+The EVOLVE-BLOCK in scripts/init.py wraps only the placement algorithm function.
+The benchmark parsers (.nodes, .pl, .scl), output writer, and CLI entry point
+are outside the EVOLVE-BLOCK and are **frozen**. The evaluator validates this
+boundary at runtime â€” if a candidate modifies any frozen code, it receives an
+invalid score.
 
 The only requirements are:
 
@@ -27,7 +33,7 @@ The only requirements are:
 2. The program must produce `solution.pl` in the Bookshelf format described in Section 7 (Submission Contract).
 3. The placement must satisfy all three legality gates (G1, G2, G3) described in Section 6 (Constraints).
 
-The evaluator judges **only the generated placement quality and legality**, not the internal implementation. An agent that replaces the entire placement algorithm with a completely different approach is treated identically to one that makes incremental modifications to the row-scan placer ¡ª both are scored solely by the resulting HPWL and legality of the output placement.
+The evaluator judges **only the generated placement quality and legality**, not the internal implementation. An agent that replaces the entire placement algorithm with a completely different approach is treated identically to one that makes incremental modifications to the row-scan placer ï¿½ï¿½ both are scored solely by the resulting HPWL and legality of the output placement.
 
 ## 3. Input Format (ISPD Bookshelf for FPGA)
 
@@ -42,7 +48,6 @@ Benchmark designs use the **Bookshelf format** extended for FPGA placement. Each
 | SCL | `.scl` | Site/clock layout: site definitions, resources per site, and site map grid |
 | Library | `.lib` | Cell library: pin definitions, directions (INPUT/OUTPUT), clock/control attributes |
 | Weights | `.wts` | Net weights (typically all 1.0) |
-| Legality Constraints | `.lc` | Architecture-specific legality constraint parameters |
 
 The `.aux` file is the entry point:
 
@@ -151,7 +156,7 @@ Carry-chain instances (CARRY4/CARRY8) must:
 
 Your candidate program (`scripts/init.py`) must:
 
-1. Read the benchmark input files (`.nodes`, `.nets`, `.pl`, `.scl`, `.lib`, `.lc`)
+1. Read the benchmark input files (`.nodes`, `.nets`, `.pl`, `.scl`, `.lib`)
 2. Compute a placement for all movable instances
 3. Write a `.pl` file to the specified output path
 
@@ -226,7 +231,7 @@ python verification/evaluator.py scripts/init.py
 ## 11. References
 
 - **ISPD 2016 FPGA Placement Contest**: http://www.ispd.cc/contests/16/FAQ.html
-- **aug-elfPlace**: Rachel Selina Rajarathnam et al., "Better Together: Combining Analytical and Annealing Methods for FPGA Placement," FPL 2024. [GitHub](https://github.com/rachelselinar/DREAMPlaceFPGA) (reference implementation available at the repository root `baseline/aug-elfPlace/`).
+- **aug-elfPlace**: Rachel Selina Rajarathnam et al., "Better Together: Combining Analytical and Annealing Methods for FPGA Placement," FPL 2024. [GitHub](https://github.com/rachelselinar/DREAMPlaceFPGA) (reference implementation).
 
 - **ISPD 2016 Benchmark Format**: `references/README` describes the FPGA Bookshelf format extensions.
 - **Benchmark data**: references/ (fpga-example1)

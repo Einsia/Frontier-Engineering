@@ -38,9 +38,10 @@ The only constraints are:
 2. The program must produce `solution.pl` in the same format.
 3. The placement must satisfy the three legality gates (G1, G2, G3).
 
-Everything inside the `EVOLVE-BLOCK` in `scripts/init.py` — including parsers,
-data structures, and the placement strategy — may be modified, replaced, or
-removed.
+Everything inside the `EVOLVE-BLOCK` in `scripts/init.py` — the placement
+algorithm functions — may be modified, replaced, or removed. The benchmark
+parsers (.nodes, .pl, .scl), output writer, and CLI entry point are
+outside the EVOLVE-BLOCK and are **frozen**.
 
 ## Baseline
 
@@ -171,7 +172,7 @@ FPGAPlacementOptimization/
 ### 1. Dependencies
 
 ```bash
-pip install numpy scipy
+pip install numpy
 ```
 
 ### 2. Run the Initial Solver
@@ -229,6 +230,7 @@ python -m frontier_eval task=unified task.benchmark=FPGA/FPGAPlacementOptimizati
 - ClockAwarePlacement_DesignValidation.md -- Source-code validation of design
   assumptions; documents why "clock-aware" constraints are not present in the
   baseline and why the benchmark is reformulated as pure placement optimization.
+
 
 
 

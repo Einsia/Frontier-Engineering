@@ -4,7 +4,7 @@
 
 改进 `scripts/init.py` 中实现的布局算法。该程序读取 FPGA benchmark 电路（ISPD Bookshelf 格式），将每个逻辑实例（LUT、FF、DSP、BRAM）分配到 FPGA 网格上的合法站点。目标是**最小化半周长线长（Half-Perimeter Wirelength, HPWL）**，同时满足所有 FPGA 特定的合法性约束。
 
-本 benchmark 基于 **ISPD 2016 FPGA Placement Contest** 基准测试集和 **FPGA Bookshelf 格式**（`.nodes`、`.nets`、`.pl`、`.scl`、`.lib`、`.lc`）。
+本 benchmark 基于 **ISPD 2016 FPGA Placement Contest** 基准测试集和 **FPGA Bookshelf 格式**（`.nodes`、`.nets`、`.pl`、`.scl`、`.lib`）。
 
 任务：**改进 `scripts/init.py` 中的布局算法以产生更低线长的布局。** 该文件包含一个朴素的逐行扫描布局器（row-scan placer），可生成合法但线长较高的布局。改进后的算法应在保持合法性的前提下降低 HPWL。
 
@@ -20,6 +20,12 @@
 - **强化学习（Reinforcement learning）** — 训练策略网络顺序放置实例。
 - **整数规划（Integer programming）** — 将合法性和线长表述为精确优化问题。
 - **混合方法（Hybrid approaches）** — 结合多种策略（例如，解析全局布局后接合法化）。
+
+
+scripts/init.py 中的 EVOLVE-BLOCK 仅包含布局算法函数。
+benchmark 解析器（.nodes、.pl、.scl）、输出写入器和 CLI 入口点
+位于 EVOLVE-BLOCK 之外，是“冻结”的。评测器在运行时验证该边界——
+如果候选程序修改了任何冻结代码，它将获得无效分数。
 
 唯一要求：
 
@@ -42,7 +48,7 @@ Benchmark 设计使用针对 FPGA 布局扩展的 **Bookshelf 格式**。每个�
 | SCL | `.scl` | 站点/时钟布局：站点定义、每站点资源及站点地图网格 |
 | Library | `.lib` | 单元库：引脚定义、方向（INPUT/OUTPUT）、时钟/控制属性 |
 | Weights | `.wts` | 网权重（通常均为 1.0） |
-| Legality Constraints | `.lc` | 架构特定的合法性约束参数 |
+ 架构特定的合法性约束参数 |
 
 `.aux` 文件是入口点：
 
@@ -151,7 +157,7 @@ HPWL 根据**最终合法布局**计算，以每个实例所在站点的中心�
 
 候选程序（`scripts/init.py`）必须：
 
-1. 读取 benchmark 输入文件（`.nodes`、`.nets`、`.pl`、`.scl`、`.lib`、`.lc`）
+1. 读取 benchmark 输入文件（`.nodes`、`.nets`、`.pl`、`.scl`、`.lib`）
 2. 为所有可移动实例计算布局
 3. 将 `.pl` 文件写入指定输出路径
 
@@ -226,7 +232,7 @@ python verification/evaluator.py scripts/init.py
 ## 11. 参考文献（References）
 
 - **ISPD 2016 FPGA Placement Contest**：http://www.ispd.cc/contests/16/FAQ.html
-- **aug-elfPlace**：Rachel Selina Rajarathnam 等人, "Better Together: Combining Analytical and Annealing Methods for FPGA Placement," FPL 2024. [GitHub](https://github.com/rachelselinar/DREAMPlaceFPGA)（参考实现，位于仓库根目录 `baseline/aug-elfPlace/`）
+- **aug-elfPlace**：Rachel Selina Rajarathnam 等人, "Better Together: Combining Analytical and Annealing Methods for FPGA Placement," FPL 2024. [GitHub](https://github.com/rachelselinar/DREAMPlaceFPGA)（参考实现，位于仓库根目录 `aug-elfPlace` (separate repository)）
 
 - **ISPD 2016 Benchmark 格式**：`references/README` 描述了 FPGA Bookshelf 格式的扩展内容。
 - **Benchmark 数据**：references/（fpga-example1）

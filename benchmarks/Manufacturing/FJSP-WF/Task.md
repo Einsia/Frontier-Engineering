@@ -136,8 +136,6 @@ Fields:
 
 ## Instance Data
 
-## Instance Data
-
 This benchmark uses two categories of instances:
 
 ### Official Benchmark Instances (30 files)
@@ -173,7 +171,7 @@ Located in `data/instances/synthetic/`, these are small `.fjswf` JSON instances 
 
 See `data/sources.md` for complete data provenance and attribution.
 
-## Input / Output## Input / Output Specification
+## Input / Output Specification
 
 ### Solver Interface
 

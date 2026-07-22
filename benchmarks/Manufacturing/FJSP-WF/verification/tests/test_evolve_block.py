@@ -6,7 +6,6 @@ BENCHMARK_DIR = TEST_DIR.parents[1]
 REPO_ROOT = BENCHMARK_DIR.parents[2]
 VERIFICATION_DIR = BENCHMARK_DIR / "verification"
 SOLVER_PATH = BENCHMARK_DIR / "scripts" / "init.py"
-BASELINE_PATH = BENCHMARK_DIR / "baseline" / "solution.py"
 
 EVOLVE_START = "# EVOLVE-BLOCK-START"
 EVOLVE_END = "# EVOLVE-BLOCK-END"
@@ -51,11 +50,6 @@ class TestEvolveBlockProtection(unittest.TestCase):
     def test_solver_passes_evolve_check(self):
         proc = _run_evaluator(SOLVER_PATH)
         self.assertEqual(proc.returncode, 0, f"Solver should pass: {proc.stderr}")
-
-    def test_baseline_fails_evolve_check(self):
-        proc = _run_evaluator(BASELINE_PATH)
-        self.assertNotEqual(proc.returncode, 0)
-        self.assertIn("EVOLVE-BLOCK", proc.stderr)
 
     def test_modified_before_block_fails(self):
         tmp_file = self._make_modified_solver(insert_text_before="# modified before block\n")

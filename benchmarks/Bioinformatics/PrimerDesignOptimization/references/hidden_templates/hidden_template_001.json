@@ -1,0 +1,12 @@
+{
+  "template": {
+    "name": "hidden_at_rich_001",
+    "sequence": "CACATTCCTTCATATTTGGTCCGATTGAATTTAGTGCAGGTCCTCCGAAGCAAGGTGTCGGGTTCGCCTCGGATCTAGATAACCATACCGGTGCTGGAACGGCTTGAACACTCTGAAACTCGTGACTTCTAGAGGTGCGC",
+    "description": "Hidden validation template with low GC content (~45%)"
+  },
+  "amplicon": {
+    "start_index": 20,
+    "end_index": 120,
+    "strand": "forward"
+  }
+}

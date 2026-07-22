@@ -1,7 +1,7 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Comprehensive test suite for PrimerDesignOptimization evaluator."""
 from __future__ import annotations
-import json, math, os, sys, unittest
+import json, math, os, sys, tempfile, unittest
 from pathlib import Path
 BENCHMARK_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BENCHMARK_ROOT))
@@ -197,6 +197,30 @@ class TestHiddenTemplates(unittest.TestCase):
         for ht in hidden:
             hcfg = ev._make_hidden_config(ht, cfg)
             self.assertEqual(hcfg["template"]["sequence"], ht["template"]["sequence"])
+
+    def test_hidden_template_evaluation(self):
+        """Baseline passes all hidden templates during evaluate()."""
+        r = ev.evaluate(str(self.benchmark_root / "scripts" / "init.py"))
+        self.assertTrue(r["valid"], f"Baseline failed on hidden templates: {r['failure_reason']}")
+
+    def test_hidden_template_failure_rejection(self):
+        """Candidate failing on hidden templates returns valid=false."""
+        # Create a mock candidate that hardcodes primers valid only for the default template.
+        # These primers will fail alignment on hidden templates with different sequences.
+        mock_code = "#!/usr/bin/env python3\nimport json\nresult = {\"forward_primer\": \"CAAAGCGATTGTTGGGATTGTACT\", \"reverse_primer\": \"TTAATTCATTAGCCCGACGTTACC\"}\nprint(json.dumps(result))\n"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as f:
+            f.write(mock_code)
+            mock_path = f.name
+        try:
+            r = ev.evaluate(mock_path)
+            self.assertFalse(r["valid"], "Expected valid=false for hidden template failure")
+            self.assertEqual(r["final_score"], 0.0, "Expected final_score=0.0 for hidden template failure")
+            # Verify failure reason mentions hidden template
+            self.assertIn("hidden", r["failure_reason"].lower(),
+                          f"Failure reason should mention hidden template: {r['failure_reason']}")
+        finally:
+            os.unlink(mock_path)
+
 
 class TestUtilities(unittest.TestCase):
     def test_rc(self):

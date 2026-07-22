@@ -17,7 +17,10 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -1302,6 +1305,84 @@ def compute_score_breakdown(
         "total_weight": round(total_weight, 4),
     }
 
+
+def _run_candidate_on_config(
+    candidate_path: Path,
+    cfg: dict[str, Any],
+    kernel_python: str,
+) -> dict[str, Any]:
+    """Run candidate script against a specific config and return the submission.
+
+    Creates a temporary directory, copies the candidate script, writes the
+    config as ``references/primer_config.json``, executes the script, and
+    returns the parsed submission JSON.
+
+    Parameters
+    ----------
+    candidate_path : Path
+        Path to the candidate Python script.
+    cfg : dict
+        Full config dict (template, constraints, weights, etc.).
+    kernel_python : str
+        Python interpreter path.
+
+    Returns
+    -------
+    dict
+        Submission dict with ``"forward_primer"`` and ``"reverse_primer"`` keys.
+
+    Raises
+    ------
+    RuntimeError
+        If the candidate fails to produce a valid submission.
+
+    Spec
+    ----
+    \u00a77.3 \u2014 Hidden template validation.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+
+        # Copy candidate script to temp directory
+        script_dest = tmp_path / candidate_path.name
+        shutil.copy2(str(candidate_path), str(script_dest))
+
+        # Create references/ with primer_config.json
+        ref_dir = tmp_path / "references"
+        ref_dir.mkdir(parents=True, exist_ok=True)
+        with open(ref_dir / "primer_config.json", "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+
+        # Run the candidate from the temp directory
+        result = subprocess.run(
+            [kernel_python, str(script_dest)],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=tmpdir,
+        )
+
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Candidate failed on hidden template: {result.stderr.strip()}"
+            )
+
+        # Try to parse submission from stdout first, then submission.json
+        try:
+            submission = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            submission_path = tmp_path / "submission.json"
+            if submission_path.exists():
+                with open(submission_path) as f:
+                    submission = json.load(f)
+            else:
+                raise RuntimeError(
+                    "Candidate produced no parseable submission on hidden template"
+                )
+
+    return submission
+
+
 def evaluate(
     program_path: str,
     *,
@@ -1353,6 +1434,9 @@ def evaluate(
         else:
             program_path_obj = repo_root / program_path_obj
 
+    # Determine Python interpreter for running candidate scripts
+    python = kernel_python or sys.executable
+
     # --- 2. Load configuration ---
     try:
         cfg = load_config()
@@ -1376,9 +1460,6 @@ def evaluate(
             submission = json.load(sf)
     else:
         # Run candidate script and capture submission.json
-        import subprocess
-        import tempfile
-        python = kernel_python or sys.executable
         try:
             with tempfile.TemporaryDirectory() as tmpdir:
                 tmp_path = Path(tmpdir)
@@ -1472,7 +1553,51 @@ def evaluate(
             "total_weight": 0.0,
         }
 
-    # --- 7. Compute score breakdown ---
+    # --- 7. Evaluate on hidden templates (Spec \u00a77.3) ---
+    hidden_templates = _load_hidden_templates()
+    if hidden_templates:
+        for ht in hidden_templates:
+            try:
+                hidden_cfg = _make_hidden_config(ht, cfg)
+                hidden_submission = _run_candidate_on_config(
+                    program_path_obj, hidden_cfg, python
+                )
+                h_fwd = hidden_submission.get("forward_primer", hidden_submission.get("fwd", ""))
+                h_rev = hidden_submission.get("reverse_primer", hidden_submission.get("rev", ""))
+                if not h_fwd or not h_rev:
+                    return {
+                        "final_score": 0.0,
+                        "valid": False,
+                        "failure_reason": f"Hidden template '{ht['template']['name']}': missing primers",
+                        "sub_scores": {},
+                        "weighted_scores": {},
+                        "total_weight": 0.0,
+                    }
+                if not run_hard_gates(
+                    h_fwd, h_rev, hidden_cfg,
+                    hidden_cfg["template"]["sequence"],
+                    hidden_cfg["amplicon"]["start_index"],
+                    hidden_cfg["amplicon"]["end_index"],
+                ):
+                    return {
+                        "final_score": 0.0,
+                        "valid": False,
+                        "failure_reason": f"Hidden template '{ht['template']['name']}' failed hard gates",
+                        "sub_scores": {},
+                        "weighted_scores": {},
+                        "total_weight": 0.0,
+                    }
+            except RuntimeError as exc:
+                return {
+                    "final_score": 0.0,
+                    "valid": False,
+                    "failure_reason": f"Hidden template '{ht['template']['name']}' error: {exc}",
+                    "sub_scores": {},
+                    "weighted_scores": {},
+                    "total_weight": 0.0,
+                }
+
+    # --- 8. Compute score breakdown ---
     breakdown = compute_score_breakdown(fwd, rev, cfg, product_length)
 
     return {

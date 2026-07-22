@@ -1,0 +1,12 @@
+{
+  "template": {
+    "name": "hidden_gc_rich_001",
+    "sequence": "TACTCTGTTCGAGTCGACTCCTCGTAGCAAACGTATGCGGTTAAGGCGAGCTTTATAGTCCTGTATTCGCAGATGTCCCTCCGTTCTTCATCAATACCCGCCAAGTAGGGGCTGAGAGGAGATGGTGTATTCTCTCAATG",
+    "description": "Hidden validation template with high GC content (~55-60%)"
+  },
+  "amplicon": {
+    "start_index": 20,
+    "end_index": 120,
+    "strand": "forward"
+  }
+}

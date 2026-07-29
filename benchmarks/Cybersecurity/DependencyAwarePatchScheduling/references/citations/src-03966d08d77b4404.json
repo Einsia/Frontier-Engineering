@@ -1,0 +1,12 @@
+{
+  "citation_only": true,
+  "final_url": "https://doi.org/10.6028/NIST.SP.800-40r4",
+  "id": "src-03966d08d77b4404",
+  "license": "citation-only",
+  "location": "sources/src-03966d08d77b4404.raw",
+  "origin": "https://doi.org/10.6028/NIST.SP.800-40r4",
+  "publishable": true,
+  "retrieved_at": "2026-07-29T03:54:39.026947+00:00",
+  "sha256": "03966d08d77b4404e360aef7e96f902f2abbd3f9c6736bdce085d55ba2eda8b0",
+  "title": "NIST SP 800-40 Rev. 4: Guide to Enterprise Patch Management Planning"
+}

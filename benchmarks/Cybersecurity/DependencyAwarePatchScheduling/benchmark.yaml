@@ -1,0 +1,361 @@
+api_version: benchgen/v1
+benchmark_id: Cybersecurity/DependencyAwarePatchScheduling
+title: Dependency-Aware Cybersecurity Patch Scheduling
+summary: An offline structured-solution benchmark in which a solver selects patches
+  and assigns integer start slots over a finite planning horizon. Each deterministic
+  instance specifies vulnerabilities, affected assets, patch coverage, patch prerequisites,
+  asset and service relationships, time-varying exploit probabilities, monetary impact
+  and criticality values, maintenance windows, patch durations, renewable resource
+  demands, service downtime limits, and rollback probabilities and costs. The candidate
+  output is a JSON patch schedule; omitted patches remain unapplied. Instances are
+  generated reproducibly from a published fixed seed set, with small, medium, and
+  large tiers spanning sparse and dense dependency graphs, constrained maintenance
+  calendars, resource bottlenecks, and competing security and operational costs.
+archetype: structured-solution
+candidate:
+  path: scripts/init.py
+  function: solve
+  input_schema:
+    type: object
+    additionalProperties: false
+    required:
+    - instance_id
+    - tier
+    - horizon
+    - probability_scale
+    - assets
+    - services
+    - resources
+    - vulnerabilities
+    - patches
+    properties:
+      instance_id:
+        type: string
+        minLength: 1
+      tier:
+        type: string
+        enum:
+        - small
+        - medium
+        - large
+      horizon:
+        type: integer
+        minimum: 1
+      probability_scale:
+        type: integer
+        enum:
+        - 1000000
+      assets:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          required:
+          - asset_id
+          - exclusive_change
+          - maintenance_windows
+          properties:
+            asset_id:
+              type: string
+              minLength: 1
+            exclusive_change:
+              type: boolean
+            maintenance_windows:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required:
+                - start_slot
+                - end_slot
+                properties:
+                  start_slot:
+                    type: integer
+                    minimum: 0
+                  end_slot:
+                    type: integer
+                    minimum: 1
+      services:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          required:
+          - service_id
+          - maintenance_windows
+          - downtime_capacity_by_slot
+          - downtime_budget
+          - loss_microunits_by_slot
+          properties:
+            service_id:
+              type: string
+              minLength: 1
+            maintenance_windows:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required:
+                - start_slot
+                - end_slot
+                properties:
+                  start_slot:
+                    type: integer
+                    minimum: 0
+                  end_slot:
+                    type: integer
+                    minimum: 1
+            downtime_capacity_by_slot:
+              type: array
+              items:
+                type: integer
+                minimum: 0
+            downtime_budget:
+              type: integer
+              minimum: 0
+            loss_microunits_by_slot:
+              type: array
+              items:
+                type: integer
+                minimum: 0
+      resources:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          required:
+          - resource_id
+          - capacity_by_slot
+          properties:
+            resource_id:
+              type: string
+              minLength: 1
+            capacity_by_slot:
+              type: array
+              items:
+                type: integer
+                minimum: 0
+      vulnerabilities:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          required:
+          - vulnerability_id
+          - asset_id
+          - impact_microunits
+          - criticality_ppm
+          - exploit_probability_ppm_by_slot
+          properties:
+            vulnerability_id:
+              type: string
+              minLength: 1
+            asset_id:
+              type: string
+              minLength: 1
+            impact_microunits:
+              type: integer
+              minimum: 1
+            criticality_ppm:
+              type: integer
+              minimum: 1
+              maximum: 1000000
+            exploit_probability_ppm_by_slot:
+              type: array
+              items:
+                type: integer
+                minimum: 0
+                maximum: 1000000
+      patches:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          required:
+          - patch_id
+          - duration
+          - prerequisite_patch_ids
+          - affected_asset_ids
+          - covered_vulnerability_ids
+          - resource_demands
+          - service_demands
+          - rollback_probability_ppm
+          - rollback_impact_microunits
+          properties:
+            patch_id:
+              type: string
+              minLength: 1
+            duration:
+              type: integer
+              minimum: 1
+            prerequisite_patch_ids:
+              type: array
+              uniqueItems: true
+              items:
+                type: string
+                minLength: 1
+            affected_asset_ids:
+              type: array
+              uniqueItems: true
+              items:
+                type: string
+                minLength: 1
+            covered_vulnerability_ids:
+              type: array
+              uniqueItems: true
+              items:
+                type: string
+                minLength: 1
+            resource_demands:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required:
+                - resource_id
+                - units
+                properties:
+                  resource_id:
+                    type: string
+                    minLength: 1
+                  units:
+                    type: integer
+                    minimum: 0
+            service_demands:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required:
+                - service_id
+                - downtime_units
+                properties:
+                  service_id:
+                    type: string
+                    minLength: 1
+                  downtime_units:
+                    type: integer
+                    minimum: 0
+            rollback_probability_ppm:
+              type: integer
+              minimum: 0
+              maximum: 1000000
+            rollback_impact_microunits:
+              type: integer
+              minimum: 0
+  output_schema:
+    type: object
+    additionalProperties: false
+    required:
+    - schedule
+    properties:
+      schedule:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          required:
+          - patch_id
+          - start_slot
+          properties:
+            patch_id:
+              type: string
+              minLength: 1
+            start_slot:
+              type: integer
+              minimum: 0
+  timeout_s: 30.0
+  max_output_bytes: 1000000
+instances:
+  generator_module: verification.problem
+  public_seeds:
+  - 1729
+  - 2718
+  evaluation_seeds:
+  - 141421
+  - 161803
+  - 173205
+  - 223606
+  - 314159
+  instances_per_seed: 3
+design:
+  problem_setting: offline_batch
+  arrival_model: 'Each instance is a static planning batch: the complete vulnerability
+    set, patch catalog, dependency graph, asset and service data, exploit-probability
+    curves, capacities, maintenance windows, durations, and cost parameters are revealed
+    before a schedule is submitted. No vulnerabilities, windows, or capacity changes
+    arrive during execution. Benchmark instances are regenerated deterministically
+    from fixed seeds, and the seed does not change in response to candidate behavior.'
+  objective_rationale: Expected monetary loss is appropriate because patching is not
+    valuable merely for maximizing patch count or minimizing completion time. It prices
+    the security exposure retained by delaying or omitting patches while also charging
+    for the business disruption and rollback exposure caused by applying them. Expressing
+    all three components in a common monetary unit produces a continuous, auditable
+    tradeoff and keeps feasibility rules separate from preferences. The raw objective
+    is strictly lower-is-better and can be kept positive through instance construction,
+    making it suitable for framework-owned log2_baseline_ratio normalization.
+  literature_alignment: NIST SP 800-40 Rev. 4 frames enterprise patching as risk-based
+    preventive maintenance that must be planned alongside operational constraints.
+    CISA BOD 22-01 provides a concrete basis for prioritizing vulnerabilities with
+    evidence of active exploitation and for modeling remediation deadlines. This benchmark
+    turns those planning principles into a deterministic offline optimization problem;
+    its synthetic monetary loss, rollback, resource, and downtime parameters are benchmark
+    abstractions rather than values claimed by either source. It differs from classical
+    makespan scheduling by allowing economically rational patch omission and by jointly
+    enforcing dependency closure, maintenance calendars, renewable resources, and
+    service downtime limits.
+objective:
+  raw_metric: verifier_recomputed_total_expected_monetary_loss_microunits
+  direction: minimize
+  aggregation: mean
+  normalization: log2_baseline_ratio
+  invalid_score: -1.0e+18
+baseline:
+  module: baseline.heuristic
+  callable: solve
+reference:
+  module: reference.exact
+  callable: solve
+runtime:
+  isolation: docker
+  docker_image: python:3.12.11-slim-bookworm@sha256:519591d6871b7bc437060736b9f7456b8731f1499a57e22e6c285135ae657bf7
+  timeout_s: 480.0
+  cpus: 1.0
+  memory_mb: 512
+  pids_limit: 128
+  network_disabled: true
+provenance:
+  sources:
+  - id: src-03966d08d77b4404
+    title: 'NIST SP 800-40 Rev. 4: Guide to Enterprise Patch Management Planning'
+    location: references/citations/src-03966d08d77b4404.json
+    sha256: 03966d08d77b4404e360aef7e96f902f2abbd3f9c6736bdce085d55ba2eda8b0
+    license: citation-only
+    retrieved_at: '2026-07-29T03:54:39.026947+00:00'
+    origin: https://doi.org/10.6028/NIST.SP.800-40r4
+    final_url: https://doi.org/10.6028/NIST.SP.800-40r4
+    citation_only: true
+    publishable: true
+  - id: src-106e8a33951b796b
+    title: CISA Binding Operational Directive 22-01
+    location: references/citations/src-106e8a33951b796b.json
+    sha256: 106e8a33951b796b337077a1016723812b4fde6eee09056df0a5104fb8771744
+    license: citation-only
+    retrieved_at: '2026-07-29T03:54:39.285584+00:00'
+    origin: https://www.cisa.gov/news-events/directives/bod-22-01-reducing-significant-risk-known-exploited-vulnerabilities
+    final_url: https://www.cisa.gov/news-events/directives/bod-22-01-reducing-significant-risk-known-exploited-vulnerabilities
+    citation_only: true
+    publishable: true
+  data_license: CC0-1.0
+  generated_from_seeds: true
+frontier:
+  enabled: true
+  domain: Cybersecurity
+  task: DependencyAwarePatchScheduling
+  languages:
+  - en
+  - zh-CN
+calibration:
+  minimum_reference_score: 0.05
+  deterministic_tolerance: 1.0e-12
+  unified_score_tolerance: 1.0e-09

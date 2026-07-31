@@ -1,0 +1,13 @@
+{
+  "evaluation": {
+    "count": 10,
+    "visibility": "frozen-verifier-only"
+  },
+  "instances_per_seed": 1,
+  "public": [
+    104729,
+    130363,
+    155921,
+    181081
+  ]
+}

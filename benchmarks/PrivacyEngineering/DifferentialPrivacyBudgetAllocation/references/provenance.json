@@ -1,0 +1,31 @@
+{
+  "benchmark_id": "PrivacyEngineering/DifferentialPrivacyBudgetAllocation",
+  "data_license": "CC0-1.0",
+  "generated_from_seeds": true,
+  "sources": [
+    {
+      "citation_only": true,
+      "final_url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-226.pdf",
+      "id": "src-ae0a3959eced952d",
+      "license": "citation-only",
+      "location": "references/citations/src-ae0a3959eced952d.json",
+      "origin": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-226.pdf",
+      "publishable": true,
+      "retrieved_at": "2026-07-30T15:35:02.425841+00:00",
+      "sha256": "ae0a3959eced952d197762f882be99e4736b00517dd138e501d5280d721cfacb",
+      "title": "NIST SP 800-226: Guidelines for Evaluating Differential Privacy Guarantees"
+    },
+    {
+      "citation_only": true,
+      "final_url": "https://www.cis.upenn.edu/~aaroth/Papers/privacybook.pdf",
+      "id": "src-a2b0f1538ad8494f",
+      "license": "citation-only",
+      "location": "references/citations/src-a2b0f1538ad8494f.json",
+      "origin": "https://www.cis.upenn.edu/~aaroth/Papers/privacybook.pdf",
+      "publishable": true,
+      "retrieved_at": "2026-07-30T15:35:02.704493+00:00",
+      "sha256": "a2b0f1538ad8494fab07a93d328c33c2da7575ed57ecdc7a895e1b35d8379923",
+      "title": "The Algorithmic Foundations of Differential Privacy"
+    }
+  ]
+}

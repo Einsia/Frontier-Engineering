@@ -1,0 +1,102 @@
+Differential Privacy Budget Allocation for Business Analytics constraints:
+1) Candidate file is `scripts/init.py` and must expose `solve(instance)`.
+2) Candidate input must match this JSON Schema:
+{
+  "additionalProperties": false,
+  "properties": {
+    "epsilon_total": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "fairness": {
+      "additionalProperties": false,
+      "properties": {
+        "max_group_error_ratio": {
+          "minimum": 1,
+          "type": "number"
+        }
+      },
+      "required": [
+        "max_group_error_ratio"
+      ],
+      "type": "object"
+    },
+    "queries": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "business_value": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "epsilon_max": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "epsilon_min": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "group": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "max_error": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "population_coverage": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "sensitivity": {
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "sensitivity",
+          "business_value",
+          "population_coverage",
+          "epsilon_min",
+          "epsilon_max",
+          "max_error",
+          "group"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "queries",
+    "epsilon_total",
+    "fairness"
+  ],
+  "type": "object"
+}
+3) Candidate output must match this JSON Schema:
+{
+  "additionalProperties": false,
+  "properties": {
+    "allocations": {
+      "additionalProperties": true,
+      "type": "object"
+    }
+  },
+  "required": [
+    "allocations"
+  ],
+  "type": "object"
+}
+4) Every hard constraint is recomputed by the frozen verifier.
+5) Candidate timeout is 10 seconds per instance.
+6) Candidate output is limited to 1048576 bytes.
+7) Read-only benchmark assets include verification/, baseline/, reference/, data/, and references/.
+8) Publish evaluation requires Docker image `python:3.12.11-slim-bookworm@sha256:519591d6871b7bc437060736b9f7456b8731f1499a57e22e6c285135ae657bf7`; candidate and verifier
+   run in separate network-disabled, non-root containers.
+9) Frontier unified must use its process isolation mode because the benchmark evaluator owns the
+   inner candidate/verifier containers; do not wrap this evaluator in another Docker runtime.

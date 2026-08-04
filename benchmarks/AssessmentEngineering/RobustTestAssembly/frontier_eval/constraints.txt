@@ -1,0 +1,12 @@
+Robust psychometric test assembly constraints:
+
+1) Edit only `scripts/init.py` inside the EVOLVE-BLOCK markers.
+2) Keep the command-line interface working:
+   `--problem <problem.json> --output <solution.json>`.
+3) Write one JSON object containing `selected_ids`, which must be a list of integer item IDs.
+4) Select exactly the required number of items and match every domain target exactly.
+5) Do not select duplicate, unknown, or mutually conflicting items.
+6) Respect the total-time, mean-DIF-risk, and mean-exposure limits in every scenario.
+7) Keep the algorithm deterministic, self-contained, and offline.
+8) Do not read, modify, or replace evaluator, generator, anchor, result, or environment-secret files.
+9) The candidate must finish each scenario within the evaluator time limit.

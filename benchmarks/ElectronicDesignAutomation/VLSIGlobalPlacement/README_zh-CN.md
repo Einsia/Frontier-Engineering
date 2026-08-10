@@ -20,9 +20,9 @@ VLSIGlobalPlacement/
 ├── Task.md                           # 详细任务描述（英文）
 ├── Task_zh-CN.md                     # 详细任务描述（中文）
 ├── references/                       # 基准参考数据
-│   ├── adaptec1.json                  # 简单基准（约21万单元）
+│   ├── adaptec1.json.gz                  # 简单基准（约21万单元，gzip）
 │   ├── adaptec1_difficulty.json       # 难度元数据
-│   ├── adaptec3.json                  # 中等基准（约45万单元）
+│   ├── adaptec3.json.gz                  # 中等基准（约45万单元）
 │   └── adaptec3_difficulty.json       # 难度元数据
 ├── scripts/
 │   ├── init.py                        # [可修改] 布局算法
@@ -100,16 +100,17 @@ python -m frontier_eval \
 ISPD 2005 基准由 ICCAD 2005 / ISPD 2006 布局竞赛委员会创建，
 可免费用于学术用途。
 
-## 紧凑 JSON 格式
+## 压缩 JSON 格式
 
-参考 JSON 文件使用紧凑的网表表示以减小文件大小。
+参考文件为 gzip 压缩的 JSON，并采用紧凑的网表表示。
 每个网表存储为整数单元索引列表，而非完整的引脚字典：
 
-`json
+```json
 {"netlist": [[0, 1, 2], [3, 4], ...]}
-`
+```
 
-相比详细格式，文件大小减少约 65%。
-scripts/init.py 和 erification/evaluator.py 中的 _decompress_netlist() 函数
+紧凑网表相比详细格式可减少约 65% 的 JSON 大小，
+gzip 进一步将磁盘占用减少约 84%（adaptec1：22.6MB -> 3.7MB，adaptec3：48.2MB -> 7.9MB）。
+scripts/init.py 和 verification/evaluator.py 中的 _decompress_netlist() 函数
 在加载时重建完整的引脚字典。该转换相对于 HPWL 计算是无损的。
-scripts/preprocess.py 脚本直接从原始 Bookshelf 数据生成此紧凑格式。
+scripts/preprocess.py 脚本直接从原始 Bookshelf 数据生成此压缩格式。

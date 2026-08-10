@@ -1,1 +1,1 @@
-benchmarks/ElectronicDesignAutomation/VLSIGlobalPlacement/references/*.json !text !filter !merge !diff
+benchmarks/ElectronicDesignAutomation/VLSIGlobalPlacement/references/*.json.gz binary

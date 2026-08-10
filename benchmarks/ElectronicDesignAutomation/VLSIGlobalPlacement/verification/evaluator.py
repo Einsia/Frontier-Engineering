@@ -6,6 +6,8 @@ from __future__ import annotations
 
 
 
+import gzip
+
 import json
 
 import math
@@ -134,7 +136,15 @@ def _get_benchmark_dir(repo_root: Path) -> Path:
 
 def _get_reference_path(repo_root: Path, benchmark_name: str) -> Path:
 
-    return _get_benchmark_dir(repo_root) / "references" / f"{benchmark_name}.json"
+    ref_dir = _get_benchmark_dir(repo_root) / "references"
+
+    gz_path = ref_dir / f"{benchmark_name}.json.gz"
+
+    if gz_path.is_file():
+
+        return gz_path
+
+    return ref_dir / f"{benchmark_name}.json"
 
 
 
@@ -143,6 +153,24 @@ def _get_reference_path(repo_root: Path, benchmark_name: str) -> Path:
 def _get_difficulty_path(repo_root: Path, benchmark_name: str) -> Path:
 
     return _get_benchmark_dir(repo_root) / "references" / f"{benchmark_name}_difficulty.json"
+
+
+
+
+
+def _load_json(path: Path) -> dict:
+
+    """Load a JSON file, transparently decompressing gzip data."""
+
+    if str(path).endswith(".json.gz"):
+
+        with gzip.open(path, "rt", encoding="utf-8") as f:
+
+            return json.load(f)
+
+    with open(path, "r", encoding="utf-8") as f:
+
+        return json.load(f)
 
 
 
@@ -521,6 +549,154 @@ def check_legality(
 
 # ============================================================================
 
+# EVOLVE-BLOCK boundary validation
+
+# ============================================================================
+
+
+
+EVOLVE_START_MARKER = "# EVOLVE-BLOCK-START"
+
+EVOLVE_END_MARKER = "# EVOLVE-BLOCK-END"
+
+
+
+
+
+def _split_evolve_block(text: str) -> tuple[str, str] | None:
+
+    """Split program text into (outside_start, outside_end) around the EVOLVE-BLOCK.
+
+
+
+    Returns None if the markers are missing or malformed. The returned parts
+
+    include the marker lines themselves; only the interior is omitted.
+
+    """
+
+    s = text.find(EVOLVE_START_MARKER)
+
+    e = text.find(EVOLVE_END_MARKER)
+
+    if s == -1 or e == -1 or e <= s:
+
+        return None
+
+    e += len(EVOLVE_END_MARKER)
+
+    return text[:s], text[e:]
+
+
+
+
+
+def _normalize_newlines(text: str) -> str:
+
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+
+
+
+def check_evolve_boundary(candidate_path: Path, reference_path: Path) -> str | None:
+
+    """Verify the candidate only modified code inside the EVOLVE-BLOCK.
+
+
+
+    Returns an error message if the candidate changed anything outside the
+
+    EVOLVE-BLOCK, otherwise returns None.
+
+    """
+
+    try:
+
+        candidate_text = _normalize_newlines(candidate_path.read_text(encoding="utf-8"))
+
+        reference_text = _normalize_newlines(reference_path.read_text(encoding="utf-8"))
+
+    except OSError as exc:
+
+        return f"failed to read program for EVOLVE-BLOCK validation: {exc}"
+
+
+
+    cand_parts = _split_evolve_block(candidate_text)
+
+    ref_parts = _split_evolve_block(reference_text)
+
+    if cand_parts is None:
+
+        return "candidate program is missing the EVOLVE-BLOCK markers"
+
+    if ref_parts is None:
+
+        return "reference program is missing the EVOLVE-BLOCK markers"
+
+    cand_before, cand_after = cand_parts
+
+    ref_before, ref_after = ref_parts
+
+    if cand_before != ref_before:
+
+        return "candidate modified code outside the EVOLVE-BLOCK (before the block)"
+
+    if cand_after != ref_after:
+
+        return "candidate modified code outside the EVOLVE-BLOCK (after the block)"
+
+    return None
+
+
+
+
+
+# ============================================================================
+
+# Candidate resource limits
+
+# ============================================================================
+
+
+
+# Defense-in-depth resource limits applied to the candidate subprocess on
+
+# POSIX platforms (the 600s timeout remains the primary protection).
+
+RLIMIT_CPU_SECONDS = 590
+
+RLIMIT_NPROC = 256
+
+RLIMIT_AS_BYTES = 8 * 1024 ** 3  # 8 GiB address-space ceiling
+
+
+
+
+
+def _limit_candidate_resources() -> None:
+
+    """Apply resource limits in the candidate subprocess (POSIX only)."""
+
+    if os.name != "posix":
+
+        return
+
+    import resource
+
+    resource.setrlimit(resource.RLIMIT_CPU, (RLIMIT_CPU_SECONDS, RLIMIT_CPU_SECONDS + 10))
+
+    resource.setrlimit(resource.RLIMIT_NPROC, (RLIMIT_NPROC, RLIMIT_NPROC))
+
+    resource.setrlimit(resource.RLIMIT_AS, (RLIMIT_AS_BYTES, RLIMIT_AS_BYTES))
+
+
+
+
+
+# ============================================================================
+
 # Main evaluation function
 
 # ============================================================================
@@ -625,6 +801,32 @@ def evaluate(
 
 
 
+    # Verify the candidate only modified code inside the EVOLVE-BLOCK
+
+    reference_program = _get_benchmark_dir(repo_root) / "scripts" / "init.py"
+
+    evolve_error = check_evolve_boundary(
+
+        Path(program_path_resolved), reference_program
+
+    )
+
+    if evolve_error is not None:
+
+        artifacts["evolve_boundary_error"] = evolve_error
+
+        artifacts["error_message"] = (
+
+            "EVOLVE-BLOCK boundary violation: " + evolve_error
+
+        )
+
+        metrics["runtime_s"] = float(time.time() - start)
+
+        return _wrap(metrics, artifacts)
+
+
+
     try:
 
         # 1. Copy benchmark reference data to work dir
@@ -655,9 +857,9 @@ def evaluate(
 
         refs_dir.mkdir(parents=True, exist_ok=True)
 
-        # Copy the benchmark JSON
+        # Copy the benchmark JSON (keeps .json.gz extension if present)
 
-        shutil.copy2(ref_path, refs_dir / f"{benchmark_name}.json")
+        shutil.copy2(ref_path, refs_dir / ref_path.name)
 
 
 
@@ -694,6 +896,8 @@ def evaluate(
                 text=True,
 
                 timeout=600,
+
+                preexec_fn=_limit_candidate_resources if os.name == "posix" else None,
 
             )
 
@@ -789,9 +993,7 @@ def evaluate(
 
         # 4. Load benchmark data for evaluation
 
-        with open(ref_path, "r", encoding="utf-8") as f:
-
-            benchmark_data = _decompress_netlist(json.load(f))
+        benchmark_data = _decompress_netlist(_load_json(ref_path))
 
 
 

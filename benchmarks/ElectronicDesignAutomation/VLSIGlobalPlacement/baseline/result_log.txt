@@ -1,0 +1,31 @@
+VLSI Global Placement baseline results
+=======================================
+Baseline: deterministic row-based placement (scripts/init.py)
+Evaluated with: python verification/evaluator.py scripts/init.py --benchmark <name>
+
+Commands:
+  cd benchmarks/ElectronicDesignAutomation/VLSIGlobalPlacement
+  python verification/evaluator.py scripts/init.py --benchmark adaptec1
+  python verification/evaluator.py scripts/init.py --benchmark adaptec3
+
+adaptec1 (Easy):
+  valid          = 1.0
+  hpwl           = 1318928036.21
+  n_overlaps     = 0
+  n_out_of_bounds= 0
+  n_fixed_moved  = 0
+  runtime_s      = 4.73
+
+adaptec3 (Medium):
+  valid          = 1.0
+  hpwl           = 4982296306.66
+  n_overlaps     = 0
+  n_out_of_bounds= 0
+  n_fixed_moved  = 0
+  runtime_s      = 10.46
+
+Notes:
+- Both placements are legal (no overlaps, no out-of-bound cells,
+  no fixed cells moved).
+- The baseline is intentionally simple; its HPWL is far from the
+  ISPD 2005 contest results, leaving large headroom for agents.

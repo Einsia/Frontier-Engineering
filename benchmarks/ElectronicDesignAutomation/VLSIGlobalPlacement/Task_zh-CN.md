@@ -132,7 +132,7 @@ scripts/preprocess.py 展示了 Bookshelf 格式如何转换为 JSON。
 评测器（verification/evaluator.py）：
 
 1. 在干净的子进程中运行候选程序（带超时）
-2. 从候选程序读取 	emp/submission.json
+2. 从候选程序读取 `temp/submission.json`
 3. 检查硬约束（固定单元、边界、重叠）
 4. 计算 HPWL
 5. 返回指标：combined_score、valid、hpwl、runtime_s

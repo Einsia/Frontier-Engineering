@@ -10,4 +10,4 @@ COPY references/ /workspace/benchmarks/ElectronicDesignAutomation/VLSIGlobalPlac
 ENV BENCHMARK_NAME=adaptec1
 ENV FRONTIER_ENGINEERING_ROOT=/workspace
 
-ENTRYPOINT ["python", "/workspace/verification/evaluator.py", "/workspace/benchmarks/ElectronicDesignAutomation/VLSIGlobalPlacement/scripts/init.py"]
+CMD ["python", "/workspace/verification/evaluator.py", "/workspace/benchmarks/ElectronicDesignAutomation/VLSIGlobalPlacement/scripts/init.py"]

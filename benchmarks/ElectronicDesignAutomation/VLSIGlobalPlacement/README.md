@@ -20,20 +20,22 @@ VLSIGlobalPlacement/
 ├── Task.md                           # Detailed task description
 ├── Task_zh-CN.md                     # Detailed task description (Chinese)
 ├── references/                       # Benchmark reference data
-│   ├── adaptec1.json                  # Easy benchmark (~211k cells)
+│   ├── adaptec1.json.gz                 # Easy benchmark (~211k cells, gzip)
 │   ├── adaptec1_difficulty.json       # Difficulty metadata
-│   ├── adaptec3.json                  # Medium benchmark (~451k cells)
+│   ├── adaptec3.json.gz                 # Medium benchmark (~451k cells, gzip)
 │   └── adaptec3_difficulty.json       # Difficulty metadata
 ├── scripts/
 │   ├── init.py                        # [MODIFIABLE] Placement algorithm
 │   └── preprocess.py                  # Bookshelf -> JSON converter
 ├── verification/
 │   ├── evaluator.py                   # Scoring and legality checks
+┬   ├── test_evaluator.py             # Unit tests
 │   ├── requirements.txt               # Python dependencies
 │   └── docker/
 │       └── Dockerfile                 # Containerized evaluation
 ├── baseline/
 │   └── solution.py                    # Row-based placement baseline
+┬   └── result_log.txt                 # Baseline evaluation results
 └── frontier_eval/                     # Unified task metadata
     ├── initial_program.txt
     ├── eval_command.txt
@@ -96,18 +98,20 @@ python -m frontier_eval   task=unified   task.benchmark=ElectronicDesignAutomati
 The ISPD 2005 benchmarks were created by the ICCAD 2005 / ISPD 2006 placement contest committees
 and are freely available for academic use.
 
-## Compact JSON Format
+## Compressed JSON Format
 
-The reference JSON files use a compact netlist representation to reduce file size.
+The reference files are gzip-compressed JSON with a compact netlist representation.
 Each net is stored as a list of integer cell indices rather than full pin dictionaries:
 
-`json
+```json
 {"netlist": [[0, 1, 2], [3, 4], ...]}
-`
+```
 
-This reduces file size by approximately 65% compared to the verbose format.
-The _decompress_netlist() function in scripts/init.py and erification/evaluator.py
-reconstructs the full pin dictionaries at load time. The transformation is lossless
-with respect to the HPWL computation. The scripts/preprocess.py script generates
-this compact format directly from the original Bookshelf data.
+The compact netlist reduces JSON size by approximately 65% compared to the verbose
+format, and gzip further reduces the on-disk size by about 84% (adaptec1: 22.6MB ->
+3.7MB, adaptec3: 48.2MB -> 7.9MB). The `_decompress_netlist()` function in
+scripts/init.py and verification/evaluator.py reconstructs the full pin
+dictionaries at load time. The transformation is lossless with respect to the
+HPWL computation. The scripts/preprocess.py script generates this compressed
+format directly from the original Bookshelf data.
 

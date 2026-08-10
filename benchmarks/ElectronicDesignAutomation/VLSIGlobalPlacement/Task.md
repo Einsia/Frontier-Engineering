@@ -129,15 +129,16 @@ Two benchmarks from the ISPD 2005 placement contest suite:
 | adaptec3 | Medium | 450,927 | 466,758 | 1,875,039 | 23190x23386 |
 
 The original Bookshelf-format data (datasets/ispd2005/) is not redistributed.
-Preprocessed JSON files are in references/. The preprocessing script
-scripts/preprocess.py shows how Bookshelf format is converted to JSON.
+Preprocessed compressed JSON files (gzip + compact netlist) are in
+references/. The preprocessing script scripts/preprocess.py shows how
+Bookshelf format is converted to the compressed JSON format.
 
 ## 6. Evaluation
 
 The evaluator (verification/evaluator.py):
 
 1. Runs the candidate program in a clean subprocess with timeout
-2. Reads 	emp/submission.json from the candidate
+2. Reads `temp/submission.json` from the candidate
 3. Checks hard constraints (fixed cells, bounds, overlap)
 4. Computes HPWL
 5. Returns metrics: combined_score, valid, hpwl, 

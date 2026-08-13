@@ -1,0 +1,13 @@
+README.md
+README_zh-CN.md
+Task.md
+Task_zh-CN.md
+verification/evaluator.py
+verification/mechanics.py
+verification/design_runtime.py
+verification/design_worker.py
+verification/test_evaluator.py
+verification/test_mechanics.py
+verification/requirements.txt
+references/config.json
+references/design_notes.md

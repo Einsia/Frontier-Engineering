@@ -1,0 +1,120 @@
+{
+  "source": {
+    "title": "Dataset for Beyond Double-Double Theory: n-Directional Stacking Sequence Optimisation in Composite Laminates",
+    "authors": [
+      "Jose Humberto S. Almeida Jr.",
+      "Emilia Balonek",
+      "Saullo G. P. Castro"
+    ],
+    "doi": "10.5281/zenodo.15864525",
+    "concept_doi": "10.5281/zenodo.15864524",
+    "license": "MIT"
+  },
+  "material": {
+    "E11_MPa": 127550.0,
+    "E22_MPa": 13030.0,
+    "nu12": 0.3,
+    "G12_MPa": 6410.0
+  },
+  "laminate": {
+    "num_plies": 48,
+    "design_angles": 12,
+    "ply_thickness_mm": 0.127,
+    "angle_min_deg": 0,
+    "angle_max_deg": 90
+  },
+  "failure": {
+    "epsilon_1_allowable": 0.008,
+    "epsilon_2_allowable": 0.029,
+    "gamma_12_allowable": 0.015,
+    "design_load_factor": 1.5
+  },
+  "buckling": {
+    "modes_x": 5,
+    "modes_y": 5,
+    "quadrature_order": 12
+  },
+  "anchor_base_angles_deg": [90, 45, 45, 90, 45, 90, 45, 45, 45, 45, 45, 45],
+  "cases": [
+    {
+      "case_id": "uniaxial_ar_0_5",
+      "aspect_ratio": 0.5,
+      "a_mm": 63.5,
+      "b_mm": 127.0,
+      "Nx_N_per_mm": -0.1751268352464764,
+      "Ny_N_per_mm": 0.0
+    },
+    {
+      "case_id": "uniaxial_ar_1_0",
+      "aspect_ratio": 1.0,
+      "a_mm": 127.0,
+      "b_mm": 127.0,
+      "Nx_N_per_mm": -0.1751268352464764,
+      "Ny_N_per_mm": 0.0
+    },
+    {
+      "case_id": "uniaxial_ar_2_0",
+      "aspect_ratio": 2.0,
+      "a_mm": 254.0,
+      "b_mm": 127.0,
+      "Nx_N_per_mm": -0.1751268352464764,
+      "Ny_N_per_mm": 0.0
+    },
+    {
+      "case_id": "uniaxial_ar_3_0",
+      "aspect_ratio": 3.0,
+      "a_mm": 381.0,
+      "b_mm": 127.0,
+      "Nx_N_per_mm": -0.1751268352464764,
+      "Ny_N_per_mm": 0.0
+    },
+    {
+      "case_id": "uniaxial_ar_4_0",
+      "aspect_ratio": 4.0,
+      "a_mm": 508.0,
+      "b_mm": 127.0,
+      "Nx_N_per_mm": -0.1751268352464764,
+      "Ny_N_per_mm": 0.0
+    },
+    {
+      "case_id": "biaxial_ar_0_5",
+      "aspect_ratio": 0.5,
+      "a_mm": 63.5,
+      "b_mm": 127.0,
+      "Nx_N_per_mm": -0.1751268352464764,
+      "Ny_N_per_mm": -0.0875634176232382
+    },
+    {
+      "case_id": "biaxial_ar_1_0",
+      "aspect_ratio": 1.0,
+      "a_mm": 127.0,
+      "b_mm": 127.0,
+      "Nx_N_per_mm": -0.1751268352464764,
+      "Ny_N_per_mm": -0.0875634176232382
+    },
+    {
+      "case_id": "biaxial_ar_2_0",
+      "aspect_ratio": 2.0,
+      "a_mm": 254.0,
+      "b_mm": 127.0,
+      "Nx_N_per_mm": -0.1751268352464764,
+      "Ny_N_per_mm": -0.0875634176232382
+    },
+    {
+      "case_id": "biaxial_ar_3_0",
+      "aspect_ratio": 3.0,
+      "a_mm": 381.0,
+      "b_mm": 127.0,
+      "Nx_N_per_mm": -0.1751268352464764,
+      "Ny_N_per_mm": -0.0875634176232382
+    },
+    {
+      "case_id": "biaxial_ar_4_0",
+      "aspect_ratio": 4.0,
+      "a_mm": 508.0,
+      "b_mm": 127.0,
+      "Nx_N_per_mm": -0.1751268352464764,
+      "Ny_N_per_mm": -0.0875634176232382
+    }
+  ]
+}

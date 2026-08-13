@@ -286,7 +286,7 @@ Frontier-Eng 目前已覆盖以下领域的任务。每个任务均配有可运�
       <td>JSSP YN 家族（Yamada &amp; Nakano 1992）</td>
     </tr>
     <tr>
-      <td rowspan="4"><b>StructuralOptimization</b></td>
+      <td rowspan="5"><b>StructuralOptimization</b></td>
       <td><code>ISCSO2015</code></td>
       <td>在应力 / 位移约束下最小化 45 杆 2D 桁架重量</td>
     </tr>
@@ -301,6 +301,10 @@ Frontier-Eng 目前已覆盖以下领域的任务。每个任务均配有可运�
     <tr>
       <td><code>PyMOTOSIMPCompliance</code></td>
       <td>基于 pyMOTO 的 2D 梁拓扑优化（SIMP + OC/MMA），体积分数约束</td>
+    </tr>
+    <tr>
+      <td><code>CompositeLaminateStacking</code></td>
+      <td>在十个板工况下优化平衡、对称的 48 层复合材料铺层，同时提高屈曲和最大应变失效性能</td>
     </tr>
     <tr>
       <td rowspan="6"><b>Robotics</b></td>

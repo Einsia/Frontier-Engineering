@@ -1,0 +1,12 @@
+Composite laminate stacking constraints:
+1) Edit only `scripts/init.py` inside the EVOLVE-BLOCK markers.
+2) Keep `design_laminates(cases) -> dict` working.
+3) Return exactly one design for every supplied case_id and no unknown case ids.
+4) Each design is a JSON list of exactly 12 finite integer angles in [0, 90] degrees.
+5) The evaluator expands every base angle theta to [theta, -theta], then mirrors the
+   24-ply half-stack to form a balanced, symmetric 48-ply laminate.
+6) Maximize the governing reserve factor, min(buckling load factor, maximum-strain
+   failure load factor), across all uniaxial and biaxial aspect-ratio cases.
+7) Keep the design function deterministic, self-contained, and JSON serializable.
+8) Do not read, write, or modify evaluator, reference, result, or environment-secret files.
+   Candidate code runs in a separate process with a bounded total runtime.

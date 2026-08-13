@@ -1,0 +1,32 @@
+CompositeLaminateStacking baseline verification
+================================================
+
+Reference dataset:
+  Dataset for Beyond Double-Double Theory: n-Directional Stacking Sequence
+  Optimisation in Composite Laminates
+  DOI: 10.5281/zenodo.15864525
+  License: MIT
+
+Verification date: 2026-08-13
+
+Direct evaluator:
+  python verification/evaluator.py scripts/init.py
+  feasible_cases: 10 / 10
+  diagnostic_score: 50.0
+  combined_score: 50.0
+
+Unit tests:
+  python -m unittest discover -s verification -p "test_*.py" -v
+  result: 13 tests passed
+
+Unified evaluator:
+  python -m frontier_eval task=unified \
+    task.benchmark=StructuralOptimization/CompositeLaminateStacking \
+    algorithm=openevolve algorithm.iterations=0
+  benchmark_returncode: 0
+  valid: 1
+  feasible_cases: 10
+  combined_score: 50.0
+
+The unified run was also exercised on Windows with platform-specific shell and
+Python-path overrides; the benchmark output and score matched the direct run.

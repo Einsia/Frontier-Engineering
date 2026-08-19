@@ -2,7 +2,7 @@ Direct command:
 python verification/evaluator.py scripts/init.py --metrics-out metrics.json --artifacts-out artifacts.json
 
 Environment:
-Windows 11, Python 3.11, CPU-only
+Windows 11, Python 3.12.13, CPU-only
 
 Result:
 === BSM1 Aeration Control ===
@@ -16,7 +16,7 @@ combined_score: 47.7973
 
 Regression:
 python -m unittest discover -s verification -p "test_*.py" -v
-Ran 9 tests in 3.574s
+Ran 12 tests in 3.266s
 OK
 
 Unified evaluation:

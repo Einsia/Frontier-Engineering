@@ -29,11 +29,20 @@ def _protocol_streams() -> tuple[Any, Any]:
 
 
 def _load_candidate(path: Path) -> Any:
-    spec = importlib.util.spec_from_file_location("bsm1_candidate", path)
+    module_name = "bsm1_candidate"
+    spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
         raise ImportError(f"cannot load candidate from {path}")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    # exec_module() does not register manually created modules.  Standard
+    # library features such as dataclasses with postponed annotations resolve
+    # types through sys.modules while the module is executing.
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop(module_name, None)
+        raise
     if not callable(getattr(module, "control", None)):
         raise AttributeError("candidate must define callable control(observation)")
     if not callable(getattr(module, "reset_controller", None)):

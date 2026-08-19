@@ -30,6 +30,21 @@ class PolicyRuntimeTests(unittest.TestCase):
             runtime.reset({"scenario_id": "dry"})
             self.assertEqual(runtime.control({"step": 0}), {"ok": 1})
 
+    def test_candidate_module_supports_postponed_dataclass_annotations(self) -> None:
+        candidate = self._candidate(
+            "from __future__ import annotations\n"
+            "from dataclasses import dataclass\n"
+            "@dataclass\n"
+            "class State:\n"
+            "    previous: State | None = None\n"
+            "state = State()\n"
+            "def reset_controller(scenario): state.previous = None\n"
+            "def control(observation): return {'loaded': state.previous is None}\n"
+        )
+        with PolicyRuntime(candidate) as runtime:
+            runtime.reset({"scenario_id": "dry"})
+            self.assertEqual(runtime.control({"step": 0}), {"loaded": True})
+
     def test_slow_control_is_terminated(self) -> None:
         candidate = self._candidate(
             "import time\n"

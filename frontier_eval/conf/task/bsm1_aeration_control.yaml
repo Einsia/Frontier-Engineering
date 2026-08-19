@@ -1,0 +1,6 @@
+name: unified
+benchmark: WastewaterTreatment/BSM1AerationControl
+
+runtime:
+  env:
+    PYTHONUTF8: "1"

@@ -8,7 +8,7 @@ verification/scoring.py
 verification/problem_view.py
 verification/test_task_v1.py
 verification/build_anchor_v1.py
-verification/clean_candidate_v1.py
+references/clean_candidate_v1.py
 references/anchor_solutions_v1.json
 references/baseline_init_v1.py
 references/design_notes.md

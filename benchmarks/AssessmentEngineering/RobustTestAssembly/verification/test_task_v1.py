@@ -6,7 +6,12 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from evaluator import evaluate, run_candidate
+from evaluator import (
+    END_MARKER,
+    START_MARKER,
+    evaluate,
+    run_candidate,
+)
 from generator import SCENARIO_SPECS, generate_scenario
 from scoring import score_selection
 
@@ -15,7 +20,7 @@ TASK_ROOT = Path(__file__).resolve().parents[1]
 BASELINE_PATH = TASK_ROOT / "scripts" / "init.py"
 CLEAN_PATH = (
     TASK_ROOT
-    / "verification"
+    / "references"
     / "clean_candidate_v1.py"
 )
 ANCHOR_PATH = (
@@ -221,6 +226,95 @@ def main() -> None:
         "普通算法不具有确定性",
     )
 
+    baseline_source = BASELINE_PATH.read_text(
+        encoding="utf-8"
+    )
+
+    with tempfile.TemporaryDirectory(
+        dir=TASK_ROOT
+    ) as directory:
+        directory_path = Path(directory)
+
+        inside_candidate = directory_path / "inside.py"
+        inside_candidate.write_text(
+            baseline_source.replace(
+                "def item_information(",
+                "# allowed change\ndef item_information(",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        inside_metrics, _ = evaluate(inside_candidate)
+
+        require(
+            inside_metrics["valid"] == 1.0,
+            "change inside EVOLVE-BLOCK was rejected",
+        )
+
+        outside_candidate = directory_path / "outside.py"
+        outside_candidate.write_text(
+            baseline_source.replace(
+                "parser = argparse.ArgumentParser()",
+                "parser = argparse.ArgumentParser(description='changed')",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        outside_metrics, _ = evaluate(outside_candidate)
+
+        require(
+            outside_metrics["valid"] == 0.0
+            and outside_metrics["combined_score"] == 0.0,
+            "change outside EVOLVE-BLOCK was accepted",
+        )
+
+        nondeterministic_candidate = (
+            directory_path / "nondeterministic.py"
+        )
+        nondeterministic_candidate.write_text(
+            baseline_source.replace(
+                '    return [item["id"] for item in selected]',
+                """    state_path = Path(__file__).with_suffix(".state")
+    if state_path.exists():
+        state_path.unlink()
+        selected.reverse()
+    else:
+        state_path.touch()
+
+    return [item["id"] for item in selected]""",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        nondeterministic_metrics, _ = evaluate(
+            nondeterministic_candidate
+        )
+
+        require(
+            nondeterministic_metrics["valid"] == 0.0
+            and nondeterministic_metrics["combined_score"] == 0.0,
+            "nondeterministic candidate was accepted",
+        )
+
+        clean_candidate = directory_path / "clean.py"
+        clean_block = CLEAN_PATH.read_text(
+            encoding="utf-8"
+        ).split("\ndef main() -> None:", 1)[0]
+        baseline_after = baseline_source.partition(
+            END_MARKER
+        )[2]
+        clean_candidate.write_text(
+            START_MARKER
+            + "\n"
+            + clean_block
+            + "\n\ndef select_items(problem: dict[str, Any]) -> list[int]:\n"
+            + "    return improve_selection(problem)\n\n"
+            + END_MARKER
+            + baseline_after,
+            encoding="utf-8",
+        )
+        clean_metrics, _ = evaluate(clean_candidate)
+
     # 4. 正式运行普通算法，应为有效的50分。
     baseline_metrics, _ = evaluate(
         BASELINE_PATH
@@ -240,8 +334,6 @@ def main() -> None:
     )
 
     # 5. 独立改进算法必须明显优于普通算法。
-    clean_metrics, _ = evaluate(CLEAN_PATH)
-
     require(
         clean_metrics["valid"] == 1.0,
         "独立改进算法存在无效场景",
@@ -391,28 +483,11 @@ def main() -> None:
         )
 
         bad_candidate.write_text(
-            """
-import argparse
-import json
-from pathlib import Path
-
-parser = argparse.ArgumentParser()
-parser.add_argument("--problem", required=True)
-parser.add_argument("--output", required=True)
-args = parser.parse_args()
-
-problem = json.loads(
-    Path(args.problem).read_text()
-)
-
-Path(args.output).write_text(
-    json.dumps({
-        "selected_ids": [
-            1
-        ] * problem["test_length"]
-    })
-)
-""".strip(),
+            baseline_source.replace(
+                '    return [item["id"] for item in selected]',
+                '    return [1] * problem["test_length"]',
+                1,
+            ),
             encoding="utf-8",
         )
 
@@ -451,6 +526,8 @@ Path(args.output).write_text(
             "dif_limit",
             "exposure_limit",
             "end_to_end_invalid_candidate",
+            "outside_evolve_block",
+            "nondeterministic_candidate",
         ],
     }
 

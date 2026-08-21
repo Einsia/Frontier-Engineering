@@ -3,6 +3,10 @@ from __future__ import annotations
 import argparse
 import json
 import math
+try:
+    import resource
+except ImportError:
+    resource = None
 import subprocess
 import sys
 import tempfile
@@ -15,11 +19,30 @@ from scoring import score_selection
 
 
 TASK_ROOT = Path(__file__).resolve().parents[1]
+BASELINE_PATH = TASK_ROOT / "references" / "baseline_init_v1.py"
 ANCHOR_PATH = (
     TASK_ROOT
     / "references"
     / "anchor_solutions_v1.json"
 )
+START_MARKER = "# EVOLVE-BLOCK-START"
+END_MARKER = "# EVOLVE-BLOCK-END"
+
+
+def frozen_regions(path: Path) -> tuple[str, str] | None:
+    before, start, remainder = path.read_text(
+        encoding="utf-8"
+    ).partition(START_MARKER)
+    _, end, after = remainder.partition(END_MARKER)
+    return (before, after) if start and end else None
+
+
+def limit_resources() -> None:
+    if resource is None:
+        return
+    resource.setrlimit(resource.RLIMIT_CPU, (10, 10))
+    resource.setrlimit(resource.RLIMIT_AS, (1 << 30, 1 << 30))
+    resource.setrlimit(resource.RLIMIT_NPROC, (32, 32))
 
 
 def write_json(
@@ -88,6 +111,7 @@ def run_candidate(
                 text=True,
                 timeout=10,
                 check=False,
+                preexec_fn=limit_resources if resource is not None else None,
             )
         except subprocess.TimeoutExpired:
             return [], {
@@ -145,6 +169,13 @@ def scenario_score(
 def evaluate(
     candidate_path: Path,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    boundary_error = (
+        "candidate modified code outside EVOLVE-BLOCK"
+        if frozen_regions(candidate_path)
+        != frozen_regions(BASELINE_PATH)
+        else ""
+    )
+
     anchor_solutions = json.loads(
         ANCHOR_PATH.read_text(encoding="utf-8")
     )
@@ -156,10 +187,30 @@ def evaluate(
     ):
         problem = generate_scenario(scenario_name)
 
-        selected_ids, runtime_details = run_candidate(
-            candidate_path,
-            problem,
-        )
+        if boundary_error:
+            selected_ids, runtime_details = [], {
+                "runtime_error": boundary_error
+            }
+        else:
+            selected_ids, runtime_details = run_candidate(
+                candidate_path,
+                problem,
+            )
+
+            if not runtime_details:
+                repeated_ids, repeated_details = run_candidate(
+                    candidate_path,
+                    problem,
+                )
+
+                if repeated_details:
+                    runtime_details = repeated_details
+                elif selected_ids != repeated_ids:
+                    runtime_details = {
+                        "runtime_error": (
+                            "candidate output is nondeterministic"
+                        )
+                    }
 
         candidate_result = score_selection(
             problem,

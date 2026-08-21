@@ -295,6 +295,8 @@ def select_items(
     return [item["id"] for item in selected]
 
 
+# EVOLVE-BLOCK-END
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--problem", required=True)
@@ -321,4 +323,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-# EVOLVE-BLOCK-END

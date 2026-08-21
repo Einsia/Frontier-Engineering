@@ -4,3 +4,4 @@ verification/generator.py
 verification/scoring.py
 verification/problem_view.py
 references/anchor_solutions_v1.json
+references/baseline_init_v1.py

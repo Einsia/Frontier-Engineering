@@ -35,6 +35,41 @@ Input:
 Output:
 - `optimized_circuit`: Qiskit `QuantumCircuit`.
 
+## Correctness Gate (checked before any metric)
+
+Your circuit is verified against the input circuit *before* depth and gate
+counts are computed. A circuit that fails is not scored at all: the run is
+marked invalid, not merely given a low score.
+
+- Method: statevector sampling. `|0...0>` plus 4 Haar-random input states are
+  evolved through both circuits and compared; the worst per-state fidelity must
+  exceed `1 - 1e-9`.
+- Global phase is ignored. So is the qubit permutation a routing pass
+  introduces -- as long as your circuit declares it (see below).
+- Rejected: the empty circuit, a lossy `approximation_degree` (the previous
+  baseline used `approximation_degree=0.95`, which cost 33 two-qubit gates'
+  worth of "improvement" at a fidelity of 0.23 and is now refused), `reset`,
+  mid-circuit measurement, classically conditioned operations, and any circuit
+  touching more than 22 qubits.
+
+## Qubit Layout
+
+QAOA circuits at ALG level carry no measurements, so the scorer cannot recover
+the routing permutation from the circuit itself. If you return a circuit wider
+than the input, it must carry the transpiler's layout. Returning what
+`transpile()` produced is enough; if you post-process it, preserve
+`circuit._layout` (`baseline/structural_optimizer.py` already does). A
+same-width circuit with no layout is read as the identity mapping. The declared
+layout is a hint, not an authority: a permutation you declare but did not
+implement fails the check.
+
+## Execution Model
+
+`baseline/solve.py` runs in its own interpreter. The input circuit reaches you
+as OpenQASM 3, and your returned circuit is exported to OpenQASM 3 and
+re-parsed by the scorer before it is measured. Only the circuit crosses that
+boundary, so overriding `count_ops`, `depth` or `size` changes nothing.
+
 ## Cost and Score
 Cost function:
 - `cost = two_qubit_count + 0.2 * depth`

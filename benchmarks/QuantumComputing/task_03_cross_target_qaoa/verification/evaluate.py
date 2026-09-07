@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 from statistics import mean
 from typing import Any
@@ -11,18 +12,34 @@ from qiskit.circuit import SessionEquivalenceLibrary
 TASK_DIR = Path(__file__).resolve().parent.parent
 
 from utils import (
+    compose_candidate_layout,
     compute_metrics,
     create_run_dir,
     dump_json,
     load_cases,
-    load_solver,
+    rejected_case_result,
+    run_candidate_circuit,
     save_circuit_artifacts,
     timed_call,
+    verify_circuit_equivalence,
 )
 from mqt.bench import BenchmarkLevel, get_benchmark
 from mqt.bench.benchmarks import create_circuit
 from mqt.bench.targets.devices import get_device
 from mqt.bench.targets.gatesets import ionq, rigetti
+
+CANDIDATE_TIMEOUT_S = 900.0
+
+# QAOA circuits at ALG level carry no measurements, so the qubit permutation a
+# routing pass introduces can only come from the layout the candidate declares
+# (see benchmarks/_shared/qiskit_candidate_runner.py). The declaration is a
+# hint, not an authority: the check below fails if the circuit does not
+# actually implement the input under that permutation.
+EQUIVALENCE_MODE = "sampled"
+EQUIVALENCE_THRESHOLD = 1.0 - 1e-9
+EQUIVALENCE_SAMPLES = 4
+# 10/12/14-qubit inputs on 25- and 27-qubit devices.
+MAX_ACTIVE_QUBITS = 22
 
 
 def robust_cost(depth: int, two_qubit_count: int) -> float:
@@ -52,7 +69,7 @@ def build_qaoa_input_circuit(benchmark: str, num_qubits: int, repetitions: int, 
 def evaluate_case_target(
     case: dict[str, Any],
     target_name: str,
-    solver: Any,
+    task_dir: Path,
     artifact_root: Path,
 ) -> dict[str, Any]:
     benchmark = case["benchmark"]
@@ -60,7 +77,8 @@ def evaluate_case_target(
     repetitions = case["repetitions"]
     seed = case["seed"]
     target = get_device(target_name)
-    case_dir = artifact_root / case["case_id"] / target_name
+    case_id = case["case_id"]
+    case_dir = artifact_root / case_id / target_name
     case_dir.mkdir(parents=True, exist_ok=True)
 
     input_qc = build_qaoa_input_circuit(benchmark, num_qubits, repetitions, seed)
@@ -69,19 +87,56 @@ def evaluate_case_target(
     solver_case = dict(case)
     solver_case["target_name"] = target_name
 
-    candidate_raw, solve_time = timed_call(solver, input_qc.copy(), target, solver_case)
+    run = run_candidate_circuit(
+        task_dir,
+        input_circuit=input_qc,
+        case=solver_case,
+        target_spec={"kind": "device", "name": target_name},
+        timeout_s=CANDIDATE_TIMEOUT_S,
+    )
+    if not run.ok:
+        return rejected_case_result(
+            case_id,
+            run.error or "candidate produced no circuit",
+            {"target_name": target_name, "stderr_tail": run.stderr_tail, "artifacts_dir": str(case_dir)},
+        )
+
+    candidate_raw = run.circuit
     save_circuit_artifacts(candidate_raw, case_dir, "candidate_raw")
 
     register_target_equivalences(target_name)
 
-    candidate_canon, canon_time = timed_call(
-        transpile,
-        candidate_raw,
-        target=target,
-        optimization_level=0,
-        seed_transpiler=10,
-    )
+    try:
+        candidate_canon, canon_time = timed_call(
+            transpile,
+            candidate_raw,
+            target=target,
+            optimization_level=0,
+            seed_transpiler=10,
+        )
+    except Exception as exc:
+        return rejected_case_result(
+            case_id,
+            f"candidate circuit could not be canonicalized for {target_name}: {exc}",
+            {"target_name": target_name, "artifacts_dir": str(case_dir)},
+        )
     save_circuit_artifacts(candidate_canon, case_dir, "candidate_canonical", save_image=False)
+
+    equivalence = verify_circuit_equivalence(
+        input_qc,
+        candidate_canon,
+        meta=compose_candidate_layout(candidate_canon, run.meta, input_qc.num_qubits),
+        mode=EQUIVALENCE_MODE,
+        threshold=EQUIVALENCE_THRESHOLD,
+        num_samples=EQUIVALENCE_SAMPLES,
+        max_active_qubits=MAX_ACTIVE_QUBITS,
+    )
+    if not equivalence.ok:
+        return rejected_case_result(
+            case_id,
+            f"candidate circuit is not equivalent to the input circuit: {equivalence.reason}",
+            {"target_name": target_name, "equivalence": equivalence.to_dict(), "artifacts_dir": str(case_dir)},
+        )
 
     candidate_metrics = compute_metrics(candidate_canon)
     candidate_cost = robust_cost(candidate_metrics.depth, candidate_metrics.two_qubit_count)
@@ -118,12 +173,14 @@ def evaluate_case_target(
     gap_vs_opt3 = (candidate_cost - opt3_cost) / opt3_cost if opt3_cost else 0.0
 
     return {
-        "case_id": case["case_id"],
+        "case_id": case_id,
+        "valid": True,
         "target_name": target_name,
+        "equivalence": equivalence.to_dict(),
         "candidate": {
-            "solve_runtime_s": solve_time,
+            "solve_runtime_s": run.runtime_s,
             "canonicalize_runtime_s": canon_time,
-            "total_runtime_s": solve_time + canon_time,
+            "total_runtime_s": run.runtime_s + canon_time,
             "cost": candidate_cost,
             "score_0_to_3": candidate_score,
             "metrics": candidate_metrics.to_dict(),
@@ -149,13 +206,34 @@ def main() -> None:
     artifact_root = args.artifact_dir if args.artifact_dir is not None else create_run_dir(TASK_DIR, prefix="eval")
     artifact_root.mkdir(parents=True, exist_ok=True)
 
-    solver = load_solver(TASK_DIR)
     cases = load_cases(TASK_DIR)
 
     results: list[dict[str, Any]] = []
     for case in cases:
         for target_name in case["targets"]:
-            results.append(evaluate_case_target(case, target_name, solver, artifact_root))
+            results.append(evaluate_case_target(case, target_name, TASK_DIR, artifact_root))
+
+    rejected = [r for r in results if not r.get("valid")]
+    if rejected:
+        print("Task 03 Evaluation: REJECTED")
+        for row in rejected:
+            print(f"  {row['case_id']} @ {row.get('target_name', '?')}: {row['rejection_reason']}")
+        if args.json_out is not None:
+            dump_json(
+                args.json_out,
+                {
+                    "task": "task_03_cross_target_qaoa",
+                    "summary": {
+                        "case_target_pairs": len(results),
+                        "valid": False,
+                        "rejected_cases": [f"{r['case_id']}@{r.get('target_name', '?')}" for r in rejected],
+                        "artifacts_dir": str(artifact_root),
+                    },
+                    "results": results,
+                },
+            )
+            print(f"\nJSON report saved to {args.json_out}")
+        sys.exit(1)
 
     avg_candidate_cost = mean(r["candidate"]["cost"] for r in results)
     avg_candidate_score = mean(r["candidate"]["score_0_to_3"] for r in results)
@@ -176,6 +254,7 @@ def main() -> None:
             f"{row['case_id']} @ {row['target_name']}: "
             f"candidate_cost={row['candidate']['cost']:.4f}, "
             f"candidate_score={row['candidate']['score_0_to_3']:.4f}, "
+            f"equivalence_fidelity={row['equivalence']['fidelity']:.12f}, "
             f"opt0={row['references']['opt_0']['cost']:.4f}, "
             f"opt3={row['references']['opt_3']['cost']:.4f}"
         )
@@ -192,6 +271,7 @@ def main() -> None:
             "task": "task_03_cross_target_qaoa",
             "summary": {
                 "case_target_pairs": len(results),
+                "valid": True,
                 "avg_candidate_cost": avg_candidate_cost,
                 "avg_candidate_score_0_to_3": avg_candidate_score,
                 "avg_opt0_cost": avg_opt0_cost,

@@ -29,13 +29,14 @@ def optimize_circuit(input_circuit: QuantumCircuit, target: Target, case: dict) 
     if "ionq" in target_name:
         transpile_kwargs["basis_gates"] = ["rz", "sx", "x", "rzz", "measure"]
     if "ibm" in target_name or "rigetti" in target_name:
+        # No `approximation_degree` here on purpose. Lowering it buys a smaller
+        # two-qubit count (247 -> 214 on case 01) by throwing away fidelity
+        # (0.23 against the input circuit), and the evaluator's equivalence
+        # gate rejects the result outright.
         transpile_kwargs.update(
             {
                 "layout_method": "sabre",
                 "routing_method": "sabre",
-                "approximation_degree": 0.95,
-                "unitary_synthesis_method": "sk",
-                "unitary_synthesis_plugin_config": {"optimization_level": 3},
             }
         )
 

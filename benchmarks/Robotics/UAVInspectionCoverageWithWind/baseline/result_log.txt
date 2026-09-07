@@ -1,6 +1,18 @@
 Baseline run (local):
-{"score": 595822.2514256956, "feasible": true, "details": {"scene_1": {"success": true, "coverage_ratio": 0.7, "energy": 18.223949618555416, "scene_score": 489981.77605038136}, "scene_2": {"success": true, "coverage_ratio": 1.0, "energy": 14.113850501252912, "scene_score": 999985.8861494988}, "scene_3": {"success": true, "coverage_ratio": 0.5454545454545454, "energy": 21.569079817824605, "scene_score": 297499.09207720694}}}
+{"score": 28.851886471062496, "feasible": true, "details": {"scene_1": {"success": true, "coverage_ratio": 0.5, "energy": 30.234805154785967, "scene_score": 34.88259742260702}, "scene_2": {"success": true, "coverage_ratio": 0.3333333333333333, "energy": 12.901638036861359, "scene_score": 26.88251431490265}, "scene_3": {"success": true, "coverage_ratio": 0.45454545454545453, "energy": 24.283092231696223, "scene_score": 33.31299933869734}, "scene_4": {"success": true, "coverage_ratio": 0.5, "energy": 59.34113038391405, "scene_score": 20.329434808042976}}}
 
 Notes:
-- Benchmark difficulty increased: tighter `T_max`, dynamic obstacle collision checks, and squared coverage scoring.
+- Scoring: `scene_score = coverage_ratio * 100 - energy * 0.5`, final score is the
+  mean over scenes. This matches verification/evaluator.py and Task.md.
 - Baseline remains a feasible reference, not a near-optimal solver.
+
+History:
+- This file previously recorded 595822.2514256956 over three scenes. That number
+  came from an older contract -- `coverage_ratio^2 * 1e6 - energy` -- which
+  reproduces the archived per-scene values exactly (scene_1: 0.7^2*1e6 - 18.2239
+  = 489981.77605038136) while the current formula does not (it gives 60.89).
+  The formula and the scene set both changed afterwards; this log did not, so it
+  overstated the baseline by roughly twenty-thousandfold and would have made any
+  comparison against it meaningless. Regenerated from the current evaluator
+  rather than reconciled by picking a formula: the code and Task.md agree with
+  each other, and Task.md's own worked example already shows 28.85.

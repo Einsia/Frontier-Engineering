@@ -13,6 +13,7 @@ marked and skipped without a compiler.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -98,28 +99,31 @@ def test_printing_a_perfect_score_no_longer_works(bench) -> None:
 
 
 def test_the_old_parser_would_have_been_fooled(bench) -> None:
-    """Guards against the test above passing for the wrong reason."""
+    """Guards against the test above passing for the wrong reason.
+
+    The pre-fix parser is reimplemented here rather than fetched from git: once
+    the fix is committed there is no HEAD to compare against, and a test that
+    silently skips is not a discriminator. This is the exact logic that shipped
+    -- scan stdout for lines starting with "Score =" or "Perf index =", keep the
+    LAST one, and pull N out of "= N/100".
+    """
     _append_to_mm(bench, STDOUT_SPOOF)
     _run(bench)
-    stdout = (bench / "mdriver.stdout.txt").read_text(encoding="utf-8")
-    old = subprocess.run(
-        ["git", "show", "HEAD:benchmarks/ComputerSystems/MallocLab/frontier_eval/parse_mdriver_result.py"],
-        cwd=str(REPO_ROOT), capture_output=True, text=True,
+    combined = (
+        (bench / "mdriver.stdout.txt").read_text(encoding="utf-8")
+        + "\n"
+        + (bench / "mdriver.stderr.txt").read_text(encoding="utf-8")
     )
-    if old.returncode != 0:
-        pytest.skip("pre-fix parser not reachable from git")
-    if "--expected-token" in old.stdout:
-        pytest.skip("HEAD already contains the fix")
-    parser = bench / "old_parser.py"
-    parser.write_text(old.stdout, encoding="utf-8")
-    out = bench / "old_metrics.json"
-    subprocess.run(
-        [sys.executable, str(parser), "--stdout-file", str(bench / "mdriver.stdout.txt"),
-         "--stderr-file", str(bench / "mdriver.stderr.txt"),
-         "--mdriver-returncode", "0", "--metrics-out", str(out)],
-        check=True, capture_output=True, timeout=60,
+    score_line = ""
+    for raw in combined.splitlines():
+        line = raw.strip()
+        if line.startswith("Score =") or line.startswith("Perf index ="):
+            score_line = line
+    match = re.search(r"=\s*([0-9]+(?:\.[0-9]+)?)\s*/\s*100\b", score_line or combined)
+    assert match is not None
+    assert float(match.group(1)) == 100.0, (
+        "the spoof no longer reaches stdout, so this test is not proving anything"
     )
-    assert json.loads(out.read_text(encoding="utf-8"))["combined_score"] == 100.0
 
 
 def test_stealing_the_token_before_main_fails_loudly(bench) -> None:

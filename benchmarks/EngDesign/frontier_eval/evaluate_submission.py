@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import contextlib
+import hmac
 import importlib.util
 import io
 import json
 import os
-import runpy
+import secrets
 import subprocess
 import sys
+import tempfile
 import time
 import traceback
 from pathlib import Path
@@ -23,6 +26,26 @@ TASK_IDS: tuple[str, ...] = (
     "YJ_02",
     "YJ_03",
 )
+
+# The candidate submission is *data*, not a program. It is parsed with a
+# non-executing literal reader (see `_load_submission`), so nothing inside it
+# ever runs -- neither in this orchestrator process nor in the per-task child
+# processes. These bounds keep the parser itself cheap and non-pathological.
+MAX_CANDIDATE_BYTES = 8 * 1024 * 1024
+MAX_LITERAL_DEPTH = 80
+MAX_LITERAL_NODES = 2_000_000
+
+SUBMISSION_NAMES: tuple[str, ...] = ("SUBMISSION", "submission", "ENGDESIGN_SUBMISSION")
+
+# Per-task scores are documented as percentages; clamp so that a task-local
+# compromise (e.g. CY_03/WJ_01 execute candidate-supplied source by design)
+# cannot inflate `combined_score` beyond one task's legitimate share.
+SCORE_MIN = 0.0
+SCORE_MAX = 100.0
+
+
+class SubmissionFormatError(ValueError):
+    """Raised when the candidate file is not a readable literal submission."""
 
 
 def _tail(text: str, limit: int = 8000) -> str:
@@ -47,30 +70,15 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
     return default
 
 
-def _parse_last_json_dict(text: str) -> dict[str, Any] | None:
-    stripped = (text or "").strip()
-    if not stripped:
-        return None
-
-    if stripped.startswith("{") and stripped.endswith("}"):
-        try:
-            parsed = json.loads(stripped)
-            if isinstance(parsed, dict):
-                return parsed
-        except Exception:
-            pass
-
-    for raw in reversed(stripped.splitlines()):
-        line = raw.strip()
-        if not line.startswith("{") or not line.endswith("}"):
-            continue
-        try:
-            parsed = json.loads(line)
-        except Exception:
-            continue
-        if isinstance(parsed, dict):
-            return parsed
-    return None
+def _clamp_score(value: Any, default: float = 0.0) -> float:
+    raw = _safe_float(value, default=default)
+    if raw != raw:  # NaN
+        return default
+    if raw < SCORE_MIN:
+        return SCORE_MIN
+    if raw > SCORE_MAX:
+        return SCORE_MAX
+    return raw
 
 
 def _write_json(path: Path, obj: Any) -> None:
@@ -128,21 +136,181 @@ def _load_module(module_name: str, module_path: Path, extra_paths: list[Path]) -
             sys.modules[module_name] = previous_module
 
 
-def _load_submission(candidate_path: Path) -> dict[str, Any]:
-    scope = runpy.run_path(str(candidate_path))
-    for key in ("SUBMISSION", "submission", "ENGDESIGN_SUBMISSION"):
-        value = scope.get(key)
-        if isinstance(value, dict):
-            return value
+# ---------------------------------------------------------------------------
+# Non-executing submission reader
+# ---------------------------------------------------------------------------
+#
+# The submission is a pure data payload for seven independent sub-tasks. It used
+# to be loaded with `runpy.run_path`, which granted arbitrary code execution to
+# whatever produced the file -- both here in the orchestrator (which then spawns
+# the per-task children, parses their results and writes metrics.json) and again
+# inside every child. The reader below parses the file with `ast` and evaluates
+# only literal nodes, so the file can no longer run anything at all.
+#
+# Deliberately NOT used: `runpy`, `exec`, `eval`, `compile`,
+# `importlib.util.spec_from_file_location(...).exec_module(...)`. Swapping
+# `runpy` for `exec_module` would only relocate the same primitive.
 
-    derived = {task_id: scope.get(task_id) for task_id in TASK_IDS if task_id in scope}
-    if len(derived) == len(TASK_IDS):
-        return derived
 
-    raise ValueError(
-        "Candidate must define a dict variable named `SUBMISSION` "
-        "that contains all EngDesign task payloads."
+def _static_eval(node: ast.AST, consts: dict[str, Any], depth: int = 0) -> Any:
+    """Evaluate a *literal* AST node. Never executes candidate code.
+
+    Supported: constants, tuple/list/set/dict displays, unary +/- on numbers,
+    and references to top-level names that were themselves bound to literals
+    earlier in the same file. Anything else (calls, attributes, subscripts,
+    comprehensions, f-strings, imports, ...) is rejected.
+    """
+    if depth > MAX_LITERAL_DEPTH:
+        raise SubmissionFormatError(
+            f"Submission literal nesting exceeds {MAX_LITERAL_DEPTH} levels."
+        )
+
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.Tuple):
+        return tuple(_static_eval(e, consts, depth + 1) for e in node.elts)
+    if isinstance(node, ast.List):
+        return [_static_eval(e, consts, depth + 1) for e in node.elts]
+    if isinstance(node, ast.Set):
+        return {_static_eval(e, consts, depth + 1) for e in node.elts}
+    if isinstance(node, ast.Dict):
+        out: dict[Any, Any] = {}
+        for key_node, value_node in zip(node.keys, node.values):
+            if key_node is None:
+                raise SubmissionFormatError(
+                    "Dict unpacking (`**other`) is not allowed in a submission literal."
+                )
+            out[_static_eval(key_node, consts, depth + 1)] = _static_eval(
+                value_node, consts, depth + 1
+            )
+        return out
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+        operand = _static_eval(node.operand, consts, depth + 1)
+        if not isinstance(operand, (int, float, complex)) or isinstance(operand, bool):
+            raise SubmissionFormatError("Unary +/- is only allowed on numeric literals.")
+        return operand if isinstance(node.op, ast.UAdd) else -operand
+    if isinstance(node, ast.Name):
+        if node.id in consts:
+            return consts[node.id]
+        raise SubmissionFormatError(
+            f"Name `{node.id}` is not a top-level literal constant defined earlier "
+            "in the submission file. Submissions must be plain data: inline the "
+            "value, or bind it to a module-level literal (no function calls)."
+        )
+
+    raise SubmissionFormatError(
+        f"Unsupported expression `{type(node).__name__}` in submission literal. "
+        "The submission file is parsed as data only -- function calls, attribute "
+        "access, comprehensions and f-strings are not evaluated."
     )
+
+
+def _collect_literal_consts(tree: ast.Module) -> dict[str, Any]:
+    """Best-effort table of top-level `NAME = <literal>` bindings, in file order."""
+    consts: dict[str, Any] = {}
+    for stmt in tree.body:
+        targets: list[ast.expr]
+        if isinstance(stmt, ast.Assign):
+            targets = list(stmt.targets)
+            value = stmt.value
+        elif isinstance(stmt, ast.AnnAssign) and stmt.value is not None:
+            targets = [stmt.target]
+            value = stmt.value
+        else:
+            continue
+        names = [t.id for t in targets if isinstance(t, ast.Name)]
+        if not names:
+            continue
+        try:
+            resolved = _static_eval(value, consts)
+        except SubmissionFormatError:
+            # Non-literal helpers (functions, calls) simply stay unresolvable.
+            continue
+        for name in names:
+            consts[name] = resolved
+    return consts
+
+
+def _find_submission_node(tree: ast.Module) -> tuple[str, ast.expr]:
+    found: tuple[str, ast.expr] | None = None
+    for stmt in tree.body:
+        if isinstance(stmt, ast.Assign):
+            targets, value = list(stmt.targets), stmt.value
+        elif isinstance(stmt, ast.AnnAssign) and stmt.value is not None:
+            targets, value = [stmt.target], stmt.value
+        else:
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name) and target.id in SUBMISSION_NAMES:
+                found = (target.id, value)  # last top-level binding wins
+    if found is None:
+        raise SubmissionFormatError(
+            "Candidate must define a top-level dict literal named `SUBMISSION` "
+            "containing all EngDesign task payloads."
+        )
+    return found
+
+
+def _load_submission(candidate_path: Path) -> dict[str, Any]:
+    """Read `SUBMISSION` from the candidate file without executing it.
+
+    `.json` candidates are read as JSON; anything else is parsed as a Python
+    source file from which only the literal `SUBMISSION` assignment is read.
+    """
+    if not candidate_path.is_file():
+        raise SubmissionFormatError(f"Candidate file not found: {candidate_path}")
+
+    size = candidate_path.stat().st_size
+    if size > MAX_CANDIDATE_BYTES:
+        raise SubmissionFormatError(
+            f"Candidate file is too large ({size} bytes > {MAX_CANDIDATE_BYTES})."
+        )
+
+    try:
+        text = candidate_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise SubmissionFormatError(f"Candidate file is not valid UTF-8: {exc}") from exc
+
+    if candidate_path.suffix.lower() in {".json", ".json5"}:
+        try:
+            payload = json.loads(text)
+        except Exception as exc:
+            raise SubmissionFormatError(f"Candidate JSON is invalid: {exc}") from exc
+        if isinstance(payload, dict):
+            for key in SUBMISSION_NAMES:
+                inner = payload.get(key)
+                if isinstance(inner, dict):
+                    return inner
+            return payload
+        raise SubmissionFormatError("Candidate JSON must contain a top-level object.")
+
+    try:
+        tree = ast.parse(text, filename=str(candidate_path))
+    except SyntaxError as exc:
+        raise SubmissionFormatError(f"Candidate file does not parse: {exc}") from exc
+
+    node_count = sum(1 for _ in ast.walk(tree))
+    if node_count > MAX_LITERAL_NODES:
+        raise SubmissionFormatError(
+            f"Candidate file is too complex ({node_count} AST nodes)."
+        )
+
+    consts = _collect_literal_consts(tree)
+    name, value_node = _find_submission_node(tree)
+    try:
+        value = _static_eval(value_node, consts)
+    except RecursionError as exc:
+        raise SubmissionFormatError(f"Submission literal is too deeply nested: {exc}") from exc
+
+    if not isinstance(value, dict):
+        raise SubmissionFormatError(f"`{name}` must be a dict literal, got {type(value).__name__}.")
+
+    missing = [t for t in TASK_IDS if t not in value]
+    if missing:
+        raise SubmissionFormatError(
+            f"`{name}` is missing required task keys: {', '.join(missing)}"
+        )
+    return value
 
 
 def _normalize_payload(task_id: str, section: Any) -> dict[str, Any]:
@@ -242,8 +410,8 @@ def _evaluate_single_task(
                 passed, details, score, confidence = evaluate_module.evaluate_llm_response(response)
 
         result["passed"] = bool(passed)
-        result["score"] = _safe_float(score, default=0.0)
-        result["confidence"] = _safe_float(confidence, default=0.0)
+        result["score"] = _clamp_score(score, default=0.0)
+        result["confidence"] = _clamp_score(confidence, default=0.0)
         result["task_valid"] = 1.0
         result["details"] = details if details is not None else {}
         result["eval_stdout"] = _tail(stdout_buf.getvalue(), limit=12000)
@@ -268,6 +436,76 @@ def _default_failed_task_result(task_id: str, reason: str) -> dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------------------
+# Authenticated result channel (file, not stdout)
+# ---------------------------------------------------------------------------
+#
+# Per-task results used to travel back as "the last JSON object printed on the
+# child's stdout". Sub-tasks CY_03 and WJ_01 execute candidate-supplied source
+# by design, so that channel was writable by the candidate: printing a perfect
+# result and calling os._exit(0) was enough to overwrite the real one.
+#
+# Results now travel through a file named by `--result-out`, wrapped in a
+# one-shot token that the parent hands to the child over *stdin* (never argv,
+# never the environment -- `/proc/self/environ` keeps a snapshot that survives
+# `os.environ.pop`). The child consumes stdin before any task module is
+# imported, so candidate code cannot recover the token and cannot mint an
+# acceptable result file.
+
+_RESULT_TOKEN: str | None = None
+
+
+def _consume_launch_token() -> None:
+    """Read the one-shot token from stdin and close stdin, before any task code."""
+    global _RESULT_TOKEN
+    try:
+        raw = sys.stdin.read()
+    except Exception:
+        raw = ""
+    try:
+        payload = json.loads(raw) if raw.strip() else {}
+        token = payload.get("token") if isinstance(payload, dict) else None
+        _RESULT_TOKEN = str(token) if isinstance(token, str) else None
+    except Exception:
+        _RESULT_TOKEN = None
+    finally:
+        with contextlib.suppress(Exception):
+            sys.stdin.close()
+        with contextlib.suppress(Exception):
+            devnull = os.open(os.devnull, os.O_RDONLY)
+            if devnull != 0:
+                os.dup2(devnull, 0)
+                os.close(devnull)
+        with contextlib.suppress(Exception):
+            sys.stdin = open(os.devnull, "r")  # noqa: SIM115
+
+
+def _write_result_file(path: Path, token: str | None, result: dict[str, Any]) -> None:
+    envelope = {"token": token, "result": result}
+    tmp = path.with_name(path.name + ".partial")
+    tmp.parent.mkdir(parents=True, exist_ok=True)
+    tmp.write_text(json.dumps(envelope, ensure_ascii=False, default=str), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _read_result_file(path: Path, token: str) -> tuple[dict[str, Any] | None, str]:
+    if not path.is_file():
+        return None, "child produced no result file"
+    try:
+        envelope = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return None, f"result file is not valid JSON: {exc}"
+    if not isinstance(envelope, dict):
+        return None, "result file is not a JSON object"
+    got = envelope.get("token")
+    if not isinstance(got, str) or not hmac.compare_digest(got, token):
+        return None, "result file token mismatch (forged or truncated result)"
+    result = envelope.get("result")
+    if not isinstance(result, dict):
+        return None, "result file has no result object"
+    return result, ""
+
+
 def _run_full_evaluation(
     *,
     benchmark_dir: Path,
@@ -280,6 +518,10 @@ def _run_full_evaluation(
     hard_failures: list[str] = []
     task_results: dict[str, dict[str, Any]] = {}
 
+    # Static pre-check only. `_load_submission` parses literals and executes
+    # nothing, so this no longer hands the orchestrator process (which owns
+    # subprocess dispatch, result parsing and metrics.json) to the candidate.
+    # Each child re-reads the file independently anyway.
     try:
         _load_submission(candidate_path)
     except Exception as exc:
@@ -306,55 +548,66 @@ def _run_full_evaluation(
         return
 
     self_path = Path(__file__).resolve()
-    for task_id in TASK_IDS:
-        cmd = [
-            sys.executable,
-            str(self_path),
-            "--single-task",
-            task_id,
-            "--candidate",
-            str(candidate_path),
-            "--benchmark-dir",
-            str(benchmark_dir),
-        ]
+    with tempfile.TemporaryDirectory(prefix="engdesign_results_") as result_dir_name:
+        result_dir = Path(result_dir_name)
+        for task_id in TASK_IDS:
+            token = secrets.token_hex(32)
+            result_path = result_dir / f"{task_id}_{secrets.token_hex(8)}.json"
+            cmd = [
+                sys.executable,
+                str(self_path),
+                "--single-task",
+                task_id,
+                "--candidate",
+                str(candidate_path),
+                "--benchmark-dir",
+                str(benchmark_dir),
+                "--result-out",
+                str(result_path),
+            ]
 
-        try:
-            proc = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=max(5.0, float(task_timeout_s)),
-            )
-        except subprocess.TimeoutExpired as exc:
-            reason = f"TimeoutExpired: {exc}"
-            hard_failures.append(f"{task_id}: {reason}")
-            task_results[task_id] = _default_failed_task_result(task_id, reason)
-            continue
-        except Exception as exc:
-            reason = f"{type(exc).__name__}: {exc}"
-            hard_failures.append(f"{task_id}: {reason}")
-            task_results[task_id] = _default_failed_task_result(task_id, reason)
-            continue
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    input=json.dumps({"token": token}),
+                    capture_output=True,
+                    text=True,
+                    timeout=max(5.0, float(task_timeout_s)),
+                )
+            except subprocess.TimeoutExpired as exc:
+                reason = f"TimeoutExpired: {exc}"
+                hard_failures.append(f"{task_id}: {reason}")
+                task_results[task_id] = _default_failed_task_result(task_id, reason)
+                continue
+            except Exception as exc:
+                reason = f"{type(exc).__name__}: {exc}"
+                hard_failures.append(f"{task_id}: {reason}")
+                task_results[task_id] = _default_failed_task_result(task_id, reason)
+                continue
 
-        parsed = _parse_last_json_dict(proc.stdout or "")
-        if proc.returncode != 0 or not isinstance(parsed, dict):
-            reason = (
-                f"single-task process failed (rc={proc.returncode}). "
-                f"stdout_tail={_tail(proc.stdout or '', 1500)!r} "
-                f"stderr_tail={_tail(proc.stderr or '', 1500)!r}"
-            )
-            hard_failures.append(f"{task_id}: {reason}")
-            task_results[task_id] = _default_failed_task_result(task_id, reason)
-            continue
+            parsed, read_error = _read_result_file(result_path, token)
+            if proc.returncode != 0 or parsed is None:
+                reason = (
+                    f"single-task process failed (rc={proc.returncode}, "
+                    f"result_channel={read_error or 'ok'}). "
+                    f"stdout_tail={_tail(proc.stdout or '', 1500)!r} "
+                    f"stderr_tail={_tail(proc.stderr or '', 1500)!r}"
+                )
+                hard_failures.append(f"{task_id}: {reason}")
+                task_results[task_id] = _default_failed_task_result(task_id, reason)
+                continue
 
-        parsed.setdefault("task_id", task_id)
-        parsed.setdefault("passed", False)
-        parsed.setdefault("score", 0.0)
-        parsed.setdefault("confidence", 0.0)
-        parsed.setdefault("task_valid", 0.0)
-        if proc.stderr:
-            parsed["runner_stderr"] = _tail(proc.stderr, limit=4000)
-        task_results[task_id] = parsed
+            # Identity of the result is decided here, not by the child.
+            parsed["task_id"] = task_id
+            parsed.setdefault("passed", False)
+            parsed["score"] = _clamp_score(parsed.get("score"), default=0.0)
+            parsed["confidence"] = _clamp_score(parsed.get("confidence"), default=0.0)
+            parsed.setdefault("task_valid", 0.0)
+            if proc.stdout:
+                parsed["runner_stdout"] = _tail(proc.stdout, limit=4000)
+            if proc.stderr:
+                parsed["runner_stderr"] = _tail(proc.stderr, limit=4000)
+            task_results[task_id] = parsed
 
     metrics: dict[str, float] = {}
     score_sum = 0.0
@@ -368,7 +621,7 @@ def _run_full_evaluation(
             result = _default_failed_task_result(task_id, "missing task result")
             task_results[task_id] = result
 
-        score_v = _safe_float(result.get("score"), default=0.0)
+        score_v = _clamp_score(result.get("score"), default=0.0)
         passed_v = 1.0 if bool(result.get("passed")) else 0.0
         task_valid_v = _safe_float(result.get("task_valid"), default=0.0)
 
@@ -435,11 +688,25 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--artifacts-out", default="artifacts.json", type=str)
     parser.add_argument("--task-timeout-s", default=180.0, type=float)
     parser.add_argument("--single-task", choices=TASK_IDS, default=None)
+    parser.add_argument(
+        "--result-out",
+        default=None,
+        type=str,
+        help=(
+            "Single-task mode: write the result JSON here instead of stdout. "
+            "The parent authenticates it with a token delivered over stdin."
+        ),
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = _parse_args()
+
+    if args.single_task and args.result_out:
+        # Before importing any task module or touching candidate data.
+        _consume_launch_token()
+
     benchmark_dir = Path(args.benchmark_dir).expanduser().resolve()
     candidate_path = _resolve_candidate_path(benchmark_dir, args.candidate)
 
@@ -449,7 +716,15 @@ def main() -> int:
             benchmark_dir=benchmark_dir,
             candidate_path=candidate_path,
         )
-        print(json.dumps(result, ensure_ascii=False, default=str))
+        if args.result_out:
+            _write_result_file(
+                _resolve_output_path(benchmark_dir, args.result_out),
+                _RESULT_TOKEN,
+                result,
+            )
+        else:
+            # Manual/debug invocation only; the orchestrator never reads stdout.
+            print(json.dumps(result, ensure_ascii=False, default=str))
         return 0
 
     metrics_out = _resolve_output_path(benchmark_dir, args.metrics_out)

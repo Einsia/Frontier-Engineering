@@ -139,5 +139,32 @@ if [[ ! -f "${ARTIFACTS_JSON}" ]]; then
 EOF
 fi
 
-# Keep return code 0. unified reads validity/score from metrics.json.
-exit 0
+# A non-zero evaluator return code means the harness itself failed, not that
+# the candidate merely scored badly. This script used to swallow it with a
+# blanket `exit 0`, which permanently disabled the unified framework's
+# returncode check for EngDesign. Propagate the real code, and force
+# metrics.json to an invalid result so both signals agree.
+if [[ ${EVAL_RC} -ne 0 ]]; then
+  "${PYTHON_CMD}" - "${METRICS_JSON}" "${EVAL_RC}" <<'PYFIX' || true
+import json
+import sys
+
+path, rc = sys.argv[1], float(sys.argv[2])
+try:
+    with open(path, "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+    if not isinstance(data, dict):
+        data = {}
+except Exception:
+    data = {}
+data["valid"] = 0.0
+data["combined_score"] = 0.0
+data["avg_score"] = 0.0
+data["eval_returncode"] = rc
+with open(path, "w", encoding="utf-8") as fh:
+    json.dump(data, fh, ensure_ascii=False, indent=2)
+    fh.write("\n")
+PYFIX
+fi
+
+exit "${EVAL_RC}"

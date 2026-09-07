@@ -1,15 +1,26 @@
 EngDesign UnifiedTask constraints:
 1) Only modify `submission/engdesign_submission.py`.
-2) Keep the top-level variable name `SUBMISSION` as a Python dict.
-3) Keep all benchmark/evaluator infrastructure files unchanged under `frontier_eval/` and task folders.
-4) Keep required task keys in `SUBMISSION`:
+2) The submission file is DATA, not a program. It is read with a non-executing
+   literal parser; nothing in it is ever executed. Only these are readable:
+   - literals: str / bytes / int / float / bool / None
+   - list / tuple / set / dict displays of literals
+   - unary +/- on numbers
+   - references to module-level names bound to literals EARLIER in the file
+   Function definitions, calls (including `"...".strip()`), f-strings,
+   comprehensions, imports and attribute access are NOT evaluated and make the
+   submission invalid (`valid=0`). Inline the values instead.
+3) Keep the top-level variable name `SUBMISSION` bound to a Python dict literal.
+4) Keep all benchmark/evaluator infrastructure files unchanged under
+   `frontier_eval/` and task folders.
+5) Keep required task keys in `SUBMISSION`:
    - AM_02, AM_03, CY_03, WJ_01, XY_05, YJ_02, YJ_03
-5) `CY_03` must provide Python function source strings for:
+6) `CY_03` must provide Python function source STRINGS for:
    - `vioblk_read`
    - `vioblk_write`
-6) `CY_03` submissions must NOT reference benchmark-internal gold helpers:
+   (they are strings in the submission; `CY_03/evaluate.py` runs them itself)
+7) `CY_03` submissions must NOT reference benchmark-internal gold helpers:
    - `gold_vioblk_read`
    - `gold_vioblk_write`
-7) `WJ_01` must provide `function_code` that defines:
+8) `WJ_01` must provide `function_code` as a STRING that defines:
    - `def denoise_image(noisy_img): ...`
-8) Keep output format compatible with each task's `output_structure.py`.
+9) Keep output format compatible with each task's `output_structure.py`.

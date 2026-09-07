@@ -6,6 +6,9 @@ No stockpyl optimizer is used here.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 
 def solve() -> dict:
     """Fixed-cycle + demand-bucket multiples heuristic."""
@@ -32,4 +35,16 @@ def solve() -> dict:
         "order_multiples": multiples,
         "order_quantities": order_quantities,
     }
+
+
+def _write_submission(solution: dict) -> None:
+    from pathlib import Path
+
+    Path("submission.json").write_text(
+        json.dumps(solution, indent=2, default=str), encoding="utf-8"
+    )
+
+
+if __name__ == "__main__":
+    _write_submission(solve())
 # EVOLVE-BLOCK-END

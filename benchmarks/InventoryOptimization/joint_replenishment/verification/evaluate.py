@@ -12,8 +12,72 @@ TASK_DIR = Path(__file__).resolve().parents[1]
 if str(TASK_DIR) not in sys.path:
     sys.path.insert(0, str(TASK_DIR))
 
-from baseline.init import solve as solve_baseline  # noqa: E402
+# The candidate now runs in its own subprocess and writes submission.json, so
+# we never exec_module it into this process. Bring in the isolation helper from
+# the shared location; it sits outside any benchmark dir so copy_files.txt of "."
+# cannot drag it into the sandbox. The repo root is three levels up from this
+# file (verification/<benchmark>/<domain>/benchmarks/../). Locate it robustly
+# via the env var the harness sets, then fall back to walking up.
+def _find_repo_root() -> Path:
+    env_root = (__import__("os").environ.get("FRONTIER_ENGINEERING_ROOT") or "").strip()
+    if env_root:
+        return Path(env_root).expanduser().resolve()
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "benchmarks").is_dir() and (parent / "frontier_eval").is_dir():
+            return parent
+    raise RuntimeError("could not locate repo root for joint_replenishment evaluator")
+
+
+_REPO = _find_repo_root()
+if str(_REPO / "benchmarks" / "_shared") not in sys.path:
+    sys.path.insert(0, str(_REPO / "benchmarks" / "_shared"))
+import candidate_sandbox as sandbox  # noqa: E402
+
 from verification.reference import solve as solve_reference  # noqa: E402
+
+
+class _Validation:
+    """Strict, scorer-owned checks on the candidate's reported solution."""
+
+    N_ITEMS = 8
+    MAX_CYCLE = 100.0
+    MAX_MULTIPLE = 1000
+
+    def __init__(self) -> None:
+        self.errors: list[str] = []
+
+    def fail(self, message: str) -> None:
+        self.errors.append(message)
+
+    def validate(self, solution: dict) -> bool:
+        if not isinstance(solution, dict):
+            self.fail("submission must be a JSON object")
+            return False
+
+        base_cycle = solution.get("base_cycle_time")
+        multiples = solution.get("order_multiples")
+
+        if isinstance(base_cycle, bool) or not isinstance(base_cycle, (int, float)):
+            self.fail("base_cycle_time must be a number")
+        elif not math.isfinite(float(base_cycle)):
+            self.fail("base_cycle_time must be finite")
+        elif float(base_cycle) <= 0.0:
+            self.fail(f"base_cycle_time must be positive, got {base_cycle}")
+        elif float(base_cycle) > self.MAX_CYCLE:
+            self.fail(f"base_cycle_time too large: {base_cycle} > {self.MAX_CYCLE}")
+
+        if not isinstance(multiples, list) or len(multiples) != self.N_ITEMS:
+            self.fail(f"order_multiples must be a list of {self.N_ITEMS} items")
+            return False
+        for m in multiples:
+            if isinstance(m, bool) or not isinstance(m, int):
+                self.fail(f"order_multiples entries must be integers, got {m!r}")
+                return False
+            if m < 1 or m > self.MAX_MULTIPLE:
+                self.fail(f"order_multiples entries must be in [1, {self.MAX_MULTIPLE}], got {m}")
+                return False
+
+        return not self.errors
 
 
 def clip(x: float) -> float:
@@ -105,19 +169,76 @@ def score_solution(solution: dict):
     }
 
 
+def run_candidate(candidate_path: Path) -> tuple[dict | None, str]:
+    """Run the candidate in a subprocess and return (submission, error_message)."""
+    try:
+        run = sandbox.run_candidate_isolated(
+            candidate_path,
+            expected_outputs=("submission.json",),
+            timeout_s=60,
+            copy_into_workdir=False,  # candidate lives at baseline/init.py in task tree
+        )
+    except sandbox.InvalidSubmissionError as exc:
+        return None, str(exc)
+    if run.timed_out:
+        return None, "candidate timed out"
+    if run.returncode != 0:
+        return None, f"candidate exited non-zero ({run.returncode})"
+
+    try:
+        submission = sandbox.load_json_output(run)
+    except sandbox.InvalidSubmissionError as exc:
+        return None, str(exc)
+
+    validator = _Validation()
+    if not validator.validate(submission):
+        return None, "; ".join(validator.errors)
+
+    # The scorer recomputes the quantities it depends on, so a candidate cannot
+    # make its own order_quantities / cycle_times disagree with its reported
+    # base cycle and multiples.
+    submission["order_quantities"] = [
+        d * m * float(submission["base_cycle_time"])
+        for d, m in zip(
+            [120.0, 90.0, 60.0, 40.0, 25.0, 18.0, 12.0, 8.0],
+            submission["order_multiples"],
+        )
+    ]
+    return submission, None
+
+
 def main() -> None:
     output_dir = TASK_DIR / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    baseline_solution = solve_baseline()
-    reference_solution = solve_reference()
+    candidate_path = TASK_DIR / "baseline" / "init.py"
+    submission, error_message = run_candidate(candidate_path)
+
+    if submission is None:
+        # No valid candidate: emit a clearly invalid comparison so the harness
+        # scores 0 rather than trusting anything the candidate reported.
+        comparison = {
+            "task": "joint_replenishment",
+            "baseline_final_score": 0.0,
+            "reference_final_score": 0.0,
+            "gap_reference_minus_baseline": 0.0,
+            "winner": "reference",
+            "candidate_error": error_message,
+        }
+        (output_dir / "comparison.json").write_text(
+            json.dumps(comparison, indent=2), encoding="utf-8"
+        )
+        print(f"Candidate rejected: {error_message}")
+        return
 
     baseline_result = {
         "task": "joint_replenishment",
         "method": "baseline",
-        "algorithm": "fixed-cycle + demand-bucket multiples",
-        **score_solution(baseline_solution),
+        "algorithm": "candidate submission",
+        **score_solution(submission),
     }
+
+    reference_solution = solve_reference()
     reference_result = {
         "task": "joint_replenishment",
         "method": "reference",

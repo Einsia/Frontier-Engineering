@@ -70,6 +70,36 @@ def _load(name: str, path: Path) -> ModuleType:
     return module
 
 
+@pytest.fixture(autouse=True)
+def _clean_temp_root():
+    """Remove what the attack candidates write outside their own sandbox.
+
+    _PATCH_SCORER deliberately targets ``Path.cwd().parent``, which is the
+    temp root the sandbox workdir sits in. That is a faithful simulation --
+    a real candidate would try exactly that -- and it correctly fails to move
+    the score. But the debris stays behind, and a later test whose probe walks
+    up parent directories then finds a ``verification/`` that this suite
+    created, and fails for a reason that has nothing to do with the code under
+    test. Clean up what we scattered.
+    """
+    import shutil
+    import tempfile
+
+    root = Path(tempfile.gettempdir())
+    before = {p.name for p in root.iterdir()} if root.is_dir() else set()
+    try:
+        yield
+    finally:
+        if not root.is_dir():
+            return
+        for name in ("verification", "frontier_eval"):
+            if name in before:
+                continue
+            stray = root / name
+            if stray.is_dir():
+                shutil.rmtree(stray, ignore_errors=True)
+
+
 @pytest.fixture(scope="module", autouse=True)
 def _no_bytecode_cache():
     """Importing an evaluator by path writes ``__pycache__`` next to it.

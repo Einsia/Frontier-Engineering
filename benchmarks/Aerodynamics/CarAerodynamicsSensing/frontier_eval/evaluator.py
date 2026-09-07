@@ -2,10 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
-import subprocess
 import sys
-import tempfile
 import time
 import traceback
 from pathlib import Path
@@ -27,6 +24,29 @@ P_MAX = 602.6890
 
 _CACHED_MODEL = None
 _CACHED_MODEL_KEY = ""
+
+CANDIDATE_TIMEOUT_S = 900.0
+
+# Environment the candidate subprocess may see. FRONTIER_ENGINEERING_ROOT stays:
+# every shipped and archived candidate uses it to locate the read-only
+# references/car_surface_points.npy. PYTHONPATH is deliberately gone -- the
+# evaluator used to prepend the repo root to the candidate's import path.
+CANDIDATE_ENV_ALLOWLIST = (
+    "PATH",
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "TMPDIR",
+    "TEMP",
+    "TMP",
+    "FRONTIER_ENGINEERING_ROOT",
+    "PHYSENSE_CAR_DATA_DIR",
+    "OMP_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+)
+CANDIDATE_RLIMITS = {"FSIZE": 1 << 30, "NOFILE": 4096}
 
 ASSET_HELP = (
     "Prepare CarAerodynamicsSensing assets from the repository root with: "
@@ -51,6 +71,22 @@ def _find_repo_root() -> Path:
         if _is_repo_root(parent):
             return parent
     return Path.cwd().resolve()
+
+
+def _import_isolation(repo_root: Path):
+    """Import the shared candidate-isolation helper.
+
+    It sits outside every benchmark directory so a ``copy_files.txt`` of ``.``
+    cannot drag it into a sandbox the candidate can write to.
+    """
+    shared = repo_root / "benchmarks" / "_shared"
+    if not (shared / "candidate_sandbox.py").is_file():
+        raise RuntimeError(f"shared isolation helper not found under {shared}")
+    if str(shared) not in sys.path:
+        sys.path.insert(0, str(shared))
+    import candidate_sandbox  # noqa: PLC0415
+
+    return candidate_sandbox
 
 
 def _tail(text: str, limit: int = 8000) -> str:
@@ -158,10 +194,8 @@ def _ensure_reference_points(ref_path: Path, data_dir: Path) -> np.ndarray:
     return points
 
 
-def _parse_submission(path: Path, max_index: int) -> list[int]:
-    if not path.exists():
-        raise FileNotFoundError(f"Missing submission file: {path}")
-    data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+def _parse_submission_text(text: str, max_index: int) -> list[int]:
+    data = json.loads(text)
     if isinstance(data, list):
         indices = data
     elif isinstance(data, dict) and "indices" in data:
@@ -181,6 +215,12 @@ def _parse_submission(path: Path, max_index: int) -> list[int]:
             raise ValueError(f"Index out of range: {idx} (max {max_index - 1})")
         out.append(int(idx))
     return out
+
+
+def _parse_submission(path: Path, max_index: int) -> list[int]:
+    if not path.exists():
+        raise FileNotFoundError(f"Missing submission file: {path}")
+    return _parse_submission_text(path.read_text(encoding="utf-8", errors="replace"), max_index)
 
 
 def _select_cases() -> list[int]:
@@ -309,7 +349,10 @@ def _load_model(device, *, repo_root: Path, ckpt_path: Path):
 
     import torch
 
-    state = torch.load(ckpt_path, map_location=device)
+    # weights_only=True: the checkpoint path is writable by anything running as
+    # this uid, and an unrestricted unpickle of an attacker-supplied file is
+    # arbitrary code execution inside the scoring process.
+    state = torch.load(ckpt_path, map_location=device, weights_only=True)
     model.load_state_dict(state)
     model.eval()
 
@@ -369,68 +412,89 @@ def evaluate(program_path: str, *, repo_root: Path | None = None) -> Any:
         metrics["runtime_s"] = float(time.time() - start)
         return _wrap(metrics, artifacts)
 
-    work_dir = Path(tempfile.mkdtemp(prefix="fe_car_aero_")).resolve()
+    # ------------------------------------------------------------------
+    # Everything the scorer needs is loaded BEFORE the candidate runs.
+    #
+    # The evaluator used to import torch and build the model *after* the
+    # candidate subprocess had exited. The candidate runs as the same uid and
+    # shares the filesystem, so by then it could have rewritten the PhySense
+    # `models` package that `_load_model` imports, or replaced the checkpoint
+    # that `torch.load` unpickles -- either one is code execution inside the
+    # scoring process, after which the reported score means nothing.
+    # ------------------------------------------------------------------
     try:
-        env = os.environ.copy()
-        env.setdefault("FRONTIER_ENGINEERING_ROOT", str(repo_root))
-        env["PYTHONPATH"] = (
-            str(repo_root) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
-        )
+        sandbox = _import_isolation(repo_root)
+    except Exception as e:
+        artifacts["error_message"] = str(e)
+        artifacts["traceback"] = _tail(traceback.format_exc())
+        metrics["runtime_s"] = float(time.time() - start)
+        return _wrap(metrics, artifacts)
 
+    try:
+        import torch
+    except Exception as e:
+        artifacts["error_message"] = f"torch import failed: {e}"
+        metrics["runtime_s"] = float(time.time() - start)
+        return _wrap(metrics, artifacts)
+
+    if not torch.cuda.is_available():
+        artifacts["error_message"] = "CUDA is required for this evaluator (torch.cuda.is_available() is false)."
+        metrics["runtime_s"] = float(time.time() - start)
+        return _wrap(metrics, artifacts)
+
+    try:
+        device = torch.device("cuda")
+        model = _load_model(device, repo_root=repo_root, ckpt_path=ckpt_path)
+    except Exception as e:
+        artifacts["error_message"] = f"failed to load model: {e}"
+        artifacts["traceback"] = _tail(traceback.format_exc())
+        metrics["runtime_s"] = float(time.time() - start)
+        return _wrap(metrics, artifacts)
+
+    try:
+        # The candidate delivers 30 indices and nothing else.
         try:
-            proc = subprocess.run(
-                [sys.executable, program_path],
-                cwd=str(work_dir),
-                capture_output=True,
-                text=True,
-                timeout=_remaining_timeout(deadline_s),
-                env=env,
+            run = sandbox.run_candidate_isolated(
+                Path(program_path),
+                expected_outputs=("submission.json",),
+                timeout_s=min(CANDIDATE_TIMEOUT_S, _remaining_timeout(deadline_s)),
+                copy_into_workdir=True,
+                env_allowlist=CANDIDATE_ENV_ALLOWLIST,
+                rlimits=CANDIDATE_RLIMITS,
+                python=sys.executable,
             )
-        except subprocess.TimeoutExpired as e:
-            artifacts["error_message"] = f"program timeout: {e}"
+        except sandbox.InvalidSubmissionError as e:
+            artifacts["error_message"] = f"submission.json not generated: {e}"
+            metrics["runtime_s"] = float(time.time() - start)
+            return _wrap(metrics, artifacts)
+
+        artifacts["program_stdout"] = _tail(run.stdout_tail)
+        artifacts["program_stderr"] = _tail(run.stderr_tail)
+        artifacts["program_stdout_full"] = _truncate_middle(run.stdout_tail)
+        artifacts["program_stderr_full"] = _truncate_middle(run.stderr_tail)
+        metrics["program_returncode"] = float(run.returncode)
+
+        if run.timed_out:
+            artifacts["error_message"] = "program timeout"
             metrics["timeout"] = 1.0
             metrics["runtime_s"] = float(time.time() - start)
             return _wrap(metrics, artifacts)
 
-        artifacts["program_stdout"] = _tail(proc.stdout)
-        artifacts["program_stderr"] = _tail(proc.stderr)
-        artifacts["program_stdout_full"] = _truncate_middle(proc.stdout)
-        artifacts["program_stderr_full"] = _truncate_middle(proc.stderr)
-        metrics["program_returncode"] = float(proc.returncode)
-
-        if proc.returncode != 0:
+        if run.returncode != 0:
             artifacts["error_message"] = "candidate program exited non-zero"
             metrics["runtime_s"] = float(time.time() - start)
             return _wrap(metrics, artifacts)
 
-        submission_path = work_dir / "submission.json"
-        if not submission_path.exists():
-            artifacts["error_message"] = "submission.json not generated"
-            metrics["runtime_s"] = float(time.time() - start)
-            return _wrap(metrics, artifacts)
-
         try:
-            indices = _parse_submission(submission_path, int(ref_points.shape[0]))
+            indices = _parse_submission_text(
+                run.read_output_bytes("submission.json").decode("utf-8", errors="replace"),
+                int(ref_points.shape[0]),
+            )
         except Exception as e:
             artifacts["error_message"] = f"invalid submission.json: {e}"
             artifacts["traceback"] = _tail(traceback.format_exc())
             metrics["runtime_s"] = float(time.time() - start)
             return _wrap(metrics, artifacts)
-
-        try:
-            import torch
-        except Exception as e:
-            artifacts["error_message"] = f"torch import failed: {e}"
-            metrics["runtime_s"] = float(time.time() - start)
-            return _wrap(metrics, artifacts)
-
-        if not torch.cuda.is_available():
-            artifacts["error_message"] = "CUDA is required for this evaluator (torch.cuda.is_available() is false)."
-            metrics["runtime_s"] = float(time.time() - start)
-            return _wrap(metrics, artifacts)
-
-        device = torch.device("cuda")
-        model = _load_model(device, repo_root=repo_root, ckpt_path=ckpt_path)
 
         selected_ref = ref_points[np.array(indices, dtype=np.int64)]
         cases = _select_cases()
@@ -487,8 +551,6 @@ def evaluate(program_path: str, *, repo_root: Path | None = None) -> Any:
         artifacts["traceback"] = _tail(traceback.format_exc())
         metrics["runtime_s"] = float(time.time() - start)
         return _wrap(metrics, artifacts)
-    finally:
-        shutil.rmtree(work_dir, ignore_errors=True)
 
 
 def _wrap(metrics: dict[str, float], artifacts: dict[str, str]) -> Any:

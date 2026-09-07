@@ -1,14 +1,29 @@
-"""Evaluator for Topology Optimization — MBB Beam (SIMP Method)"""
+"""Evaluator for Topology Optimization — MBB Beam (SIMP Method)
+
+Scoring contract
+----------------
+The candidate hands back *design variables only* (``density_vector``: the
+flattened nelx*nely density field). The FEM solve, the compliance, the volume
+constraint and the score are all recomputed here from that field. This part was
+already right and is unchanged; the surrounding orchestration was not.
+
+Isolation invariants (see ``benchmarks/_shared/candidate_sandbox.py``)
+---------------------------------------------------------------------
+1. Every import is resolved at module import time. numpy/scipy already were;
+   the optional ``EvaluationResult`` import has been hoisted out of ``_wrap``,
+   which used to run after the candidate had finished.
+2. The candidate delivers a solution, never a score. Already true here.
+3. A non-zero return code, or a timeout, is a failure. This evaluator recorded
+   ``program_returncode`` into the metrics and then scored the run anyway; it
+   now early-returns. (This bug is the reason invariant 3 exists.)
+"""
 
 from __future__ import annotations
 
 import json
 import math
 import os
-import shutil
-import subprocess
 import sys
-import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -18,6 +33,46 @@ from scipy.sparse import coo_matrix
 from scipy.sparse.linalg import spsolve
 
 INVALID_COMBINED_SCORE = -1e18
+
+_HERE = Path(__file__).resolve().parent
+_BENCHMARK_DIR = _HERE.parent
+
+try:  # optional: only present when running under openevolve
+    from openevolve.evaluation_result import EvaluationResult as _EvaluationResult
+except Exception:  # pragma: no cover - depends on the deployment env
+    _EvaluationResult = None
+
+
+def _locate_shared_dir() -> Path:
+    """Find ``benchmarks/_shared``, which lives outside every benchmark tree.
+
+    ``copy_files.txt`` is ``.`` here, so the sandbox holds a writable copy of
+    the whole benchmark directory. The isolation helper is deliberately kept
+    outside it: a candidate can never rewrite the code that runs it.
+    """
+    candidates: list[Path] = []
+    env_root = os.environ.get("FRONTIER_ENGINEERING_ROOT", "").strip()
+    if env_root:
+        candidates.append(Path(env_root).expanduser().resolve() / "benchmarks" / "_shared")
+    for parent in Path(__file__).resolve().parents:
+        candidates.append(parent / "benchmarks" / "_shared")
+        candidates.append(parent / "_shared")
+    for cand in candidates:
+        if (cand / "candidate_sandbox.py").is_file():
+            return cand
+    raise RuntimeError(
+        "benchmarks/_shared/candidate_sandbox.py not found; refusing to run a "
+        "candidate without process isolation "
+        f"(searched: {[str(c) for c in candidates[:8]]})"
+    )
+
+
+sys.path.insert(0, str(_locate_shared_dir()))
+import candidate_sandbox as sandbox  # noqa: E402
+
+# Both locations the historical evaluator accepted, most specific first.
+_SUBMISSION_RELPATHS = ("temp/submission.json", "submission.json")
+_CANDIDATE_TIMEOUT_S = 600.0
 
 
 def _find_repo_root(start: Path | None = None) -> Path:
@@ -43,13 +98,32 @@ def _truncate_middle(text: str, limit: int = 200_000) -> str:
     return text[:keep] + f"\n\n[... truncated {omitted} chars ...]\n\n" + text[-keep:]
 
 
+def _references_dir(repo_root: Path) -> Path | None:
+    for refs in (
+        repo_root / "benchmarks" / "StructuralOptimization" / "TopologyOptimization"
+        / "references",
+        repo_root / "StructuralOptimization" / "TopologyOptimization" / "references",
+        _BENCHMARK_DIR / "references",
+    ):
+        if (refs / "problem_config.json").is_file():
+            return refs
+    return None
+
+
 def load_problem_config(repo_root: Path) -> dict:
-    """Load the problem configuration JSON."""
+    """Load the problem configuration JSON.
+
+    ``repo_root`` is the *real* repository root (the harness exports
+    ``FRONTIER_ENGINEERING_ROOT``), not the sandbox copy, so the mesh, the
+    volume fraction, the penalisation and the load used for scoring are the
+    pristine ones even if the sandbox copy is tampered with.
+    """
     candidates = [
         repo_root / "benchmarks" / "StructuralOptimization" / "TopologyOptimization"
         / "references" / "problem_config.json",
         repo_root / "StructuralOptimization" / "TopologyOptimization"
         / "references" / "problem_config.json",
+        _BENCHMARK_DIR / "references" / "problem_config.json",
     ]
     for path in candidates:
         if path.is_file():
@@ -249,13 +323,68 @@ def evaluate_topology(
     }
 
 
+def validate_submission(submission: Any, config: dict) -> tuple[list[float] | None, str]:
+    """Scorer-owned structural check, run before any physics.
+
+    Only ``density_vector`` is consumed; every other key the candidate writes
+    (``compliance``, ``volume_fraction``, ``score``, ...) is ignored by
+    construction.
+    """
+    if not isinstance(submission, dict):
+        return None, "submission.json must contain a JSON object"
+    if "density_vector" not in submission:
+        return None, "submission.json missing 'density_vector'"
+
+    raw = submission["density_vector"]
+    if not isinstance(raw, list):
+        return None, "'density_vector' must be a JSON list"
+
+    expected_len = int(config["nelx"]) * int(config["nely"])
+    if len(raw) != expected_len:
+        return None, f"Expected {expected_len} elements, got {len(raw)}"
+
+    values: list[float] = []
+    for i, item in enumerate(raw):
+        if isinstance(item, bool) or not isinstance(item, (int, float)):
+            return None, f"'density_vector[{i}]' must be a number, got {type(item).__name__}"
+        values.append(float(item))
+
+    return values, ""
+
+
+def _stage_inputs(repo_root: Path) -> dict[str, Any]:
+    """Read-only copies the candidate is allowed to see inside its sandbox."""
+    inputs: dict[str, Any] = {}
+    refs = _references_dir(repo_root)
+    if refs is not None:
+        inputs["references/problem_config.json"] = refs / "problem_config.json"
+    # Empty placeholders at both accepted submission paths. `expected_outputs`
+    # treats a missing file as a hard error and we accept either location; a
+    # placeholder the candidate never wrote stays zero bytes and reads back as
+    # "not produced".
+    for rel in _SUBMISSION_RELPATHS:
+        inputs[rel] = b""
+    return inputs
+
+
+def _pick_submission_bytes(run: "sandbox.IsolatedRun") -> tuple[bytes | None, str]:
+    for rel in _SUBMISSION_RELPATHS:
+        try:
+            raw = run.read_output_bytes(rel)
+        except KeyError:
+            continue
+        if raw.strip():
+            return raw, rel
+    return None, ""
+
+
 def evaluate(program_path: str, *, repo_root: Path | None = None) -> Any:
     """
     Full evaluation pipeline:
-    1. Run candidate program to produce submission.json
-    2. Parse and validate submission
-    3. Run independent FEM + constraint check
-    4. Return metrics
+    1. Run the candidate in an isolated subprocess; it may only produce data
+    2. Validate the submission's shape (scorer-owned, before any physics)
+    3. Run this process's own FEM + volume check on the density field
+    4. Compute the score here from that result
 
     Parameters
     ----------
@@ -268,9 +397,8 @@ def evaluate(program_path: str, *, repo_root: Path | None = None) -> Any:
     repo_root = (
         _find_repo_root() if repo_root is None else repo_root.expanduser().resolve()
     )
-    program_path_resolved = str(Path(program_path).expanduser().resolve())
+    program_path_resolved = Path(program_path).expanduser().resolve()
 
-    work_dir = Path(tempfile.mkdtemp(prefix="fe_topology_")).resolve()
     artifacts: dict[str, str] = {}
 
     metrics: dict[str, float] = {
@@ -283,91 +411,114 @@ def evaluate(program_path: str, *, repo_root: Path | None = None) -> Any:
         "runtime_s": 0.0,
     }
 
+    # 1. Config is loaded *before* the candidate runs and never re-read
+    #    afterwards, so nothing the candidate writes can change the instance
+    #    it is scored against.
+    config = load_problem_config(repo_root)
+
     try:
-        # 1. Copy problem config to work dir for the solver to access
-        config = load_problem_config(repo_root)
-        refs_dir = work_dir / "references"
-        refs_dir.mkdir(parents=True, exist_ok=True)
-        with open(refs_dir / "problem_config.json", "w", encoding="utf-8") as f:
-            json.dump(config, f)
-
-        # 2. Run candidate program
-        try:
-            proc = subprocess.run(
-                [sys.executable, program_path_resolved],
-                cwd=str(work_dir),
-                capture_output=True,
-                text=True,
-                timeout=600,
-            )
-        except subprocess.TimeoutExpired as e:
-            metrics["timeout"] = 1.0
-            metrics["runtime_s"] = float(time.time() - start)
-            artifacts["error_message"] = f"program timeout: {e}"
-            return _wrap(metrics, artifacts)
-
-        artifacts["program_stdout"] = _tail(proc.stdout)
-        artifacts["program_stderr"] = _tail(proc.stderr)
-        artifacts["program_stdout_full"] = _truncate_middle(proc.stdout)
-        artifacts["program_stderr_full"] = _truncate_middle(proc.stderr)
-        metrics["program_returncode"] = float(proc.returncode)
-
-        # 3. Read submission
-        submission_path = work_dir / "temp" / "submission.json"
-        if not submission_path.exists():
-            submission_path = work_dir / "submission.json"
-        if not submission_path.exists():
-            artifacts["error_message"] = (
-                "submission.json not generated "
-                "(checked temp/submission.json and submission.json)"
-            )
-            metrics["runtime_s"] = float(time.time() - start)
-            return _wrap(metrics, artifacts)
-
-        try:
-            with open(submission_path, "r", encoding="utf-8") as f:
-                submission = json.load(f)
-            artifacts["submission.json"] = json.dumps(submission, indent=2)
-        except Exception as exc:
-            artifacts["error_message"] = f"Failed to parse submission.json: {exc}"
-            metrics["runtime_s"] = float(time.time() - start)
-            return _wrap(metrics, artifacts)
-
-        if "density_vector" not in submission:
-            artifacts["error_message"] = "submission.json missing 'density_vector'"
-            metrics["runtime_s"] = float(time.time() - start)
-            return _wrap(metrics, artifacts)
-
-        # 4. Evaluate
-        result = evaluate_topology(submission["density_vector"], config)
-        artifacts["evaluation_result"] = json.dumps(result, indent=2)
-
-        runtime_s = time.time() - start
-        metrics["compliance"] = result.get("compliance", 0.0)
-        metrics["volume_fraction"] = result.get("volume_fraction", 0.0)
-        metrics["runtime_s"] = float(runtime_s)
-        metrics["feasible"] = 1.0 if result.get("feasible", False) else 0.0
-
-        if result.get("feasible", False):
-            # Minimization: negate compliance so higher combined_score = better
-            metrics["combined_score"] = -float(result["compliance"])
-            metrics["valid"] = 1.0
-        else:
-            metrics["combined_score"] = INVALID_COMBINED_SCORE
-            metrics["valid"] = 0.0
-
+        run = sandbox.run_candidate_isolated(
+            program_path_resolved,
+            inputs=_stage_inputs(repo_root),
+            expected_outputs=_SUBMISSION_RELPATHS,
+            timeout_s=_CANDIDATE_TIMEOUT_S,
+            # Run from a copy in a scratch directory: the candidate's __file__
+            # then points into the scratch dir, not into the sandboxed benchmark
+            # tree, so it cannot reach verification/ or references/ that way.
+            copy_into_workdir=True,
+        )
+    except sandbox.InvalidSubmissionError as exc:
+        artifacts["error_message"] = str(exc)
+        metrics["runtime_s"] = float(time.time() - start)
         return _wrap(metrics, artifacts)
-    finally:
-        shutil.rmtree(work_dir, ignore_errors=True)
+
+    artifacts["program_stdout"] = _tail(run.stdout_tail)
+    artifacts["program_stderr"] = _tail(run.stderr_tail)
+    # Kept for backward compatibility with consumers of the old keys; the
+    # isolation helper only hands back the last 8000 chars of each stream.
+    artifacts["program_stdout_full"] = artifacts["program_stdout"]
+    artifacts["program_stderr_full"] = artifacts["program_stderr"]
+    artifacts["program_output_truncated"] = "tail-8000"
+    metrics["program_returncode"] = float(run.returncode)
+    metrics["candidate_runtime_s"] = float(run.runtime_s)
+
+    # 2. Invariant 3. This evaluator previously recorded the return code into
+    #    the metrics and then went on to score the submission regardless.
+    if run.timed_out:
+        metrics["timeout"] = 1.0
+        metrics["runtime_s"] = float(time.time() - start)
+        artifacts["error_message"] = f"program timeout after {_CANDIDATE_TIMEOUT_S}s"
+        return _wrap(metrics, artifacts)
+
+    if run.returncode != 0:
+        metrics["runtime_s"] = float(time.time() - start)
+        artifacts["error_message"] = (
+            f"program exited non-zero (returncode={run.returncode}); "
+            "a surviving submission.json does not excuse a crash"
+        )
+        return _wrap(metrics, artifacts)
+
+    # 3. Read submission
+    raw, rel = _pick_submission_bytes(run)
+    if raw is None:
+        artifacts["error_message"] = (
+            "submission.json not generated "
+            "(checked temp/submission.json and submission.json)"
+        )
+        metrics["runtime_s"] = float(time.time() - start)
+        return _wrap(metrics, artifacts)
+    artifacts["submission_path"] = rel
+
+    try:
+        submission = json.loads(raw.decode("utf-8"))
+        artifacts["submission.json"] = json.dumps(submission, indent=2)
+    except Exception as exc:
+        artifacts["error_message"] = f"Failed to parse submission.json: {exc}"
+        metrics["runtime_s"] = float(time.time() - start)
+        return _wrap(metrics, artifacts)
+
+    density_vector, reason = validate_submission(submission, config)
+    if density_vector is None:
+        artifacts["error_message"] = reason
+        metrics["runtime_s"] = float(time.time() - start)
+        return _wrap(metrics, artifacts)
+
+    if isinstance(submission, dict):
+        ignored = sorted(k for k in submission if k != "density_vector")
+        if ignored:
+            artifacts["ignored_submission_fields"] = ", ".join(ignored)
+
+    # 4. Score, recomputed here from the density field alone.
+    result = evaluate_topology(density_vector, config)
+    artifacts["evaluation_result"] = json.dumps(result, indent=2)
+
+    runtime_s = time.time() - start
+    metrics["compliance"] = result.get("compliance", 0.0)
+    metrics["volume_fraction"] = result.get("volume_fraction", 0.0)
+    metrics["runtime_s"] = float(runtime_s)
+    metrics["feasible"] = 1.0 if result.get("feasible", False) else 0.0
+
+    if result.get("feasible", False):
+        # Minimization: negate compliance so higher combined_score = better
+        metrics["combined_score"] = -float(result["compliance"])
+        metrics["valid"] = 1.0
+    else:
+        metrics["combined_score"] = INVALID_COMBINED_SCORE
+        metrics["valid"] = 0.0
+
+    return _wrap(metrics, artifacts)
 
 
 def _wrap(metrics: dict[str, float], artifacts: dict[str, str]) -> Any:
-    try:
-        from openevolve.evaluation_result import EvaluationResult
-
-        return EvaluationResult(metrics=metrics, artifacts=artifacts)
-    except Exception:
-        return metrics
+    if _EvaluationResult is None:
+        # Without openevolve there is no EvaluationResult to return. Returning a
+        # bare metrics dict silently threw the artifacts away, because
+        # run_eval._normalize_result only unpacks a dict that carries a
+        # "metrics" key -- which is how the error messages, the submission and
+        # the num_evaluations "unverified" notice all went missing on hosts
+        # that do not have openevolve installed.
+        return {"metrics": metrics, "artifacts": artifacts}
+    return _EvaluationResult(metrics=metrics, artifacts=artifacts)
 
 
 if __name__ == "__main__":

@@ -25,6 +25,7 @@ mutate the repository: the candidate is always passed as an explicit path.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -320,8 +321,20 @@ TASK_IDS = [t.name for t in TASKS]
 # ---------------------------------------------------------------------------
 # Helpers.
 # ---------------------------------------------------------------------------
-def _run_evaluator(spec: TaskSpec, candidate: Path, *, cwd: Path | None = None) -> dict:
-    """Run a task evaluator on `candidate` and return (metrics, artifacts)."""
+def _run_evaluator(
+    spec: TaskSpec,
+    candidate: Path,
+    *,
+    cwd: Path | None = None,
+    repo_root: Path | None = None,
+) -> dict:
+    """Run a task evaluator on `candidate` and return (metrics, artifacts).
+
+    ``repo_root`` sets FRONTIER_ENGINEERING_ROOT the way the unified harness
+    does (evaluator/python.py sets it to spec.repo_root). The evaluator needs
+    it to locate benchmarks/_shared/candidate_sandbox.py; without it a sandbox
+    run fails on the import rather than on the thing under test.
+    """
     with tempfile.TemporaryDirectory() as tmp:
         metrics_path = Path(tmp) / "metrics.json"
         artifacts_path = Path(tmp) / "artifacts.json"
@@ -339,6 +352,9 @@ def _run_evaluator(spec: TaskSpec, candidate: Path, *, cwd: Path | None = None) 
             capture_output=True,
             text=True,
             timeout=600,
+            env={**os.environ, "FRONTIER_ENGINEERING_ROOT": str(repo_root)}
+            if repo_root is not None
+            else None,
         )
         assert proc.returncode == 0, f"evaluator crashed:\n{proc.stderr[-3000:]}"
         return {
@@ -573,10 +589,18 @@ def test_importing_the_oracle_from_the_sandbox_fails(spec: TaskSpec) -> None:
 
         assert not (sandbox / "verification" / "reference.py").exists()
 
+        # The harness makes benchmarks/_shared reachable via
+        # FRONTIER_ENGINEERING_ROOT; mirror that, pointed at the sandbox root
+        # rather than the real repo. The evaluator can then load its isolation
+        # helper while the oracle stays absent -- which is the thing under test.
+        shared = tmp / "benchmarks" / "_shared"
+        shared.mkdir(parents=True)
+        shutil.copy2(REPO_ROOT / "benchmarks" / "_shared" / "candidate_sandbox.py", shared)
+
         candidate = sandbox / "baseline" / "init.py"
         candidate.write_text(EXPLOIT_IMPORT_ORACLE, encoding="utf-8")
 
-        result = _run_evaluator(spec, candidate, cwd=sandbox)
+        result = _run_evaluator(spec, candidate, cwd=sandbox, repo_root=tmp)
         metrics = result["metrics"]
         assert metrics["combined_score"] == 0.0
         assert metrics["valid"] == 0.0

@@ -1,1 +1,11 @@
-.
+# Explicit allowlist (NOT ".").
+# verification/reference.py is deliberately absent: it is the oracle for this
+# task and must never reach the candidate sandbox. The reference optimum is
+# baked into verification/evaluate.py as a precomputed constant table.
+README.md
+README_zh-CN.md
+Task.md
+Task_zh-CN.md
+baseline
+verification/evaluate.py
+frontier_eval

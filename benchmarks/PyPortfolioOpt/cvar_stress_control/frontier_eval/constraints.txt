@@ -2,5 +2,14 @@ CVaR Stress-Controlled Allocation constraints:
 1) Edit only `baseline/init.py`.
 2) Keep function signature `solve_instance(instance: dict) -> dict`.
 3) Return `{"weights": np.ndarray}` with shape `(N,)` and numeric dtype.
-4) Respect long-only bounds, target return, sector limits, turnover cap, and budget sum.
-5) Do not modify evaluator/reference files.
+4) Feasibility is a HARD GATE, not a penalty. A weight vector that breaches the
+   budget sum, long-only bounds, the target-return floor, sector limits, or the
+   turnover cap by more than the documented tolerance scores 0 for that
+   instance and marks the whole run invalid. See "Scoring" in Task.md for the
+   per-constraint tolerances.
+5) `solve_instance` runs in a separate process. Only the weight vector is read
+   back; the evaluator recomputes CVaR and every constraint itself.
+   Self-reported scores, penalties or validity flags are ignored.
+6) `verification/reference.py` is not part of the task tree you are given, and
+   the evaluator does not execute it. Do not attempt to locate or import it.
+7) Do not modify evaluator files.

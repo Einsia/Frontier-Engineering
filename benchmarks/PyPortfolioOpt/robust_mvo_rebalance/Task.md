@@ -64,17 +64,35 @@ A high-quality solution should:
 ## Scoring
 
 For each test instance:
-1. Compute reference optimal objective `f_ref`.
-2. Compute candidate objective `f_cand`.
-3. Build a normalized score against a naive anchor:
-   - `f_anchor = min(f_uniform, f_prev_holdings)`
-   - `norm = (f_cand - f_anchor) / (f_ref - f_anchor + 1e-12)`
-4. Apply feasibility penalty:
-   - each violated constraint contributes penalty; total penalty clipped to `[0, 1]`.
-5. Instance score:
-   - `100 * clip(norm, 0, 1) * (1 - penalty)`
+1. Look up the reference optimal objective `f_ref` (a precomputed constant; see below).
+2. **Hard feasibility gate.** Every constraint is re-checked independently of the
+   objective. If any residual exceeds its tolerance the instance scores `0`:
 
-Final score is the average over all instances.
+   | constraint | residual | tolerance |
+   | --- | --- | --- |
+   | budget | `abs(sum(w) - 1)` | `1e-6` |
+   | per-asset bounds | `max(lower - w, w - upper)` | `1e-6` |
+   | sector bounds | worst sector over/under-shoot | `1e-5` |
+   | factor exposure | worst factor over/under-shoot | `1e-5` |
+   | turnover | `norm1(w - w_prev) - turnover_limit` | `1e-4` |
+
+   There is no partial credit and no `(1 - penalty)` multiplier: a portfolio that
+   breaches a risk limit is not deployable, so overshooting a limit to buy
+   objective is worth nothing rather than costing a few points.
+3. Compute candidate objective `f_cand` and normalize against a naive anchor:
+   - `f_anchor = min(f_uniform, f_prev_holdings)`
+   - `norm = clip((f_cand - f_anchor) / (f_ref - f_anchor + 1e-12), 0, 1)`
+4. Instance score: `100 * norm`.
+
+Final score is the average over all instances. `valid` is `1` only when every
+instance produced a well-formed, feasible weight vector.
+
+## How the candidate is run
+
+`solve_instance(instance)` is called in a **separate process**. Only the weight
+vector crosses back; the scorer recomputes the objective and every constraint
+itself. Nothing the candidate reports about its own score is read, and the
+scorer's module globals are not reachable from the candidate.
 
 ## Theoretical Upper Bound
 
@@ -109,10 +127,12 @@ This baseline is not globally optimal but should produce feasible solutions.
 ## Reference Implementation (this repo)
 
 - File: `verification/reference.py`
-- Method class: exact convex optimization with CVXPY
-- Core idea:
-  - solve the full objective and all constraints in one optimization program,
-  - includes asset/sector/factor/turnover constraints explicitly.
-- Characteristic:
-  - returns the practical optimum (or near-optimum if solver reports `optimal_inaccurate`),
-  - used as scoring upper bound in this benchmark.
+- Method class: exact convex/integer optimization with CVXPY
+- Role: produced the frozen reference objective table used for normalization.
+
+> **Not available to the candidate.** `verification/reference.py` is maintainer-only.
+> It is excluded from `agent_files.txt` and from the `copy_files.txt` allowlist, and
+> the evaluator never imports or executes it: the reference values it produced are
+> frozen into `verification/evaluate.py` as a constant table (the evaluation seeds
+> are fixed, so they are fully precomputable). Regenerate with
+> `python verification/evaluate.py --regenerate-reference-table`.

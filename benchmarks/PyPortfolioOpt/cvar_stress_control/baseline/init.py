@@ -66,6 +66,68 @@ def _enforce_turnover(w: np.ndarray, w_prev: np.ndarray, turnover_limit: float) 
     return w_prev + scale * d
 
 
+
+def _structural_residual(
+    w: np.ndarray,
+    lower: np.ndarray,
+    upper: np.ndarray,
+    sector_ids: np.ndarray,
+    sector_lower: dict,
+    sector_upper: dict,
+    w_prev: np.ndarray,
+    turnover_limit: float,
+) -> float:
+    """Max violation of the constraints the projections below can repair.
+
+    The return floor is excluded: it is handled by the greedy tilt, not by a
+    projection.
+    """
+    res = abs(float(w.sum()) - 1.0)
+    res = max(res, float(np.maximum(0.0, lower - w).max()))
+    res = max(res, float(np.maximum(0.0, w - upper).max()))
+    for s, lo in sector_lower.items():
+        res = max(res, float(lo) - float(w[sector_ids == int(s)].sum()))
+    for s, hi in sector_upper.items():
+        res = max(res, float(w[sector_ids == int(s)].sum()) - float(hi))
+    res = max(res, float(np.abs(w - w_prev).sum()) - float(turnover_limit))
+    return max(0.0, res)
+
+
+def _repair(
+    w: np.ndarray,
+    lower: np.ndarray,
+    upper: np.ndarray,
+    sector_ids: np.ndarray,
+    sector_lower: dict,
+    sector_upper: dict,
+    w_prev: np.ndarray,
+    turnover_limit: float,
+    iters: int = 60,
+    tol: float = 1e-9,
+) -> np.ndarray:
+    """Alternate the projections until they agree on a feasible point.
+
+    Applying turnover-shrink, box projection and sector repair *once each* is
+    not enough: `w_prev` can sit outside the per-asset box, so shrinking toward
+    it breaks the bounds, and the box projection then pushes turnover back over
+    its cap. The evaluator scores an infeasible portfolio as 0, so it is always
+    worth iterating to a point every projection accepts.
+    """
+    for _ in range(iters):
+        w = _enforce_turnover(w, w_prev, turnover_limit)
+        w = _project_with_bounds(w, lower, upper)
+        w = _enforce_sector(w, sector_ids, sector_lower, sector_upper, lower, upper)
+        if (
+            _structural_residual(
+                w, lower, upper, sector_ids, sector_lower, sector_upper,
+                w_prev, turnover_limit,
+            )
+            <= tol
+        ):
+            break
+    return w
+
+
 def solve_instance(instance: dict) -> dict:
     R = np.asarray(instance["scenario_returns"], dtype=float)
     mu = np.asarray(instance["mu"], dtype=float)
@@ -92,9 +154,10 @@ def solve_instance(instance: dict) -> dict:
         w = score / score.sum()
 
     w = _project_with_bounds(w, lower, upper)
-    w = _enforce_sector(w, sector_ids, sector_lower, sector_upper, lower, upper)
-    w = _enforce_turnover(w, w_prev, turnover_limit)
-    w = _project_with_bounds(w, lower, upper)
+    w = _repair(
+        w, lower, upper, sector_ids, sector_lower, sector_upper,
+        w_prev, turnover_limit,
+    )
 
     # Greedy return tilt if below target: move weight from low-mu to high-mu assets.
     order_hi = np.argsort(-mu)
@@ -120,11 +183,10 @@ def solve_instance(instance: dict) -> dict:
                 w_try = w.copy()
                 w_try[j] += step
                 w_try[i] -= step
-                w_try = _enforce_sector(
-                    w_try, sector_ids, sector_lower, sector_upper, lower, upper
+                w_try = _repair(
+                    w_try, lower, upper, sector_ids, sector_lower, sector_upper,
+                    w_prev, turnover_limit,
                 )
-                w_try = _enforce_turnover(w_try, w_prev, turnover_limit)
-                w_try = _project_with_bounds(w_try, lower, upper)
                 if mu @ w_try > mu @ w + 1e-10:
                     w = w_try
                     improved = True
@@ -133,6 +195,12 @@ def solve_instance(instance: dict) -> dict:
                 break
         if not improved:
             break
+
+    # Final guard: never hand back a vector the hard feasibility gate rejects.
+    w = _repair(
+        w, lower, upper, sector_ids, sector_lower, sector_upper,
+        w_prev, turnover_limit,
+    )
 
     return {"weights": w}
 # EVOLVE-BLOCK-END

@@ -49,17 +49,31 @@
 
 ## 计分方式
 
-每个样本：
-1. 参考整数最优目标 `obj_ref`；
-2. 提交解目标 `obj_cand`；
-3. 不交易（`current_lots`）目标作为锚点 `obj_anchor`；
-4. 归一化：
-   - `norm = (obj_anchor - obj_cand) / (obj_anchor - obj_ref + 1e-12)`
-5. 施加可行性/整数性惩罚；
-6. 得分：
-   - `100 * clip(norm, 0, 1) * (1 - penalty)`
+对每个实例：
+1. 取参考整数最优目标值 `obj_ref`（预先计算好的常量，见下文）。
+2. **硬可行性门槛**：所有约束独立于目标函数重新校验，任一残差超过容差，该实例直接记 `0` 分：
 
-最终分数是所有样本均值。
+   | 约束 | 残差 | 容差 |
+   | --- | --- | --- |
+   | 整数性 | `abs(lots - round(lots))` | `1e-6` |
+   | 手数上下界 | `max(-lots, lots - max_lots)` | `1e-6` |
+   | 换手名义额 | `traded_notional - turnover_limit_value` | `1e-6 + 1e-9 * limit` |
+   | 预算 | `spend - portfolio_value` | `1e-6 + 1e-9 * portfolio_value` |
+
+   不再有 `(1 - penalty)` 折扣，也没有部分得分。本题尤其关键：忽略换手上限的下单方案
+   目标值反而**低于**真正的整数最优解，在软罚机制下一份根本无法执行的委托单仍能拿分。
+3. 计算候选目标值 `obj_cand`，以不交易为锚点归一化：
+   - `obj_anchor = objective(current_lots)`
+   - `norm = clip((obj_anchor - obj_cand) / (obj_anchor - obj_ref + 1e-12), 0, 1)`
+4. 实例得分：`100 * norm`。
+
+最终分数为所有实例的平均值。只有当每个实例都给出结构合法且可行的手数向量时，`valid` 才为 `1`。
+
+## 候选程序的运行方式
+
+`solve_instance(instance)` 在**独立子进程**中调用，只有手数向量会回传；目标值与全部约束
+均由评测端自行重算。候选自报的任何分数字段都不会被采信，评测脚本的模块全局变量也不在
+候选可达范围内。
 
 ## 理论边界
 
@@ -75,3 +89,14 @@
 - 在约束允许下贪心补足低配资产。
 
 这是实务里常见的启发式工程方案。
+
+## 本仓库 Reference 实现方式
+
+- 文件：`verification/reference.py`
+- 方法类别：CVXPY 精确凸优化 / 整数规划
+- 作用：用于生成归一化所需的参考目标值常量表。
+
+> **候选不可见**：`verification/reference.py` 仅供维护者使用，已从 `agent_files.txt`
+> 与 `copy_files.txt` 白名单中移除，评测脚本也不再 import 或执行它——它算出的参考值
+> 已固化为 `verification/evaluate.py` 中的常量表（评测随机种子固定，可完全预计算）。
+> 需要重算时执行 `python verification/evaluate.py --regenerate-reference-table`。

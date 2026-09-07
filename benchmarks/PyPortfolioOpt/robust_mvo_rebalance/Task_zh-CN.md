@@ -62,18 +62,32 @@
 
 ## 计分方式
 
-每个测试样本：
-1. 计算参考最优目标值 `f_ref`；
-2. 计算提交解目标值 `f_cand`；
-3. 采用朴素锚点做归一化：
-   - `f_anchor = min(f_uniform, f_prev_holdings)`
-   - `norm = (f_cand - f_anchor) / (f_ref - f_anchor + 1e-12)`
-4. 计算可行性惩罚：
-   - 每类约束违约计入 penalty，最终裁剪到 `[0, 1]`；
-5. 样本得分：
-   - `100 * clip(norm, 0, 1) * (1 - penalty)`
+对每个测试实例：
+1. 取参考最优目标值 `f_ref`（预先计算好的常量，见下文）。
+2. **硬可行性门槛**：所有约束独立于目标函数重新校验，任一残差超过容差，该实例直接记 `0` 分：
 
-最终得分是所有样本平均值。
+   | 约束 | 残差 | 容差 |
+   | --- | --- | --- |
+   | 预算和 | `abs(sum(w) - 1)` | `1e-6` |
+   | 逐资产上下界 | `max(lower - w, w - upper)` | `1e-6` |
+   | 板块上下限 | 最大越界量 | `1e-5` |
+   | 因子暴露 | 最大越界量 | `1e-5` |
+   | 换手率 | `norm1(w - w_prev) - turnover_limit` | `1e-4` |
+
+   不再有 `(1 - penalty)` 折扣，也没有部分得分：突破风险限额的组合本身不可交付，
+   靠轻微超限换取目标值只会得 0 分，而不是仅损失几分。
+3. 计算候选目标值 `f_cand`，对朴素锚点做归一化：
+   - `f_anchor = min(f_uniform, f_prev_holdings)`
+   - `norm = clip((f_cand - f_anchor) / (f_ref - f_anchor + 1e-12), 0, 1)`
+4. 实例得分：`100 * norm`。
+
+最终分数为所有实例的平均值。只有当每个实例都给出结构合法且可行的权重向量时，`valid` 才为 `1`。
+
+## 候选程序的运行方式
+
+`solve_instance(instance)` 在**独立子进程**中调用，只有权重向量会回传；目标值与全部约束
+均由评测端自行重算。候选自报的任何分数字段都不会被采信，评测脚本的模块全局变量也不在
+候选可达范围内。
 
 ## 理论上限
 
@@ -107,10 +121,10 @@
 ## 本仓库 Reference 实现方式
 
 - 文件：`verification/reference.py`
-- 方法类型：CVXPY 精确凸优化
-- 核心做法：
-  - 将目标函数与全部约束一次性建模求解，
-  - 显式包含个股/行业/因子/换手约束。
-- 特点：
-  - 返回该问题定义下的最优（或 `optimal_inaccurate` 时近最优）解；
-  - 作为评测上限使用。
+- 方法类别：CVXPY 精确凸优化 / 整数规划
+- 作用：用于生成归一化所需的参考目标值常量表。
+
+> **候选不可见**：`verification/reference.py` 仅供维护者使用，已从 `agent_files.txt`
+> 与 `copy_files.txt` 白名单中移除，评测脚本也不再 import 或执行它——它算出的参考值
+> 已固化为 `verification/evaluate.py` 中的常量表（评测随机种子固定，可完全预计算）。
+> 需要重算时执行 `python verification/evaluate.py --regenerate-reference-table`。

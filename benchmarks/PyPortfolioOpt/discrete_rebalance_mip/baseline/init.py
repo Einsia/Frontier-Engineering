@@ -32,6 +32,7 @@ def _repair_feasibility(
     fee_rate,
     portfolio_value,
     turnover_limit_value,
+    max_lots,
 ):
     x = x.copy()
     for _ in range(600):
@@ -43,14 +44,29 @@ def _repair_feasibility(
 
         base_v = vb + vt
         best_idx = None
+        best_step = 0
         best_score = None
         base_obj = _objective(x, unit, target_dollar, current_lots, fee_rate)
 
         for i in range(x.size):
-            if x[i] <= 0:
+            # Step one lot *toward* current_lots. Only that direction can shrink
+            # traded notional; the old version always decremented, which pushes
+            # an underweight position further from `current_lots` and so raises
+            # the turnover it was meant to cut. That is why this repair used to
+            # stall with the turnover cap breached by ~50% of portfolio value.
+            if x[i] > current_lots[i]:
+                step = -1
+            elif x[i] < current_lots[i]:
+                step = 1
+            else:
                 continue
+
+            xi = x[i] + step
+            if xi < 0 or xi > max_lots[i]:
+                continue
+
             x_try = x.copy()
-            x_try[i] -= 1
+            x_try[i] = xi
             vb2, vt2 = _violations(
                 x_try,
                 unit,
@@ -68,10 +84,20 @@ def _repair_feasibility(
             if best_score is None or score < best_score:
                 best_score = score
                 best_idx = i
+                best_step = step
 
         if best_idx is None:
             break
-        x[best_idx] -= 1
+        x[best_idx] += best_step
+
+    # `current_lots` is feasible by construction (zero turnover, and the
+    # instance generator sets portfolio_value >= the current holdings' value),
+    # so it is the guaranteed fallback if the greedy walk stalls. Scoring an
+    # infeasible order list is 0, while no-trade is worth the anchor.
+    if not _is_feasible(
+        x, unit, current_lots, fee_rate, portfolio_value, turnover_limit_value
+    ):
+        x = current_lots.copy()
 
     return x
 
@@ -101,6 +127,7 @@ def solve_instance(instance: dict) -> dict:
         fee_rate,
         portfolio_value,
         turnover_limit_value,
+        max_lots,
     )
 
     # Local search by +/-1 lot.

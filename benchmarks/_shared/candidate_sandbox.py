@@ -52,6 +52,7 @@ import json
 import os
 import resource
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -106,6 +107,18 @@ def _read_bytes_or_copy(path: Path) -> bytes:
     if not path.exists():
         raise ValueError(f"input does not exist: {path}")
     return path.read_bytes() if path.is_file() else path
+
+
+def _tail_text(path: Path, limit: int = 8000) -> str:
+    """Last `limit` characters of a log file, decoded leniently."""
+    try:
+        size = path.stat().st_size
+        with path.open("rb") as f:
+            if size > limit:
+                f.seek(size - limit)
+            return f.read().decode("utf-8", errors="replace")
+    except OSError:
+        return ""
 
 
 def _set_rlimits(rlimits: dict[str, int]) -> None:
@@ -221,36 +234,82 @@ def run_candidate_isolated(
                 _set_rlimits(rlimits)
             os.setsid()
 
+        # Popen with output redirected to files, not pipes, for two reasons
+        # that both showed up in practice:
+        #
+        #  * subprocess.run()'s timeout kills only the direct child, and the
+        #    candidate is a session leader (see _preexec), so anything it
+        #    spawned kept running -- still able to write files after we
+        #    believed we had stopped it. We kill the whole process group.
+        #  * a grandchild inherits the stdout/stderr pipes, so communicate()
+        #    blocks on EOF until *it* exits, not until the candidate does. A
+        #    candidate that forks a daemon and returns immediately would hang
+        #    the evaluator until its timeout. Files have no such coupling --
+        #    and they also avoid the 64KB pipe-buffer deadlock a chatty
+        #    candidate causes when nothing drains the pipe.
+        log_dir = Path(tempfile.mkdtemp(prefix="fe_candidate_log_")).resolve()
+        out_path = log_dir / "stdout.txt"
+        err_path = log_dir / "stderr.txt"
         try:
-            proc = subprocess.run(
-                [python, *program_argv, *argv],
-                cwd=str(workdir),
-                capture_output=True,
-                text=True,
-                timeout=timeout_s,
-                env=env,
-                preexec_fn=_preexec,
-            )
-        except subprocess.TimeoutExpired as exc:
-            runtime_s = time.time() - start
-            returncode_out = -1
-            timed_out_out = True
-            stdout_tail = str(exc.stdout)[-8000:] if exc.stdout else ""
-            stderr_tail = str(exc.stderr)[-8000:] if exc.stderr else ""
-            return IsolatedRun(
-                returncode=returncode_out,
-                timed_out=timed_out_out,
-                stdout_tail=stdout_tail,
-                stderr_tail=stderr_tail,
-                outputs={},
-                workdir=workdir,
-                runtime_s=runtime_s,
-                _output_bytes={},
-            )
+            with out_path.open("wb") as f_out, err_path.open("wb") as f_err:
+                proc = subprocess.Popen(  # noqa: S603
+                    [python, *program_argv, *argv],
+                    cwd=str(workdir),
+                    stdout=f_out,
+                    stderr=f_err,
+                    env=env,
+                    preexec_fn=_preexec,
+                )
+                try:
+                    pgid = os.getpgid(proc.pid)
+                except OSError:
+                    pgid = None
+
+                def _kill_group() -> None:
+                    """Kill everything the candidate started, not just what it left."""
+                    if pgid is None or pgid == os.getpgrp():
+                        # Never signal our own group: that takes the scorer with it.
+                        return
+                    try:
+                        os.killpg(pgid, signal.SIGKILL)
+                    except (ProcessLookupError, PermissionError, OSError):
+                        pass
+
+                try:
+                    proc.wait(timeout=timeout_s)
+                    timed_out_out = False
+                except subprocess.TimeoutExpired:
+                    timed_out_out = True
+                    _kill_group()
+                    proc.kill()
+                    try:
+                        proc.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        pass
+
+            stdout_tail = _tail_text(out_path)
+            stderr_tail = _tail_text(err_path)
+
+            if timed_out_out:
+                _kill_group()
+                return IsolatedRun(
+                    returncode=-1,
+                    timed_out=True,
+                    stdout_tail=stdout_tail,
+                    stderr_tail=stderr_tail,
+                    outputs={},
+                    workdir=workdir,
+                    runtime_s=time.time() - start,
+                    _output_bytes={},
+                )
+        finally:
+            shutil.rmtree(log_dir, ignore_errors=True)
+
+        # The candidate exited, but a process it forked may not have. Reap the
+        # group before reading outputs, so nothing can still be writing to them.
+        _kill_group()
 
         returncode_out = proc.returncode
-        stdout_tail = proc.stdout[-8000:]
-        stderr_tail = proc.stderr[-8000:]
 
         for rel in expected_outputs:
             path = workdir / rel

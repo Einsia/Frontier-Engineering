@@ -115,3 +115,96 @@ class TestContractOptions:
         assert run.ok
         assert "visible" in run.stdout_tail
         assert "GONE" in run.stdout_tail  # PATH was filtered out
+
+
+class TestProcessGroupCleanup:
+    """A candidate's children must not outlive the candidate.
+
+    run_candidate_isolated used subprocess.run(timeout=...), which kills only
+    the direct child. The candidate is a session leader, so anything it forked
+    survived -- still sharing the filesystem, still able to write to the task
+    tree, after the evaluator believed it had stopped.
+    """
+
+    def test_orphan_of_a_timed_out_candidate_is_killed(self, tmp_path) -> None:
+        import os
+        import time as _time
+
+        beacon = tmp_path / "orphan_alive.txt"
+        program = tmp_path / "forker.py"
+        program.write_text(
+            "import os, sys, time\n"
+            "if os.fork() == 0:\n"
+            "    # the grandchild: outlive the parent and keep writing\n"
+            "    for i in range(600):\n"
+            f"        open({str(beacon)!r}, 'w').write(str(i))\n"
+            "        time.sleep(0.05)\n"
+            "    sys.exit(0)\n"
+            "time.sleep(600)\n",
+            encoding="utf-8",
+        )
+        run = cs.run_candidate_isolated(program, timeout_s=2, copy_into_workdir=True)
+        assert run.timed_out
+
+        # Let anything that survived prove it by advancing the beacon.
+        first = beacon.read_text(encoding="utf-8") if beacon.exists() else None
+        _time.sleep(1.0)
+        second = beacon.read_text(encoding="utf-8") if beacon.exists() else None
+        assert first == second, (
+            f"a grandchild of the candidate is still running and writing "
+            f"({first!r} -> {second!r})"
+        )
+
+    def test_orphan_of_a_cleanly_exiting_candidate_is_killed(self, tmp_path) -> None:
+        """Exiting 0 must not be a way to leave a process behind either."""
+        import time as _time
+
+        beacon = tmp_path / "daemon_alive.txt"
+        program = tmp_path / "daemonizer.py"
+        program.write_text(
+            "import os, sys, time\n"
+            "if os.fork() == 0:\n"
+            "    for i in range(600):\n"
+            f"        open({str(beacon)!r}, 'w').write(str(i))\n"
+            "        time.sleep(0.05)\n"
+            "    sys.exit(0)\n"
+            "open('submission.json', 'w').write('{}')\n"
+            "sys.exit(0)\n",
+            encoding="utf-8",
+        )
+        run = cs.run_candidate_isolated(
+            program, expected_outputs=("submission.json",), timeout_s=30,
+            copy_into_workdir=True,
+        )
+        assert run.ok
+        first = beacon.read_text(encoding="utf-8") if beacon.exists() else None
+        _time.sleep(1.0)
+        second = beacon.read_text(encoding="utf-8") if beacon.exists() else None
+        assert first == second, (
+            f"a daemon forked by the candidate outlived it ({first!r} -> {second!r})"
+        )
+
+    def test_a_chatty_candidate_does_not_deadlock(self, tmp_path) -> None:
+        """Output goes to files, so nothing has to drain a pipe.
+
+        With stdout on a PIPE that no one reads, a candidate writing past the
+        64KB buffer blocks forever and the run dies on timeout instead of
+        succeeding.
+        """
+        program = tmp_path / "chatty.py"
+        program.write_text(
+            "import json, sys\n"
+            "sys.stdout.write('x' * 4_000_000)\n"
+            "sys.stderr.write('y' * 4_000_000)\n"
+            "open('submission.json', 'w').write(json.dumps({'ok': True}))\n",
+            encoding="utf-8",
+        )
+        run = cs.run_candidate_isolated(
+            program, expected_outputs=("submission.json",), timeout_s=60,
+            copy_into_workdir=True,
+        )
+        assert run.ok, f"chatty candidate did not finish: timed_out={run.timed_out}"
+        assert cs.load_json_output(run)["ok"] is True
+        # Tails are bounded, not the whole 4MB.
+        assert len(run.stdout_tail) <= 8000
+        assert len(run.stderr_tail) <= 8000

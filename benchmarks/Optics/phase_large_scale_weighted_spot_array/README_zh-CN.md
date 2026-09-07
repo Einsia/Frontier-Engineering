@@ -8,9 +8,11 @@
 ```text
 task04_large_scale_spot_array/
   baseline/
-    init.py
-  verification/
-    validate.py
+    init.py           # 候选：读 problem.npz/json，写 submission.json
+  verification/       # 评分侧所有，评测期间只读
+    problem.py        # 权威题目定义（配置、孔径/目标/焦点）
+    metrics.py        # 权威前向模型 + 指标 + 分数
+    validate.py       # 隔离运行候选，自己重算全部数字
     outputs/
   README.md
   README_zh-CN.md
@@ -33,8 +35,14 @@ python -m pip install -r benchmarks/Optics/requirements.txt
 ## 运行
 
 ```bash
-PYTHONPATH=. python benchmarks/Optics/phase_large_scale_weighted_spot_array/baseline/init.py
 PYTHONPATH=. python benchmarks/Optics/phase_large_scale_weighted_spot_array/verification/validate.py
 ```
 
 oracle：`slmsuite` 的 `WGS-Kim`。
+
+公共评分工具在 `benchmarks/Optics/_shared/phase_common.py`，位于所有 benchmark 目录之外，
+任何 `copy_files.txt` 条目都无法把它拷进候选所在的沙箱。
+
+`baseline/init.py` 不再是可被 import 的求解器接口：`validate.py` 会在一次性临时目录里以子进程
+运行它，并且只读取 `submission.json`。因此手工单独运行它需要一个含 `problem.json` / `problem.npz`
+的目录；最简单的方式是直接跑 validator。

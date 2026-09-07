@@ -12,27 +12,36 @@
 改进 baseline 相位生成逻辑，提高大规模焦点阵列质量。
 
 主要修改函数：
-- `solve_baseline(problem)`
+- `solve(problem)` in `baseline/init.py`
 
 ## 可修改边界
 - 可修改：`baseline/init.py`
-- 只读：`verification/validate.py`
+- 只读（评测期间去写权限并做指纹校验）：`verification/validate.py`、`verification/problem.py`、`verification/metrics.py`、`frontier_eval/`
 
-评测依赖接口：
-- `build_problem(config: dict | None) -> dict`
-- `solve_baseline(problem: dict) -> np.ndarray`
-- `forward_intensity(problem: dict, phase: np.ndarray) -> np.ndarray`
+## 评分契约
+评测器**不会 import** `baseline/init.py`。它会作为独立程序在单独子进程中运行，工作目录是一个
+一次性临时目录，其中已经放好由评分侧生成的题目定义：
 
+- `problem.json`——配置（`cfg`）以及 `decision_variable` 块，明确说明要返回什么
+- `problem.npz`——`x`, `y`, `spots`, `weights`, `aperture_amp`
 
-### 输入 `problem`
-- `x`, `y`：像素坐标
-- `aperture_amp`：孔径掩膜，形状 `(N, N)`
-- `spots`：64 个目标焦点坐标
-- `weights`：归一化目标权重
-- `cfg`：SLM 与网格参数
+你的程序必须在当前目录写出 `submission.json` 并以 0 退出：
 
-### 输出
-- `phase`：形状 `(N, N)` 的相位图（弧度）
+```json
+{"phase": [[...128 floats...], ...]}   // 128 rows, radians
+```
+
+评测器对 `phase` 的强制校验：
+- 形状必须是 `(128, 128)`
+- 每个元素有限，且 `|phase| <= 1e4`
+
+**只返回决策变量，不要返回别的。** 其它任何键——`metrics`、`score`、`score_pct`、
+`cv_orders` ……——都会在评分前被丢弃，仅记录在指标文件的 `contract.ignored_submission_keys` 里。
+题目定义、前向模型与全部指标现在都在 `verification/problem.py` 与 `verification/metrics.py`：
+评测器自己重建题目、自己对你的决策变量跑前向、自己重算所有指标。你自报的任何数字都无法改变分数，
+且 oracle 使用完全相同的函数打分。
+
+提交被拒（形状/长度错误、非有限值或越界、非零退出码、超时、没有 `submission.json`）即判为 invalid。
 
 ## Baseline 当前实现
 baseline 使用非迭代的加权平面波叠加，然后直接取相位。

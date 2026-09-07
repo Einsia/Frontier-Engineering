@@ -12,33 +12,43 @@ Equivalent CS view: constrained inverse problem / non-convex optimization on a 2
 Improve `baseline/init.py` so the reconstructed intensity image better fits target structure and suppresses leakage in designated dark regions.
 
 Primary function to optimize:
-- `solve_baseline(problem, seed=None)`
+- `solve(problem)` in `baseline/init.py`
 
 ## Editable Boundary
 - Editable: `baseline/init.py`
-- Read-only: `verification/validate.py`
+- Read-only (write-locked and fingerprinted during evaluation): `verification/validate.py`, `verification/problem.py`, `verification/metrics.py`, `frontier_eval/`
 
-Required API:
-- `build_problem(config: dict | None) -> dict`
-- `solve_baseline(problem: dict, seed: int | None = None) -> np.ndarray`
-- `forward_intensity(problem: dict, phase: np.ndarray) -> np.ndarray`
+## Scoring Contract
+`baseline/init.py` is **never imported** by the verifier. It is executed as a
+standalone program in its own subprocess, inside a throwaway working directory that
+already holds the scorer-authored problem definition:
 
+- `problem.json` -- the config (`cfg`) plus a `decision_variable` block stating exactly what to return
+- `problem.npz` -- `x`, `y`, `aperture_amp`, `target_amp`
 
-### Input `problem`
-Key fields:
-- `x`, `y`: pixel coordinates
-- `aperture_amp`: aperture mask `(N, N)`
-- `target_amp`: target amplitude map `(N, N)`
-- `cfg`: includes `slm_pixels`, `seed`, etc.
+Your program must write `submission.json` into its current directory and exit 0:
 
-### Output
-- phase map `phase` with shape `(N, N)` (radians)
+```json
+{"phase": [[...128 floats...], ...]}   // 128 rows, radians
+```
 
-## Core Function to Modify
-Main modification point:
-- `solve_baseline(problem, seed=None)`
+Constraints the verifier enforces on `phase`:
+- shape exactly `(128, 128)`
+- every entry finite and `|phase| <= 1e4`
 
-The verifier always calls this function, then evaluates metrics on the produced intensity.
+`target_amp` is authored by the scorer and shipped to you read-only. It is the
+target you are graded against; you cannot substitute your own.
+
+**Return the decision variable and nothing else.** Any other key -- `metrics`,
+`score`, `score_pct`, `cv_orders`, ... -- is dropped before scoring and merely recorded
+under `contract.ignored_submission_keys` in the metrics file. The problem definition,
+the forward model and every metric live in `verification/problem.py` and
+`verification/metrics.py`: the verifier rebuilds the problem, runs the forward model on
+your decision variable itself, and recomputes all metrics. Nothing you report can move
+the score, and the oracle is graded with the identical functions.
+
+A rejected submission (wrong shape/length, non-finite or out-of-range values, non-zero
+exit code, timeout, or no `submission.json`) scores as invalid.
 
 ## Baseline Implementation (current)
 Baseline is one-shot and non-iterative:

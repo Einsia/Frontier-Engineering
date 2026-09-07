@@ -1,32 +1,71 @@
 #!/usr/bin/env python
-"""Verification script for Task 2 (MCS + power)."""
+"""Verification script for Task 2 (MCS + power).
+
+The candidate no longer runs in this process. It is executed in a subprocess
+whose cwd is a fresh temporary directory (see
+``benchmarks/Optics/_shared/fiber_harness.py``) and hands back only
+``submission.json``. That is what keeps ``verification/oracle.py`` -- the
+reference-answer generator that used to sit next to the candidate on
+``sys.path`` -- out of the candidate's reach.
+"""
 
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
+import os
 from pathlib import Path
 import sys
 
-import matplotlib.pyplot as plt
-import numpy as np
-
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-from optic.comm.metrics import theoryBER
-
-from oracle import select_mcs_power_oracle
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
 
 
-def load_solver(path: Path):
-    spec = importlib.util.spec_from_file_location("candidate_solver", path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-    return module.select_mcs_power
+def _optics_shared_dir() -> Path:
+    """Locate ``benchmarks/Optics/_shared``.
+
+    Under the unified harness this file is a copy inside a temp sandbox, so
+    walking up from ``__file__`` finds nothing; ``FRONTIER_ENGINEERING_ROOT``
+    (exported by the harness, remapped under docker isolation) is the reliable
+    anchor. The fallback covers running the script straight from the repo.
+    """
+    roots = []
+    env_root = (os.environ.get("FRONTIER_ENGINEERING_ROOT") or "").strip()
+    if env_root:
+        roots.append(Path(env_root).expanduser().resolve())
+    roots.extend(Path(__file__).resolve().parents)
+    for root in roots:
+        shared = root / "benchmarks" / "Optics" / "_shared"
+        if (shared / "fiber_harness.py").is_file():
+            return shared
+    raise RuntimeError("could not locate benchmarks/Optics/_shared")
+
+
+_SHARED = _optics_shared_dir()
+if str(_SHARED) not in sys.path:
+    sys.path.insert(0, str(_SHARED))
+
+import fiber_harness as harness  # noqa: E402
+
+# Every scoring dependency is imported now, before the candidate ever runs.
+from optic.comm.metrics import theoryBER  # noqa: E402
+
+# The oracle is loaded by absolute path into *this* process only. Nothing puts
+# ``verification/`` on the candidate's sys.path any more.
+_ORACLE = harness.load_module_from_path(
+    "fiber_oracle_mcs", Path(__file__).resolve().parent / "oracle.py"
+)
+select_mcs_power_oracle = _ORACLE.select_mcs_power_oracle
+
+CONTRACT = harness.FiberTaskContract(
+    task_name="fiber_mcs_power_scheduling",
+    entrypoint="select_mcs_power",
+    solution_keys=("mcs", "power_dbm"),
+    tuple_kwargs=("mcs_candidates",),
+    timeout_s=120.0,
+)
 
 
 def build_scenario(seed=123):
@@ -174,49 +213,30 @@ def main():
     )
     args = parser.parse_args()
 
-    out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
     scenario = build_scenario(seed=123)
 
-    fn = load_solver(Path(args.solver))
-    result = fn(**scenario)
-
-    ok, msg = check_valid_output(
-        result,
-        n_users=len(scenario["user_demands_gbps"]),
-        mcs_candidates=scenario["mcs_candidates"],
-        pmin_dbm=scenario["pmin_dbm"],
-        pmax_dbm=scenario["pmax_dbm"],
-        total_power_dbm=scenario["total_power_dbm"],
+    harness.run_task(
+        contract=CONTRACT,
+        candidate_path=Path(args.solver),
+        out_dir=Path(args.out_dir),
+        scenario=scenario,
+        check_valid_output=lambda solution: check_valid_output(
+            solution,
+            n_users=len(scenario["user_demands_gbps"]),
+            mcs_candidates=scenario["mcs_candidates"],
+            pmin_dbm=scenario["pmin_dbm"],
+            pmax_dbm=scenario["pmax_dbm"],
+            total_power_dbm=scenario["total_power_dbm"],
+        ),
+        evaluate=evaluate,
+        oracle_result=lambda sc: select_mcs_power_oracle(
+            **sc,
+            mode=args.oracle_mode,
+            time_limit_s=args.oracle_time_limit,
+        ),
+        save_plot=lambda cand, oracle, sc, png: save_plot(cand, oracle, png),
+        plot_name="task2_verification.png",
     )
-
-    if not ok:
-        summary = {"is_valid": False, "error": msg}
-        print(json.dumps(summary, indent=2))
-        (out_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
-        return
-
-    cand = evaluate(result, scenario)
-
-    oracle_r = select_mcs_power_oracle(
-        **scenario,
-        mode=args.oracle_mode,
-        time_limit_s=args.oracle_time_limit,
-    )
-    oracle_e = evaluate(oracle_r, scenario)
-    oracle_meta = oracle_r.get("__oracle_meta__", {})
-
-    summary = {
-        "candidate": cand,
-        "oracle": oracle_e,
-        "oracle_meta": oracle_meta,
-        "score_gap_oracle_minus_candidate": float(oracle_e["score"] - cand["score"]),
-    }
-
-    save_plot(cand, oracle_e, out_dir / "task2_verification.png")
-    (out_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    print(json.dumps(summary, indent=2))
 
 
 if __name__ == "__main__":

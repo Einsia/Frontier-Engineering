@@ -1,5 +1,17 @@
-Optics unified constraints:
+Optics phase_* unified constraints:
 1) Edit only `baseline/init.py`.
-2) Keep the required public function signatures used by verification scripts.
-3) Do not modify files under `verification/`.
-4) Candidate outputs must be deterministic and finite (no NaN/Inf).
+2) `baseline/init.py` is executed as a standalone program in a throwaway working
+   directory that already contains `problem.json` and `problem.npz`. It must
+   write `submission.json` in its current directory and exit 0.
+3) `submission.json` must contain exactly one decision variable, named in
+   `problem.json` under `decision_variable.key` (`phase` for the 2D Fourier
+   tasks, `transitions` for the Dammann task). Any other key -- metrics,
+   scores, diagnostics -- is discarded before scoring.
+4) Do not report metrics. The problem definition, the forward model and every
+   metric live in `verification/problem.py` and `verification/metrics.py`; the
+   scorer recomputes all of them from your decision variable. Nothing you
+   report can influence the score.
+5) Do not modify anything under `verification/` or `frontier_eval/`; those paths
+   are locked read-only and fingerprinted during evaluation.
+6) The candidate must be deterministic and finite (no NaN/Inf) and must finish
+   inside the candidate timeout (120 s by default).

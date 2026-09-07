@@ -1,34 +1,59 @@
 #!/usr/bin/env python
-"""Validation for Task 01.
+"""Validation for Task 01 -- hard weighted multi-spot, score in [0, 1].
 
-Hard weighted multi-spot task with score in [0, 1] (higher is better).
+Scoring contract (rewritten after the isolation audit)
+------------------------------------------------------
+1. This file builds the problem (``verification/problem.py``). The candidate
+   never states the problem.
+2. The candidate runs as a *subprocess* in a throwaway directory, reads the
+   staged ``problem.npz`` / ``problem.json``, and writes ``submission.json``
+   containing exactly one decision variable: the phase map.
+3. Everything else -- forward propagation, spot metrics, score -- is recomputed
+   here from ``verification/metrics.py``. No field the candidate reports is ever
+   read into a score; ``take_decision`` drops every key but ``phase``.
+4. The oracle is graded with the same functions, so candidate and oracle share
+   one ruler.
 """
 
 from __future__ import annotations
 
 import argparse
-import importlib.util
-import json
+import sys
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
 
-import matplotlib.pyplot as plt
-import numpy as np
+# Every import the scorer depends on happens before the candidate runs, so the
+# candidate cannot supply or shadow any of it.
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import metrics as M  # noqa: E402
+import problem as P  # noqa: E402
+
+common = P.common
+common.load_sandbox()
+
+try:  # resident before the candidate starts
+    from slmsuite.holography.algorithms import Hologram
+except Exception:  # pragma: no cover - reported at oracle time
+    Hologram = None
+
+TASK_DIR = Path(__file__).resolve().parents[1]
+DECISION_KEYS = ("phase",)
 
 
-def load_module(module_path: Path):
-    spec = importlib.util.spec_from_file_location("task01_baseline", module_path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec is not None and spec.loader is not None
-    spec.loader.exec_module(module)
-    return module
-
-
-def slmsuite_wgs_oracle(problem: Dict[str, Any], iterations: int = 70, feedback_exponent: float = 0.78) -> np.ndarray:
-    try:
-        from slmsuite.holography.algorithms import Hologram
-    except Exception as exc:  # pragma: no cover
-        raise RuntimeError("slmsuite is required for Task01 oracle. Install: pip install slmsuite") from exc
+def slmsuite_wgs_oracle(
+    problem: Dict[str, Any],
+    iterations: int = 70,
+    feedback_exponent: float = 0.78,
+) -> np.ndarray:
+    if Hologram is None:  # pragma: no cover
+        raise RuntimeError("slmsuite is required for Task01 oracle. Install: pip install slmsuite")
 
     n = len(problem["x"])
     y, x = np.indices((n, n))
@@ -46,59 +71,6 @@ def slmsuite_wgs_oracle(problem: Dict[str, Any], iterations: int = 70, feedback_
         feedback_exponent=float(feedback_exponent),
     )
     return np.array(hologram.get_phase())
-
-
-def score_from_metrics(ratio_mae: float, cv_spots: float, efficiency: float, min_peak_ratio: float) -> float:
-    ratio_score = np.clip(1.0 - ratio_mae / 0.07, 0.0, 1.0)
-    uniform_score = 1.0 / (1.0 + (cv_spots / 0.85) ** 2)
-    efficiency_score = np.clip((efficiency - 0.15) / (0.80 - 0.15), 0.0, 1.0)
-    peak_score = np.clip((min_peak_ratio - 0.003) / (0.20 - 0.003), 0.0, 1.0)
-
-    return float(0.25 * ratio_score + 0.45 * uniform_score + 0.20 * efficiency_score + 0.10 * peak_score)
-
-
-def spot_metrics(problem: Dict[str, Any], intensity: np.ndarray, window_radius_px: int = 1) -> Dict[str, Any]:
-    n = intensity.shape[0]
-    spot_energies = []
-    spot_peaks = []
-
-    for sx, sy in problem["spots"]:
-        ix = int(np.clip(np.round(sx), 0, n - 1))
-        iy = int(np.clip(np.round(sy), 0, n - 1))
-
-        i0 = max(0, iy - window_radius_px)
-        i1 = min(n, iy + window_radius_px + 1)
-        j0 = max(0, ix - window_radius_px)
-        j1 = min(n, ix + window_radius_px + 1)
-
-        spot_energies.append(float(intensity[i0:i1, j0:j1].sum()))
-        spot_peaks.append(float(intensity[iy, ix]))
-
-    spot_energies = np.asarray(spot_energies, dtype=float)
-    spot_peaks = np.asarray(spot_peaks, dtype=float)
-
-    ratios = spot_energies / (spot_energies.sum() + 1e-12)
-    target = problem["weights"]
-
-    ratio_mae = float(np.mean(np.abs(ratios - target)))
-    cv_spots = float(spot_energies.std() / (spot_energies.mean() + 1e-12))
-    efficiency = float(spot_energies.sum() / (intensity.sum() + 1e-12))
-    min_peak_ratio = float(spot_peaks.min() / (spot_peaks.max() + 1e-12))
-
-    score = score_from_metrics(ratio_mae, cv_spots, efficiency, min_peak_ratio)
-    score_pct = float(100.0 * score)
-
-    return {
-        "ratio_mae": ratio_mae,
-        "cv_spots": cv_spots,
-        "efficiency": efficiency,
-        "min_peak_ratio": min_peak_ratio,
-        "score": score,
-        "score_pct": score_pct,
-        "spot_ratios": ratios.tolist(),
-        "target_ratios": target.tolist(),
-        "spot_peaks": spot_peaks.tolist(),
-    }
 
 
 def save_heatmap(path: Path, image: np.ndarray, spots: np.ndarray, title: str) -> None:
@@ -133,44 +105,62 @@ def save_ratio_scatter(path: Path, target: np.ndarray, baseline: np.ndarray, ora
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Task01 validator")
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=Path(__file__).resolve().parent / "outputs",
-        help="Directory to store metrics and figures",
-    )
+    parser.add_argument("--output-dir", type=Path, default=Path(__file__).resolve().parent / "outputs")
+    parser.add_argument("--candidate", type=Path, default=TASK_DIR / "baseline" / "init.py")
     parser.add_argument("--iters", type=int, default=70, help="slmsuite WGS iterations")
     parser.add_argument("--feedback-exponent", type=float, default=0.78, help="WGS feedback exponent")
+    parser.add_argument("--candidate-timeout-s", type=float, default=common.CANDIDATE_TIMEOUT_S)
     args = parser.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    baseline_module = load_module(Path(__file__).resolve().parents[1] / "baseline" / "init.py")
-    problem = baseline_module.build_problem()
+    prob = P.build_problem()
 
-    phase_baseline = baseline_module.solve_baseline(problem)
-    I_baseline = baseline_module.forward_intensity(problem, phase_baseline)
-
-    phase_oracle = slmsuite_wgs_oracle(problem, iterations=args.iters, feedback_exponent=args.feedback_exponent)
-    I_oracle = baseline_module.forward_intensity(problem, phase_oracle)
-
-    m_base = spot_metrics(problem, I_baseline)
-    m_oracle = spot_metrics(problem, I_oracle)
-
-    valid = (
-        (m_base["score"] >= 0.20)
-        and (m_base["efficiency"] >= 0.45)
-        and (m_base["min_peak_ratio"] > 0.0)
+    submission, error, runtime_s = common.run_candidate(
+        args.candidate,
+        inputs=P.candidate_inputs(prob),
+        timeout_s=args.candidate_timeout_s,
     )
 
+    ignored_keys: list[str] = []
+    phase = None
+    if submission is not None:
+        decision, ignored_keys = common.take_decision(submission, DECISION_KEYS)
+        try:
+            phase = common.require_phase_grid(decision, int(prob["cfg"]["slm_pixels"]))
+        except common.SubmissionError as exc:
+            error = str(exc)
+
+    if phase is None:
+        summary = common.invalid_summary(
+            P.TASK_NAME,
+            error or "candidate produced no usable phase map",
+            extra={
+                "candidate_runtime_s": runtime_s,
+                "ignored_submission_keys": ignored_keys,
+                "valid_thresholds": M.VALID_THRESHOLDS,
+            },
+        )
+        common.write_summary(args.output_dir, summary)
+        print("[Task01] candidate rejected:", summary["candidate_error"])
+        return
+
+    m_base, I_baseline = M.evaluate_phase(prob, phase)
+
+    phase_oracle = slmsuite_wgs_oracle(prob, iterations=args.iters, feedback_exponent=args.feedback_exponent)
+    m_oracle, I_oracle = M.evaluate_phase(prob, phase_oracle)
+
     summary = {
-        "task": "task01_weighted_multispot_single_plane",
-        "valid": bool(valid),
-        "valid_thresholds": {
-            "score_min": 0.20,
-            "score_pct_min": 20.0,
-            "efficiency_min": 0.45,
-            "min_peak_ratio_min": 0.0,
+        "task": P.TASK_NAME,
+        "valid": M.is_valid(m_base),
+        "valid_thresholds": M.VALID_THRESHOLDS,
+        "contract": {
+            "candidate_isolation": "subprocess, throwaway cwd, submission.json only",
+            "decision_variables": list(DECISION_KEYS),
+            "metrics_owner": "verification/metrics.py",
+            "problem_owner": "verification/problem.py",
+            "ignored_submission_keys": ignored_keys,
+            "candidate_runtime_s": runtime_s,
         },
         "baseline": m_base,
         "oracle": {
@@ -188,10 +178,10 @@ def main() -> None:
         },
     }
 
-    (args.output_dir / "metrics.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    common.write_summary(args.output_dir, summary)
 
-    save_heatmap(args.output_dir / "baseline_intensity.png", I_baseline, problem["spots"], "Task01 Baseline Intensity")
-    save_heatmap(args.output_dir / "oracle_intensity.png", I_oracle, problem["spots"], "Task01 Oracle Intensity (slmsuite WGS)")
+    save_heatmap(args.output_dir / "baseline_intensity.png", I_baseline, prob["spots"], "Task01 Candidate Intensity")
+    save_heatmap(args.output_dir / "oracle_intensity.png", I_oracle, prob["spots"], "Task01 Oracle Intensity (slmsuite WGS)")
     save_ratio_scatter(
         args.output_dir / "spot_ratios.png",
         np.asarray(m_base["target_ratios"]),
@@ -199,11 +189,13 @@ def main() -> None:
         np.asarray(m_oracle["spot_ratios"]),
     )
 
+    if ignored_keys:
+        print("[Task01] ignored non-decision submission keys:", ", ".join(ignored_keys))
     print("[Task01] valid:", summary["valid"])
-    print("[Task01] baseline score={:.4f}, ratio_mae={:.6f}, cv={:.6f}, eff={:.6f}".format(
+    print("[Task01] candidate score={:.4f}, ratio_mae={:.6f}, cv={:.6f}, eff={:.6f}".format(
         m_base["score"], m_base["ratio_mae"], m_base["cv_spots"], m_base["efficiency"]
     ))
-    print("[Task01] oracle   score={:.4f}, ratio_mae={:.6f}, cv={:.6f}, eff={:.6f}".format(
+    print("[Task01] oracle    score={:.4f}, ratio_mae={:.6f}, cv={:.6f}, eff={:.6f}".format(
         m_oracle["score"], m_oracle["ratio_mae"], m_oracle["cv_spots"], m_oracle["efficiency"]
     ))
     print("[Task01] outputs:", args.output_dir)

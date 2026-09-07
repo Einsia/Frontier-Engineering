@@ -53,6 +53,39 @@ Goal:
 - `dm_commands: np.ndarray`, shape `(n_act,)`
   - Must be finite and bounded in `[-max_voltage, max_voltage]`.
 
+## Execution Contract (candidate runs in its own process)
+
+`verification/evaluate.py` no longer imports `baseline/init.py` into the scoring
+process. It launches it as a standalone script in a throwaway directory, so the
+candidate cannot observe or influence how it is scored.
+
+What the evaluator stages into that directory (`problem.npz`, load with
+`np.load("problem.npz", allow_pickle=False)`):
+
+- `slopes`: `(n_cases, 2 * n_subap)` -- the full WFS slope stream, one row per frame
+- `reconstructor`: `(n_act, 2 * n_subap)`
+- `cm__*`: the `control_model` entries (strip the `cm__` prefix to rebuild the dict)
+- `max_voltage`, `n_act`, `actuator_lag`, `rate_limit`, `episode_length`, `n_episodes`
+  - the stream is episode-major: rows `[ep * episode_length : (ep + 1) * episode_length]`
+    are one episode, and each episode restarts from a flat mirror
+
+What the candidate must write before exiting, in its working directory:
+
+- `submission.npz` with a single float array `commands`, shape `(n_episodes * episode_length, n_act)`
+  - row `i` is the command your controller issues for observation `i`
+  - every entry must be finite and within `[-max_voltage, max_voltage]`
+
+The `if __name__ == "__main__":` runner at the bottom of `baseline/init.py`
+already implements this: it loops over the observation stream, calls your
+function, rebuilds `prev_commands` from the documented rate limiter plus
+actuator-lag recurrence, resets it at each episode boundary, and saves the result. **Keep it.** A run that
+crashes, times out, or produces no valid `submission.npz` scores as invalid
+(`combined_score = -1e18`), it does not merely score badly.
+
+The evaluator recomputes everything from `commands` alone -- it re-runs the rate limiter and actuator lag itself, then the
+residual, RMS and Strehl. Any score, cost or metric field written into
+`submission.npz` is ignored.
+
 ## Verification Scenario
 
 The evaluator simulates a realistic temporal AO process:

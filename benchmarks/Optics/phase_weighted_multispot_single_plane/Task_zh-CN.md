@@ -12,40 +12,38 @@
 改进 `baseline/init.py`，让生成的相位图在“稠密、多目标、非均匀配光”场景下取得更高分。
 
 建议主要修改：
-- `solve_baseline(problem)`
+- `solve(problem)` in `baseline/init.py`
 
-可以在同文件增加辅助函数，但不要改公共接口。
+可以在同文件中增加辅助函数；唯一固定的契约是下面的 `submission.json` 格式。
 
 ## 可修改边界
 - 可修改：`baseline/init.py`
-- 只读（评测逻辑）：`verification/validate.py`
+- 只读（评测期间去写权限并做指纹校验）：`verification/validate.py`、`verification/problem.py`、`verification/metrics.py`、`frontier_eval/`
 
-评测依赖接口：
-- `build_problem(config: dict | None) -> dict`
-- `solve_baseline(problem: dict) -> np.ndarray`
-- `forward_intensity(problem: dict, phase: np.ndarray) -> np.ndarray`
+## 评分契约
+评测器**不会 import** `baseline/init.py`。它会作为独立程序在单独子进程中运行，工作目录是一个
+一次性临时目录，其中已经放好由评分侧生成的题目定义：
 
+- `problem.json`——配置（`cfg`）以及 `decision_variable` 块，明确说明要返回什么
+- `problem.npz`——`x`, `y`, `spots`, `weights`, `aperture_amp`
 
-### `solve_baseline(problem)` 的输入
-`problem` 由 `build_problem` 生成，关键字段：
-- `x`, `y`：像素坐标（一维数组）
-- `aperture_amp`：孔径掩膜，形状 `(N, N)`
-- `spots`：目标焦点坐标，形状 `(K, 2)`
-- `weights`：归一化目标权重，形状 `(K,)`
-- `cfg`：配置参数（像素数、网格规模等）
+你的程序必须在当前目录写出 `submission.json` 并以 0 退出：
 
-### `solve_baseline(problem)` 的输出
-- `phase`：形状 `(N, N)` 的浮点相位矩阵（单位弧度）
+```json
+{"phase": [[...128 floats...], ...]}   // 128 rows, radians
+```
 
-## 核心可改函数
-核心修改点：
-- `solve_baseline(problem)`
+评测器对 `phase` 的强制校验：
+- 形状必须是 `(128, 128)`
+- 每个元素有限，且 `|phase| <= 1e4`
 
-评测流程：
-1. 调用你的 `solve_baseline`
-2. 调用 `forward_intensity(problem, phase)`
-3. 计算指标和分数
-4. 与 oracle 对比
+**只返回决策变量，不要返回别的。** 其它任何键——`metrics`、`score`、`score_pct`、
+`cv_orders` ……——都会在评分前被丢弃，仅记录在指标文件的 `contract.ignored_submission_keys` 里。
+题目定义、前向模型与全部指标现在都在 `verification/problem.py` 与 `verification/metrics.py`：
+评测器自己重建题目、自己对你的决策变量跑前向、自己重算所有指标。你自报的任何数字都无法改变分数，
+且 oracle 使用完全相同的函数打分。
+
+提交被拒（形状/长度错误、非有限值或越界、非零退出码、超时、没有 `submission.json`）即判为 invalid。
 
 ## Baseline 当前实现
 当前 baseline 是有意简化的：

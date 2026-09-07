@@ -52,6 +52,34 @@ def compute_dm_commands(slopes, reconstructor, control_model, prev_commands=None
 - `dm_commands: np.ndarray`，形状 `(n_act,)`
   - 必须形状正确、数值有限、且不越界。
 
+## 执行契约（候选在独立进程中运行）
+
+`verification/evaluate.py` 不再把 `baseline/init.py` import 进评分进程，而是把它
+作为独立脚本在临时目录中启动，因此候选无法观察或干预评分过程。
+
+评测器放进该目录的输入（`problem.npz`，用
+`np.load("problem.npz", allow_pickle=False)` 读取）：
+
+- `slopes`：`(n_cases, 2 * n_subap)`，完整 WFS 斜率流，每行一帧
+- `reconstructor`：`(n_act, 2 * n_subap)`
+- `cm__*`：`control_model` 的各项（去掉 `cm__` 前缀即可还原字典）
+- `max_voltage`、`n_act`、`actuator_lag`
+
+候选退出前必须在工作目录写出：
+
+- `submission.npz`，含唯一浮点数组 `commands`，形状 `(n_cases, n_act)`
+  - 第 `i` 行是控制器针对第 `i` 个观测发出的命令
+  - 所有元素必须有限，且落在 `[-max_voltage, max_voltage]` 内
+
+`baseline/init.py` 底部的 `if __name__ == "__main__":` 运行器已经实现了这套流程：
+遍历观测流、调用你的函数、按文档中的执行器滞后递推重建 `prev_commands`
+（`applied = lag * applied + (1 - lag) * cmd`），并保存结果。**请保留它。**
+崩溃、超时或没有产出合法 `submission.npz` 的运行一律判为无效
+（`combined_score = -1e18`），而不是只扣分。
+
+评测器只根据 `commands` 重新计算一切——它自己重跑执行器滞后，再算
+残差、RMS 与 Strehl。写进 `submission.npz` 的任何 score/cost/metric 字段都会被忽略。
+
 ## Verification 场景
 
 `verification/evaluate.py` 构造动态且含失配的评测环境：

@@ -1,26 +1,49 @@
-import math
-import argparse
-import importlib.util
-import json
-from pathlib import Path
-import sys
+"""Task A2 (temporally smooth DM control): score a candidate that runs alone.
 
-import matplotlib.pyplot as plt
+The candidate is launched as a standalone script in a scratch directory. It gets
+the episodic WFS slope stream (observations only, never the ground-truth phase)
+and returns one command matrix of shape ``(episodes * steps, n_act)``. This
+process then re-runs the rate limiter, the actuator lag and every metric on its
+own copy of the plant, so nothing the candidate believes about its own state can
+move the score.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+
 import numpy as np
 
-# aotools expects numpy.math, which is absent in newer NumPy releases.
-if not hasattr(np, "math"):
-    np.math = math
+VERIFICATION_DIR = Path(__file__).resolve().parent
+TASK_DIR = VERIFICATION_DIR.parent
+if str(VERIFICATION_DIR) not in sys.path:
+    sys.path.insert(0, str(VERIFICATION_DIR))
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
-import aotools
-from aotools import fouriertransform
+def _find_repo_root() -> Path:
+    env_root = (os.environ.get("FRONTIER_ENGINEERING_ROOT") or "").strip()
+    if env_root:
+        return Path(env_root).expanduser().resolve()
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "benchmarks").is_dir() and (parent / "frontier_eval").is_dir():
+            return parent
+    raise RuntimeError("could not locate repo root for adaptive_temporal_smooth_control")
 
-from reference_controller import compute_dm_commands as reference_controller
 
+_REPO = _find_repo_root()
+if str(_REPO / "benchmarks" / "_shared") not in sys.path:
+    sys.path.insert(0, str(_REPO / "benchmarks" / "_shared"))
+
+# Invariant 1: every scoring dependency is resident before the candidate runs.
+import optics_adaptive as shared  # noqa: E402
+
+from reference_controller import compute_dm_commands as reference_controller  # noqa: E402
+
+TASK_NAME = "task2_temporal_smooth_control"
 
 SLEW_WEIGHT = 5.2
 ACTUATOR_LAG = 0.76
@@ -42,147 +65,55 @@ SCORE_WEIGHTS = {
 }
 
 
-def load_callable(module_path: Path, func_name: str):
-    spec = importlib.util.spec_from_file_location("candidate_module", module_path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Cannot import module from {module_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    if not hasattr(module, func_name):
-        raise AttributeError(f"{module_path} missing function: {func_name}")
-    return getattr(module, func_name)
-
-
-def _clip01(value: float) -> float:
-    return float(np.clip(value, 0.0, 1.0))
-
-
-def _utility_lower_better(value: float, good: float, bad: float) -> float:
-    return _clip01((bad - value) / (bad - good + 1e-12))
-
-
-def _utility_higher_better(value: float, good: float, bad: float) -> float:
-    return _clip01((value - bad) / (good - bad + 1e-12))
-
-
 def make_system(seed: int = 29):
     rng = np.random.default_rng(seed)
+    sys_cfg = shared.build_optics_system(
+        rng,
+        plant_gain_sigma=0.16,
+        plant_gain_clip=(0.66, 1.34),
+    )
 
-    n_pix = 96
-    pupil = aotools.circle(40, n_pix).astype(np.float64)
-    valid_mask = pupil > 0
-
-    n_sub = 12
-    sub_w = n_pix // n_sub
-    active = []
-    for i in range(n_sub):
-        for j in range(n_sub):
-            x1, x2 = i * sub_w, (i + 1) * sub_w
-            y1, y2 = j * sub_w, (j + 1) * sub_w
-            if pupil[x1:x2, y1:y2].mean() > 0.45:
-                active.append((i, j))
-    active = np.array(active)
-    n_sub_active = len(active)
-
-    def slopes_from_phase(phase):
-        gx = np.gradient(phase, axis=0)
-        gy = np.gradient(phase, axis=1)
-        s = np.zeros((2, n_sub_active), dtype=np.float64)
-        for idx, (i, j) in enumerate(active):
-            x1, x2 = i * sub_w, (i + 1) * sub_w
-            y1, y2 = j * sub_w, (j + 1) * sub_w
-            w = pupil[x1:x2, y1:y2]
-            denom = w.sum() + 1e-12
-            s[0, idx] = (gx[x1:x2, y1:y2] * w).sum() / denom
-            s[1, idx] = (gy[x1:x2, y1:y2] * w).sum() / denom
-        return s.reshape(-1)
-
-    coords = np.linspace(8, n_pix - 8, 9)
-    actuators = [(x, y) for x in coords for y in coords if pupil[int(round(x)), int(round(y))] > 0]
-    actuators = np.array(actuators)
-    n_act = len(actuators)
-
-    xg, yg = np.meshgrid(np.arange(n_pix), np.arange(n_pix), indexing="ij")
-    influence = np.zeros((n_act, n_pix, n_pix), dtype=np.float64)
-    for k, (x0, y0) in enumerate(actuators):
-        influence[k] = np.exp(-((xg - x0) ** 2 + (yg - y0) ** 2) / (2 * 3.5**2)) * pupil
-
-    def dm_surface(commands):
-        return np.tensordot(commands, influence, axes=(0, 0))
-
-    # Plant mismatch: true actuator gains differ from nominal reconstructor model.
-    plant_gain = np.clip(rng.normal(1.0, 0.16, size=n_act), 0.66, 1.34)
-
-    def dm_surface_true(commands):
-        return np.tensordot(commands * plant_gain, influence, axes=(0, 0))
-
-    h = np.zeros((2 * n_sub_active, n_act), dtype=np.float64)
-    for k in range(n_act):
-        h[:, k] = slopes_from_phase(influence[k])
-
-    reg_lambda = 1e-3
-    g = h.T @ h
-    reconstructor = np.linalg.solve(g + reg_lambda * np.eye(n_act), h.T)
+    h = sys_cfg["h_matrix"]
+    g = sys_cfg["gram"]
+    n_act = sys_cfg["n_act"]
 
     smooth_beta = 18.0
     inv_smooth = np.linalg.inv(g + smooth_beta * np.eye(n_act))
     smooth_reconstructor = inv_smooth @ h.T
     prev_blend = inv_smooth @ (smooth_beta * np.eye(n_act))
 
-    n_modes = 25
-    zern = aotools.zernikeArray(list(range(2, n_modes + 2)), n_pix, norm="rms") * pupil
-    ar_alpha = np.linspace(0.65, 0.40, n_modes)
-
-    i0 = np.abs(fouriertransform.ft2(pupil.astype(np.complex128), 1.0)) ** 2
-    strehl_ref = float(i0.max())
-
-    return {
-        "rng": rng,
-        "n_pix": n_pix,
-        "pupil": pupil,
-        "valid_mask": valid_mask,
-        "zern": zern,
-        "ar_alpha": ar_alpha,
-        "slopes_from_phase": slopes_from_phase,
-        "dm_surface": dm_surface,
-        "dm_surface_true": dm_surface_true,
-        "reconstructor": reconstructor,
-        "strehl_ref": strehl_ref,
-        "n_act": n_act,
-        "control_model": {
-            "smooth_reconstructor": smooth_reconstructor,
-            "prev_blend": prev_blend,
-            "reconstructor": reconstructor,
-            "delay_prediction_gain": 0.55,
-            "command_lowpass": 0.88,
-        },
+    sys_cfg["ar_alpha"] = np.linspace(0.65, 0.40, sys_cfg["zern"].shape[0])
+    sys_cfg["control_model"] = {
+        "smooth_reconstructor": smooth_reconstructor,
+        "prev_blend": prev_blend,
+        "reconstructor": sys_cfg["reconstructor"],
+        "delay_prediction_gain": 0.55,
+        "command_lowpass": 0.88,
     }
+    return sys_cfg
 
 
-def run_eval(controller_fn, sys_cfg, max_voltage=0.25, episodes=36, steps=70):
+def make_scenario(sys_cfg, episodes: int, steps: int) -> dict:
+    """Draw every episode's disturbance stream before any controller runs.
+
+    Stores the modal coefficients rather than the 96x96 phase maps (2520 frames
+    would be ~185 MB); the phase is regenerated from them during scoring with the
+    identical ``tensordot``.
+    """
     rng = sys_cfg["rng"]
-    pupil = sys_cfg["pupil"]
-    valid_mask = sys_cfg["valid_mask"]
     zern = sys_cfg["zern"]
     alpha = sys_cfg["ar_alpha"]
     slopes_from_phase = sys_cfg["slopes_from_phase"]
-    dm_surface_true = sys_cfg["dm_surface_true"]
-    reconstructor = sys_cfg["reconstructor"]
-    control_model = sys_cfg["control_model"]
-    strehl_ref = sys_cfg["strehl_ref"]
-    n_act = sys_cfg["n_act"]
+    n_slopes = sys_cfg["reconstructor"].shape[1]
+    n_modes = zern.shape[0]
 
-    rms_list = []
-    strehl_list = []
-    slew_list = []
-    example = None
+    total = episodes * steps
+    coeffs = np.zeros((total, n_modes), dtype=np.float64)
+    slopes_stream = np.zeros((total, n_slopes), dtype=np.float64)
 
     for ep in range(episodes):
-        coeff = rng.normal(0.0, 0.6, size=zern.shape[0])
-        prev_applied = np.zeros(n_act, dtype=np.float64)
-        prev_cmd = np.zeros(n_act, dtype=np.float64)
-        delayed_slopes = np.zeros(reconstructor.shape[1], dtype=np.float64)
-
+        coeff = rng.normal(0.0, 0.6, size=n_modes)
+        delayed_slopes = np.zeros(n_slopes, dtype=np.float64)
         for t in range(steps):
             coeff = alpha * coeff + rng.normal(0.0, 0.35, size=coeff.shape)
             phase = np.tensordot(coeff, zern, axes=(0, 0))
@@ -191,8 +122,41 @@ def run_eval(controller_fn, sys_cfg, max_voltage=0.25, episodes=36, steps=70):
             slopes = delayed_slopes + rng.normal(0.0, SLOPE_DELAY_NOISE, size=true_slopes.shape)
             delayed_slopes = true_slopes
 
-            cmd = controller_fn(slopes, reconstructor, control_model, prev_applied, max_voltage=max_voltage)
-            cmd = np.asarray(cmd, dtype=np.float64)
+            idx = ep * steps + t
+            coeffs[idx] = coeff
+            slopes_stream[idx] = slopes
+
+    return {"coeffs": coeffs, "slopes": slopes_stream, "episodes": episodes, "steps": steps}
+
+
+def score_commands(sys_cfg, scenario, get_command, max_voltage: float) -> dict:
+    """Replay rate limiter + actuator lag against a command source and re-score."""
+    pupil = sys_cfg["pupil"]
+    valid_mask = sys_cfg["valid_mask"]
+    zern = sys_cfg["zern"]
+    dm_surface_true = sys_cfg["dm_surface_true"]
+    strehl_ref = sys_cfg["strehl_ref"]
+    n_act = sys_cfg["n_act"]
+
+    coeffs = scenario["coeffs"]
+    slopes_stream = scenario["slopes"]
+    episodes = scenario["episodes"]
+    steps = scenario["steps"]
+
+    rms_list = []
+    strehl_list = []
+    slew_list = []
+    example = None
+
+    for ep in range(episodes):
+        prev_applied = np.zeros(n_act, dtype=np.float64)
+        prev_cmd = np.zeros(n_act, dtype=np.float64)
+
+        for t in range(steps):
+            idx = ep * steps + t
+            phase = np.tensordot(coeffs[idx], zern, axes=(0, 0))
+
+            cmd = np.asarray(get_command(idx, slopes_stream[idx], prev_applied), dtype=np.float64)
 
             if cmd.shape != (n_act,):
                 raise ValueError(f"Invalid output shape: {cmd.shape}, expected {(n_act,)}")
@@ -206,8 +170,7 @@ def run_eval(controller_fn, sys_cfg, max_voltage=0.25, episodes=36, steps=70):
             applied = ACTUATOR_LAG * prev_applied + (1.0 - ACTUATOR_LAG) * limited_cmd
             residual = (phase - dm_surface_true(applied)) * pupil
             rms = float(np.sqrt(np.mean(residual[valid_mask] ** 2)))
-            i_psf = np.abs(fouriertransform.ft2((pupil * np.exp(1j * residual)).astype(np.complex128), 1.0)) ** 2
-            strehl = float(i_psf.max() / strehl_ref)
+            strehl, i_psf = shared.strehl_from_residual(residual, pupil, strehl_ref)
             slew = float(np.mean(np.abs(cmd - prev_cmd)))
 
             rms_list.append(rms)
@@ -228,16 +191,19 @@ def run_eval(controller_fn, sys_cfg, max_voltage=0.25, episodes=36, steps=70):
     mean_strehl = float(np.mean(strehl_list))
     mean_slew = float(np.mean(slew_list))
     raw_cost = float(mean_rms + SLEW_WEIGHT * mean_slew)
-    u_mean_rms = _utility_lower_better(mean_rms, SCORE_ANCHORS["mean_rms_good"], SCORE_ANCHORS["mean_rms_bad"])
-    u_mean_slew = _utility_lower_better(
-        mean_slew, SCORE_ANCHORS["mean_slew_good"], SCORE_ANCHORS["mean_slew_bad"]
-    )
-    u_strehl = _utility_higher_better(mean_strehl, SCORE_ANCHORS["strehl_good"], SCORE_ANCHORS["strehl_bad"])
-    score_01 = float(
-        SCORE_WEIGHTS["mean_rms"] * u_mean_rms
-        + SCORE_WEIGHTS["mean_slew"] * u_mean_slew
-        + SCORE_WEIGHTS["strehl"] * u_strehl
-    )
+
+    utilities = {
+        "mean_rms": shared.utility_lower_better(
+            mean_rms, SCORE_ANCHORS["mean_rms_good"], SCORE_ANCHORS["mean_rms_bad"]
+        ),
+        "mean_slew": shared.utility_lower_better(
+            mean_slew, SCORE_ANCHORS["mean_slew_good"], SCORE_ANCHORS["mean_slew_bad"]
+        ),
+        "strehl": shared.utility_higher_better(
+            mean_strehl, SCORE_ANCHORS["strehl_good"], SCORE_ANCHORS["strehl_bad"]
+        ),
+    }
+    score_01 = shared.weighted_score(utilities, SCORE_WEIGHTS)
 
     return {
         "mean_rms": mean_rms,
@@ -250,80 +216,78 @@ def run_eval(controller_fn, sys_cfg, max_voltage=0.25, episodes=36, steps=70):
     }
 
 
-def save_plots(out_dir: Path, baseline_metrics: dict, reference_metrics: dict):
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    labels = ["score_0_to_1_higher_is_better", "mean_rms", "mean_slew", "mean_strehl"]
-    bvals = [baseline_metrics[k] for k in labels]
-    rvals = [reference_metrics[k] for k in labels]
-
-    plt.figure(figsize=(10, 4))
-    x = np.arange(len(labels))
-    w = 0.38
-    plt.bar(x - w / 2, bvals, width=w, label="baseline")
-    plt.bar(x + w / 2, rvals, width=w, label="reference")
-    plt.xticks(x, labels, rotation=20)
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(out_dir / "metrics_comparison.png", dpi=140)
-    plt.close()
-
-    fig, ax = plt.subplots(2, 3, figsize=(11, 6))
-    for row, data, title in [
-        (0, baseline_metrics["example"], "baseline"),
-        (1, reference_metrics["example"], "reference"),
-    ]:
-        ax[row, 0].imshow(data["phase"], cmap="coolwarm")
-        ax[row, 0].set_title(f"{title} phase")
-        ax[row, 1].imshow(data["residual"], cmap="coolwarm")
-        ax[row, 1].set_title(f"{title} residual")
-        ax[row, 2].imshow(np.log10(data["psf"] + 1e-12), cmap="magma")
-        ax[row, 2].set_title(f"{title} log10 PSF")
-    for a in ax.ravel():
-        a.axis("off")
-    fig.tight_layout()
-    fig.savefig(out_dir / "example_visualization.png", dpi=140)
-    plt.close(fig)
+def build_problem(sys_cfg, scenario, max_voltage: float) -> dict:
+    """Exactly what the candidate subprocess is allowed to see."""
+    problem = {
+        "slopes": scenario["slopes"],
+        "reconstructor": sys_cfg["reconstructor"],
+        "max_voltage": np.float64(max_voltage),
+        "actuator_lag": np.float64(ACTUATOR_LAG),
+        "rate_limit": np.float64(ACTUATOR_RATE_LIMIT),
+        "episode_length": np.int64(scenario["steps"]),
+        "n_episodes": np.int64(scenario["episodes"]),
+        "n_act": np.int64(sys_cfg["n_act"]),
+        "uses_prev_commands": np.int64(1),
+    }
+    problem.update(shared.pack_control_model(sys_cfg["control_model"]))
+    return problem
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--candidate",
-        type=str,
-        default=str(Path(__file__).resolve().parents[1] / "baseline" / "init.py"),
-        help="Path to candidate controller module.",
+    shared.add_common_cli_args(
+        parser,
+        default_candidate=TASK_DIR / "baseline" / "init.py",
+        default_max_voltage=0.25,
     )
-    parser.add_argument("--max_voltage", type=float, default=0.25)
     parser.add_argument("--episodes", type=int, default=36)
     parser.add_argument("--steps", type=int, default=70)
     args = parser.parse_args()
 
-    out_dir = Path(__file__).resolve().parent / "outputs"
+    out_dir = Path(args.output_dir) if args.output_dir else VERIFICATION_DIR / "outputs"
+    candidate_path = Path(args.candidate)
 
-    candidate_fn = load_callable(Path(args.candidate), "compute_dm_commands")
     sys_cfg = make_system(seed=29)
-    baseline_metrics = run_eval(
-        candidate_fn,
-        sys_cfg,
-        max_voltage=args.max_voltage,
-        episodes=args.episodes,
-        steps=args.steps,
+    scenario = make_scenario(sys_cfg, args.episodes, args.steps)
+
+    try:
+        commands = shared.run_candidate_controller(
+            candidate_path,
+            problem=build_problem(sys_cfg, scenario, args.max_voltage),
+            n_steps=args.episodes * args.steps,
+            n_act=sys_cfg["n_act"],
+            max_voltage=args.max_voltage,
+            timeout_s=args.candidate_timeout,
+        )
+    except shared.CandidateRejected as exc:
+        shared.write_rejection(out_dir, TASK_NAME, candidate_path, str(exc))
+        print(f"Candidate rejected: {exc}", file=sys.stderr)
+        return 3
+
+    baseline_metrics = score_commands(
+        sys_cfg, scenario, lambda i, s, p: commands[i], args.max_voltage
     )
 
     sys_cfg_ref = make_system(seed=29)
-    reference_metrics = run_eval(
-        reference_controller,
+    scenario_ref = make_scenario(sys_cfg_ref, args.episodes, args.steps)
+    reference_metrics = score_commands(
         sys_cfg_ref,
-        max_voltage=args.max_voltage,
-        episodes=args.episodes,
-        steps=args.steps,
+        scenario_ref,
+        lambda i, s, p: reference_controller(
+            s,
+            sys_cfg_ref["reconstructor"],
+            sys_cfg_ref["control_model"],
+            p,
+            max_voltage=args.max_voltage,
+        ),
+        args.max_voltage,
     )
 
     payload = {
-        "task": "task2_temporal_smooth_control",
+        "task": TASK_NAME,
         "benchmark_profile": "v3_delay_and_model_mismatch",
-        "candidate_module": str(Path(args.candidate).resolve()),
+        "candidate_module": str(candidate_path.resolve()),
+        "candidate_execution": "isolated_subprocess",
         "oracle_backend": "delay-compensated analytical smooth controller",
         "slew_weight": SLEW_WEIGHT,
         "actuator_lag": ACTUATOR_LAG,
@@ -336,13 +300,20 @@ def main():
         "reference": {k: v for k, v in reference_metrics.items() if k != "example"},
     }
 
-    save_plots(out_dir, baseline_metrics, reference_metrics)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    shared.save_comparison_plots(
+        out_dir,
+        baseline_metrics,
+        reference_metrics,
+        ["score_0_to_1_higher_is_better", "mean_rms", "mean_slew", "mean_strehl"],
+    )
     with open(out_dir / "metrics.json", "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
 
     print(json.dumps(payload, indent=2))
     print(f"Saved figures/metrics to: {out_dir}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

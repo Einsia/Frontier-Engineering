@@ -1,34 +1,56 @@
 #!/usr/bin/env python
-"""Validation for Task 02.
+"""Validation for Task 02 -- hard Fourier pattern holography, score in [0, 100].
 
-Hard Fourier pattern holography with score in [0, 100] (higher is better).
+Scoring contract (rewritten after the isolation audit)
+------------------------------------------------------
+1. ``verification/problem.py`` authors the aperture and the target pattern.
+   The archived 99.99998936 run redefined ``target_amp`` in its own
+   ``build_problem`` as the far field of a flat-phase aperture and then returned
+   an all-zero phase; that is now impossible, because the target arrives from
+   here as a read-only input.
+2. The candidate runs as a subprocess in a throwaway directory and writes
+   ``submission.json`` containing only its phase map.
+3. Propagation, NMSE, energy-in-target, dark suppression and the score are all
+   recomputed here from ``verification/metrics.py``.
 """
 
 from __future__ import annotations
 
 import argparse
-import importlib.util
-import json
+import sys
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
 
-import matplotlib.pyplot as plt
-import numpy as np
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import metrics as M  # noqa: E402
+import problem as P  # noqa: E402
+
+common = P.common
+common.load_sandbox()
+
+try:  # resident before the candidate starts
+    from slmsuite.holography.algorithms import Hologram
+except Exception:  # pragma: no cover - reported at oracle time
+    Hologram = None
+
+TASK_DIR = Path(__file__).resolve().parents[1]
+DECISION_KEYS = ("phase",)
 
 
-def load_module(module_path: Path):
-    spec = importlib.util.spec_from_file_location("task02_baseline", module_path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec is not None and spec.loader is not None
-    spec.loader.exec_module(module)
-    return module
-
-
-def slmsuite_wgs_oracle(problem: Dict[str, Any], iterations: int = 80, feedback_exponent: float = 0.78) -> np.ndarray:
-    try:
-        from slmsuite.holography.algorithms import Hologram
-    except Exception as exc:  # pragma: no cover
-        raise RuntimeError("slmsuite is required for Task02 oracle. Install: pip install slmsuite") from exc
+def slmsuite_wgs_oracle(
+    problem: Dict[str, Any],
+    iterations: int = 80,
+    feedback_exponent: float = 0.78,
+) -> np.ndarray:
+    if Hologram is None:  # pragma: no cover
+        raise RuntimeError("slmsuite is required for Task02 oracle. Install: pip install slmsuite")
 
     target_for_opt = np.maximum(problem["target_amp"], 1e-4)
 
@@ -40,32 +62,6 @@ def slmsuite_wgs_oracle(problem: Dict[str, Any], iterations: int = 80, feedback_
         feedback_exponent=float(feedback_exponent),
     )
     return np.array(hologram.get_phase())
-
-
-def nmse(intensity: np.ndarray, target_amp: np.ndarray) -> float:
-    target_intensity = target_amp**2
-    I_n = intensity / (intensity.mean() + 1e-12)
-    T_n = target_intensity / (target_intensity.mean() + 1e-12)
-    return float(np.sqrt(((I_n - T_n) ** 2).mean()))
-
-
-def energy_in_target(intensity: np.ndarray, target_amp: np.ndarray, threshold: float = 0.30) -> float:
-    mask = target_amp > threshold
-    return float(intensity[mask].sum() / (intensity.sum() + 1e-12))
-
-
-def dark_suppression(intensity: np.ndarray, target_amp: np.ndarray, threshold: float = 0.03) -> float:
-    mask_dark = target_amp < threshold
-    leak = float(intensity[mask_dark].sum() / (intensity.sum() + 1e-12))
-    return float(1.0 - leak)
-
-
-def score_from_metrics(nmse_value: float, energy_target: float, dark_sup: float) -> float:
-    pattern_score = np.clip(1.0 - nmse_value / 4.0, 0.0, 1.0)
-    energy_score = np.clip((energy_target - 0.10) / (0.70 - 0.10), 0.0, 1.0)
-    dark_score = np.clip((dark_sup - 0.35) / (0.90 - 0.35), 0.0, 1.0)
-
-    return float(100.0 * (0.55 * pattern_score + 0.30 * energy_score + 0.15 * dark_score))
 
 
 def save_image(path: Path, image: np.ndarray, title: str, cmap: str = "inferno") -> None:
@@ -82,88 +78,98 @@ def save_image(path: Path, image: np.ndarray, title: str, cmap: str = "inferno")
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Task02 validator")
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=Path(__file__).resolve().parent / "outputs",
-        help="Directory to store metrics and figures",
-    )
+    parser.add_argument("--output-dir", type=Path, default=Path(__file__).resolve().parent / "outputs")
+    parser.add_argument("--candidate", type=Path, default=TASK_DIR / "baseline" / "init.py")
     parser.add_argument("--iters", type=int, default=80, help="slmsuite WGS iterations")
     parser.add_argument("--feedback-exponent", type=float, default=0.78, help="WGS feedback exponent")
+    parser.add_argument("--candidate-timeout-s", type=float, default=common.CANDIDATE_TIMEOUT_S)
     args = parser.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    baseline_module = load_module(Path(__file__).resolve().parents[1] / "baseline" / "init.py")
-    problem = baseline_module.build_problem()
+    prob = P.build_problem()
 
-    phase_baseline = baseline_module.solve_baseline(problem, seed=int(problem["cfg"]["seed"]))
-    I_baseline = baseline_module.forward_intensity(problem, phase_baseline)
+    submission, error, runtime_s = common.run_candidate(
+        args.candidate,
+        inputs=P.candidate_inputs(prob),
+        timeout_s=args.candidate_timeout_s,
+    )
 
-    phase_oracle = slmsuite_wgs_oracle(problem, iterations=args.iters, feedback_exponent=args.feedback_exponent)
-    I_oracle = baseline_module.forward_intensity(problem, phase_oracle)
+    ignored_keys: list[str] = []
+    phase = None
+    if submission is not None:
+        decision, ignored_keys = common.take_decision(submission, DECISION_KEYS)
+        try:
+            phase = common.require_phase_grid(decision, int(prob["cfg"]["slm_pixels"]))
+        except common.SubmissionError as exc:
+            error = str(exc)
 
-    base_nmse = nmse(I_baseline, problem["target_amp"])
-    base_energy = energy_in_target(I_baseline, problem["target_amp"])
-    base_dark = dark_suppression(I_baseline, problem["target_amp"])
-    base_score = score_from_metrics(base_nmse, base_energy, base_dark)
+    if phase is None:
+        summary = common.invalid_summary(
+            P.TASK_NAME,
+            error or "candidate produced no usable phase map",
+            extra={
+                "candidate_runtime_s": runtime_s,
+                "ignored_submission_keys": ignored_keys,
+                "valid_thresholds": M.VALID_THRESHOLDS,
+            },
+        )
+        common.write_summary(args.output_dir, summary)
+        print("[Task02] candidate rejected:", summary["candidate_error"])
+        return
 
-    oracle_nmse = nmse(I_oracle, problem["target_amp"])
-    oracle_energy = energy_in_target(I_oracle, problem["target_amp"])
-    oracle_dark = dark_suppression(I_oracle, problem["target_amp"])
-    oracle_score = score_from_metrics(oracle_nmse, oracle_energy, oracle_dark)
+    m_base, I_baseline = M.evaluate_phase(prob, phase)
 
-    valid = (base_score >= 20.0) and (base_energy >= 0.45) and (base_dark >= 0.60)
+    phase_oracle = slmsuite_wgs_oracle(prob, iterations=args.iters, feedback_exponent=args.feedback_exponent)
+    m_oracle, I_oracle = M.evaluate_phase(prob, phase_oracle)
 
     summary = {
-        "task": "task02_fourier_pattern_holography",
-        "valid": bool(valid),
-        "valid_thresholds": {
-            "score_pct_min": 20.0,
-            "energy_in_target_min": 0.45,
-            "dark_suppression_min": 0.60,
+        "task": P.TASK_NAME,
+        "valid": M.is_valid(m_base),
+        "valid_thresholds": M.VALID_THRESHOLDS,
+        "contract": {
+            "candidate_isolation": "subprocess, throwaway cwd, submission.json only",
+            "decision_variables": list(DECISION_KEYS),
+            "metrics_owner": "verification/metrics.py",
+            "problem_owner": "verification/problem.py",
+            "ignored_submission_keys": ignored_keys,
+            "candidate_runtime_s": runtime_s,
         },
-        "baseline": {
-            "nmse": float(base_nmse),
-            "energy_in_target": float(base_energy),
-            "dark_suppression": float(base_dark),
-            "score_pct": float(base_score),
-        },
+        "baseline": m_base,
         "oracle": {
-            "nmse": float(oracle_nmse),
-            "energy_in_target": float(oracle_energy),
-            "dark_suppression": float(oracle_dark),
-            "score_pct": float(oracle_score),
+            **m_oracle,
             "method": "slmsuite WGS-Kim",
             "iterations": int(args.iters),
             "feedback_exponent": float(args.feedback_exponent),
         },
         "delta": {
-            "score_pct_gain": float(oracle_score - base_score),
-            "nmse_drop": float(base_nmse - oracle_nmse),
-            "energy_gain": float(oracle_energy - base_energy),
-            "dark_suppression_gain": float(oracle_dark - base_dark),
+            "score_pct_gain": float(m_oracle["score_pct"] - m_base["score_pct"]),
+            "nmse_drop": float(m_base["nmse"] - m_oracle["nmse"]),
+            "energy_gain": float(m_oracle["energy_in_target"] - m_base["energy_in_target"]),
+            "dark_suppression_gain": float(m_oracle["dark_suppression"] - m_base["dark_suppression"]),
         },
     }
 
-    (args.output_dir / "metrics.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    common.write_summary(args.output_dir, summary)
 
-    target_intensity = problem["target_amp"]**2
+    target_intensity = prob["target_amp"] ** 2
     save_image(args.output_dir / "target_pattern.png", target_intensity, "Task02 Target Intensity", cmap="viridis")
-    save_image(args.output_dir / "baseline_intensity.png", I_baseline, "Task02 Baseline Intensity")
+    save_image(args.output_dir / "baseline_intensity.png", I_baseline, "Task02 Candidate Intensity")
     save_image(args.output_dir / "oracle_intensity.png", I_oracle, "Task02 Oracle Intensity (slmsuite WGS)")
 
     diff_base = np.abs(I_baseline / (I_baseline.mean() + 1e-12) - target_intensity / (target_intensity.mean() + 1e-12))
     diff_oracle = np.abs(I_oracle / (I_oracle.mean() + 1e-12) - target_intensity / (target_intensity.mean() + 1e-12))
-    save_image(args.output_dir / "baseline_error_map.png", diff_base, "Task02 Baseline Error Map", cmap="magma")
+    save_image(args.output_dir / "baseline_error_map.png", diff_base, "Task02 Candidate Error Map", cmap="magma")
     save_image(args.output_dir / "oracle_error_map.png", diff_oracle, "Task02 Oracle Error Map", cmap="magma")
 
+    if ignored_keys:
+        print("[Task02] ignored non-decision submission keys:", ", ".join(ignored_keys))
     print("[Task02] valid:", summary["valid"])
-    print("[Task02] baseline score_pct={:.3f}, nmse={:.6f}, energy={:.6f}, dark_sup={:.6f}".format(
-        base_score, base_nmse, base_energy, base_dark
+    print("[Task02] candidate score_pct={:.3f}, nmse={:.6f}, energy={:.6f}, dark_sup={:.6f}".format(
+        m_base["score_pct"], m_base["nmse"], m_base["energy_in_target"], m_base["dark_suppression"]
     ))
-    print("[Task02] oracle   score_pct={:.3f}, nmse={:.6f}, energy={:.6f}, dark_sup={:.6f}".format(
-        oracle_score, oracle_nmse, oracle_energy, oracle_dark
+    print("[Task02] oracle    score_pct={:.3f}, nmse={:.6f}, energy={:.6f}, dark_sup={:.6f}".format(
+        m_oracle["score_pct"], m_oracle["nmse"], m_oracle["energy_in_target"], m_oracle["dark_suppression"]
     ))
     print("[Task02] outputs:", args.output_dir)
 

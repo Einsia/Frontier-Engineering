@@ -27,6 +27,23 @@ Invariants that any caller must preserve (each is a hole found in a real audit):
 3. A non-zero return code is always a failure. A surviving submission.json does
    not excuse a crash (one evaluator recorded the return code but kept scoring
    anyway).
+
+What this does NOT give you
+---------------------------
+The child runs under the same uid as the scorer, so ``/proc/<ppid>/`` stays
+readable: a candidate can recover the scorer's cwd via ``/proc/<ppid>/cwd`` and
+read its command line and environment, and from there reach files this module
+deliberately keeps out of the sandbox (a reference solution, an oracle). Passing
+``env_allowlist`` and keeping the sandbox clean raise the cost of that but do not
+close it -- there is no point pretending otherwise, and a partial mitigation here
+would mostly buy the appearance of safety.
+
+Closing it requires a real boundary the process model cannot provide: run the
+task under ``task.runtime.isolation_mode=docker`` (the harness already implements
+it, with ``--network none`` and a read-only rootfs), or a uid/mount namespace.
+What this module *does* guarantee is the property the scores depend on: the
+candidate cannot execute inside the scoring process, so it cannot rewrite the
+scoring functions or the number they produce.
 """
 
 from __future__ import annotations

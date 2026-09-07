@@ -1,9 +1,24 @@
+"""Evaluator for the Robotics/CoFlyersVasarhelyiTuning benchmark.
+
+Isolation contract
+-------------------
+The candidate used to be ``exec_module``-d straight into this process, sharing
+a namespace with the scorer's own numpy-based simulation. Now the candidate
+runs in a throw-away subprocess driven by the trusted
+``verification/candidate_runner.py`` (see ``benchmarks/_shared/candidate_sandbox.py``)
+and returns only the raw dict each ``solve(problem)`` call produced. This file
+validates and clips every reported parameter itself (``_validate_and_merge_params``)
+and re-runs the whole physics simulation (``simulate_case``) with its own
+untouched code -- nothing the candidate returns is trusted as a score.
+"""
+
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import math
+import os
+import sys
 import traceback
 from pathlib import Path
 from typing import Any
@@ -47,13 +62,75 @@ def _load_reference(benchmark_root: Path) -> dict[str, Any]:
     return json.loads((benchmark_root / "references" / "coflyers_cases.json").read_text(encoding="utf-8"))
 
 
-def _load_candidate_module(candidate_path: Path):
-    spec = importlib.util.spec_from_file_location("candidate_submission", str(candidate_path))
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Unable to load candidate module from {candidate_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+def _find_repo_root() -> Path:
+    env_root = (os.environ.get("FRONTIER_ENGINEERING_ROOT") or "").strip()
+    if env_root:
+        return Path(env_root).expanduser().resolve()
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "benchmarks").is_dir() and (parent / "frontier_eval").is_dir():
+            return parent
+    raise RuntimeError("could not locate repo root for CoFlyersVasarhelyiTuning evaluator")
+
+
+_SHARED_DIR = _find_repo_root() / "benchmarks" / "_shared"
+if str(_SHARED_DIR) not in sys.path:
+    sys.path.insert(0, str(_SHARED_DIR))
+import candidate_sandbox as sandbox  # noqa: E402
+
+CANDIDATE_RUNNER = Path(__file__).resolve().parent / "candidate_runner.py"
+CANDIDATE_TIMEOUT_S = 300.0
+
+
+class CandidateRejected(Exception):
+    """The candidate ran but produced something the scorer will not score."""
+
+
+def _run_candidate(candidate_path: Path, problems: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Run the candidate out-of-process and return its raw dict per case_id."""
+    problems_blob = json.dumps({"problems": problems}, ensure_ascii=False).encode("utf-8")
+    try:
+        run = sandbox.run_candidate_isolated(
+            CANDIDATE_RUNNER,
+            inputs={"problems.json": problems_blob},
+            expected_outputs=("submission.json",),
+            timeout_s=CANDIDATE_TIMEOUT_S,
+            argv=[str(candidate_path.resolve())],
+            copy_into_workdir=False,
+        )
+    except sandbox.InvalidSubmissionError as exc:
+        raise CandidateRejected(str(exc)) from exc
+
+    if run.timed_out:
+        raise CandidateRejected(f"candidate timed out after {CANDIDATE_TIMEOUT_S:.0f}s")
+    if run.returncode != 0:
+        raise CandidateRejected(
+            f"candidate subprocess exited non-zero ({run.returncode}): {run.stderr_tail[-2000:]}"
+        )
+
+    try:
+        submission = sandbox.load_json_output(run)
+    except sandbox.InvalidSubmissionError as exc:
+        raise CandidateRejected(str(exc)) from exc
+
+    entries = submission.get("cases")
+    if not isinstance(entries, list) or len(entries) != len(problems):
+        raise CandidateRejected(f"submission must contain one entry per case ({len(problems)} expected)")
+
+    by_case: dict[str, dict[str, Any]] = {}
+    for problem, entry in zip(problems, entries):
+        if not isinstance(entry, dict):
+            raise CandidateRejected("each submission entry must be a JSON object")
+        if entry.get("case_id") != problem["case_id"]:
+            raise CandidateRejected(
+                f"submission case order mismatch: expected {problem['case_id']!r}, got {entry.get('case_id')!r}"
+            )
+        if "error" in entry:
+            raise CandidateRejected(f"case {problem['case_id']}: candidate raised {entry['error']}")
+        result = entry.get("submission")
+        if not isinstance(result, dict):
+            raise CandidateRejected(f"case {problem['case_id']}: solve(problem) must return a dict")
+        by_case[problem["case_id"]] = result
+    return by_case
 
 
 def _generate_initial_state(global_cfg: dict[str, Any], seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
@@ -329,21 +406,19 @@ def simulate_case(global_cfg: dict[str, Any], params: dict[str, float], *, horiz
 
 def evaluate_candidate(candidate_path: Path, benchmark_root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     reference = _load_reference(benchmark_root)
-    module = _load_candidate_module(candidate_path)
-    solve_fn = getattr(module, "solve", None)
-    if not callable(solve_fn):
-        raise AttributeError("candidate module must define solve(problem)")
-
-    case_results: list[dict[str, Any]] = []
-    for case in reference["cases"]:
-        problem = {
+    problems = [
+        {
             "case_id": case["case_id"],
             "baseline_params": case["baseline_params"],
             "global_config": reference["global_config"],
         }
-        submission = solve_fn(problem)
-        if not isinstance(submission, dict):
-            raise TypeError(f"solve(problem) must return a dict, got {type(submission)!r}")
+        for case in reference["cases"]
+    ]
+    submissions = _run_candidate(candidate_path, problems)
+
+    case_results: list[dict[str, Any]] = []
+    for case in reference["cases"]:
+        submission = submissions[case["case_id"]]
         params = _validate_and_merge_params(case["baseline_params"], submission)
         result = simulate_case(reference["global_config"], params)
         result["case_id"] = case["case_id"]

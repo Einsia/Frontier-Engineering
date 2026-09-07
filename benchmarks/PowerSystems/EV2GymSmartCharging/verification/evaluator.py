@@ -1,14 +1,31 @@
+"""Evaluator for the PowerSystems/EV2GymSmartCharging benchmark.
+
+Isolation contract
+-------------------
+The candidate was ``exec_module``-d directly into this process, then called once
+per simulation step -- module-level code in the candidate therefore shared a
+namespace with the trust environment, the score function, and the upstream
+statistics. Now the candidate runs in a throw-away subprocess (one per case,
+driven by the trusted ``verification/candidate_runner.py``) and is consulted
+over a pipe one action per step. This process owns the ``EV2Gym`` environment,
+the reward accounting, and ``_coerce_actions``'s shape/range checks; the
+candidate can only influence the action vector it returns for its own step, and
+the score is recomputed from the trusted environment's own statistics.
+"""
+
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import math
+import os
+import selectors
+import subprocess
+import sys
 import tempfile
 import time
 import traceback
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
 import numpy as np
@@ -22,6 +39,15 @@ CONFIG_TEMPLATE_PATH = REFERENCES_DIR / "V2GProfitPlusLoads.yaml"
 UPSTREAM_GITHUB_URL = "https://github.com/StavrosOrf/EV2Gym"
 MIN_SERVICE_SATISFACTION = 1e-3
 MAX_NORMALIZED_SCORE = 1000.0
+
+CANDIDATE_RUNNER = Path(__file__).resolve().parent / "candidate_runner.py"
+# Wall-clock budget for one candidate subprocess over one full episode.
+CASE_WALL_CLOCK_S = 600.0
+
+
+class CandidateRejected(Exception):
+    """The candidate ran but produced something the scorer will not score."""
+
 
 CASE_DEFINITIONS = [
     {
@@ -98,15 +124,6 @@ def _patch_upstream_resources() -> None:
         return current(package, resource)
 
     pkg_resources.resource_filename = _frontier_ev2gym_resource_filename
-
-
-def _load_candidate_module(candidate_path: Path) -> ModuleType:
-    spec = importlib.util.spec_from_file_location("ev2gym_candidate", candidate_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"failed to load candidate module from {candidate_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 def _build_case_config(case_definition: dict[str, Any]) -> dict[str, Any]:
@@ -243,13 +260,105 @@ def _score_case(total_reward: float, baseline_cost: float, energy_user_satisfact
     return min(MAX_NORMALIZED_SCORE, max(0.0, normalized_score))
 
 
-def _run_case(candidate_solve: Any, case_definition: dict[str, Any]) -> dict[str, Any]:
+class _CandidateProcess:
+    """Long-lived subprocess wrapper that returns one action vector per step.
+
+    Each case gets its own throw-away subprocess (``verification/candidate_runner.py``),
+    so candidate module code is never imported into the trusted scoring process.
+    The subprocess speaks line-delimited JSON over two dedicated pipe fds; its own
+    stdout/stderr are captured for diagnostics only and never parsed as data.
+    """
+
+    def __init__(self, candidate_path: Path):
+        self._path = candidate_path
+
+    def spawn(self) -> "_CandidateProcess":
+        self._request_r, self._request_w = os.pipe()
+        self._response_r, self._response_w = os.pipe()
+        env = dict(os.environ)
+        env["EV2GYM_REQUEST_FD"] = str(self._request_r)
+        env["EV2GYM_RESPONSE_FD"] = str(self._response_w)
+        # Child stdio goes to temp files, never to pipes: nothing in this loop
+        # drains them, so a chatty candidate would fill a 64K pipe buffer and
+        # deadlock until the wall-clock budget expired.
+        self._log = tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace")
+        self._proc = subprocess.Popen(
+            [sys.executable, str(CANDIDATE_RUNNER), str(self._path.resolve())],
+            stdin=subprocess.DEVNULL,
+            stdout=self._log,
+            stderr=self._log,
+            close_fds=True,
+            pass_fds=(self._request_r, self._response_w),
+            env=env,
+        )
+        os.close(self._request_r)
+        os.close(self._response_w)
+        self._request_stream = os.fdopen(self._request_w, "w", encoding="utf-8")
+        self._response_stream = os.fdopen(self._response_r, "r", encoding="utf-8")
+        return self
+
+    def log_tail(self, limit: int = 2000) -> str:
+        try:
+            self._log.seek(0)
+            return self._log.read()[-limit:]
+        except (OSError, ValueError):
+            return ""
+
+    def ask(self, case: dict[str, Any], deadline: float) -> dict[str, Any]:
+        """Send one observed state and read back the candidate's action dict."""
+        if time.time() > deadline:
+            raise CandidateRejected("candidate exceeded the wall-clock budget")
+        self._request_stream.write(json.dumps(case, ensure_ascii=False) + "\n")
+        self._request_stream.flush()
+        selector = selectors.DefaultSelector()
+        selector.register(self._response_stream, selectors.EVENT_READ)
+        events = selector.select(timeout=max(1e-3, deadline - time.time()))
+        selector.close()
+        if not events:
+            if self._proc.poll() is not None:
+                raise CandidateRejected(
+                    f"candidate subprocess died with code {self._proc.returncode}. "
+                    f"{self.log_tail()}"
+                )
+            raise CandidateRejected("candidate exceeded the wall-clock budget")
+        line = self._response_stream.readline()
+        if not line:
+            raise CandidateRejected(
+                f"candidate closed its response stream unexpectedly. {self.log_tail()}"
+            )
+        payload = json.loads(line)
+        if "error" in payload:
+            raise CandidateRejected(f"candidate failed to produce an action: {payload['error']}")
+        result = payload.get("result")
+        if not isinstance(result, dict):
+            raise CandidateRejected("candidate solve() must return a dict")
+        return result
+
+    def close(self) -> int:
+        try:
+            self._request_stream.close()
+        except OSError:
+            pass
+        try:
+            returncode = self._proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            self._proc.kill()
+            returncode = -1
+        try:
+            self._log.close()
+        except OSError:
+            pass
+        return returncode
+
+
+def _run_case(candidate_path: Path, case_definition: dict[str, Any]) -> dict[str, Any]:
     _patch_upstream_resources()
 
     from ev2gym.models.ev2gym_env import EV2Gym
     from ev2gym.utilities.utils import get_statistics
 
     config = _build_case_config(case_definition)
+    started = time.time()
     with tempfile.TemporaryDirectory(prefix="ev2gym_case_") as tmpdir:
         config_path = Path(tmpdir) / "config.yaml"
         config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
@@ -263,13 +372,23 @@ def _run_case(candidate_solve: Any, case_definition: dict[str, Any]) -> dict[str
         )
         env.reset(seed=int(case_definition["seed"]))
 
-        done = False
-        while not done:
-            candidate_case = _build_candidate_case(env, case_definition)
-            candidate_output = candidate_solve(candidate_case, max_sim_calls=0, simulate_fn=None)
-            actions = _coerce_actions(candidate_output, env.number_of_ports)
-            _, _, terminated, truncated, _ = env.step(actions)
-            done = bool(terminated or truncated)
+        transport = _CandidateProcess(candidate_path)
+        transport.spawn()
+        deadline = started + CASE_WALL_CLOCK_S
+        try:
+            done = False
+            while not done:
+                if time.time() > deadline:
+                    raise CandidateRejected(
+                        f"case {case_definition['case_id']} exceeded the {CASE_WALL_CLOCK_S:.0f}s budget"
+                    )
+                candidate_case = _build_candidate_case(env, case_definition)
+                candidate_output = transport.ask(candidate_case, deadline)
+                actions = _coerce_actions(candidate_output, env.number_of_ports)
+                _, _, terminated, truncated, _ = env.step(actions)
+                done = bool(terminated or truncated)
+        finally:
+            transport.close()
 
         stats = _jsonable(get_statistics(env))
         total_reward = float(stats["total_reward"])
@@ -294,11 +413,7 @@ def _run_case(candidate_solve: Any, case_definition: dict[str, Any]) -> dict[str
 
 def evaluate_candidate(candidate_path: Path) -> dict[str, Any]:
     started = time.time()
-    candidate_module = _load_candidate_module(candidate_path)
-    if not hasattr(candidate_module, "solve"):
-        raise AttributeError("candidate module must define solve(case, max_sim_calls=0, simulate_fn=None)")
-
-    case_results = [_run_case(candidate_module.solve, case_definition) for case_definition in CASE_DEFINITIONS]
+    case_results = [_run_case(candidate_path, case_definition) for case_definition in CASE_DEFINITIONS]
     mean_total_reward = float(np.mean([result["stats"]["total_reward"] for result in case_results]))
     mean_total_profits = float(np.mean([result["stats"]["total_profits"] for result in case_results]))
     mean_energy_user_satisfaction = float(

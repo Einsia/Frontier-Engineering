@@ -11,3 +11,4 @@ frontier_eval/initial_program.txt
 frontier_eval/candidate_destination.txt
 frontier_eval/copy_files.txt
 frontier_eval/readonly_files.txt
+verification/candidate_runner.py

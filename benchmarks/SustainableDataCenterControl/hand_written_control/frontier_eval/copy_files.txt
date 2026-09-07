@@ -5,6 +5,7 @@ Task_zh-CN.md
 benchmark_core.py
 baseline/solution.py
 verification/evaluate.py
+verification/policy_runner.py
 patches/sustaindc_optional_runtime.patch
 sustaindc/sustaindc_env.py
 sustaindc/requirements.txt

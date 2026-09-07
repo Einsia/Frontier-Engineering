@@ -1,3 +1,12 @@
+// NOTE: this file is a developer convenience (see verification/valid.sh), NOT
+// the scorer. Scoring is done by benchmarks/_shared/crypto_eval.py, which
+// generates its own inputs, computes the expected answers in-process from
+// FIPS/NIST references, spawns the candidate itself and checks EVERY timed
+// iteration. Nothing here is compiled or parsed during an evaluation run.
+//
+// It used to be: this file was compiled *after* the candidate binary had
+// already run with its cwd set to this directory, so a candidate could rewrite
+// it and dictate its own throughput. Do not reintroduce that ordering.
 #include <iostream>
 #include <vector>
 #include <string>
@@ -117,5 +126,7 @@ int main() {
     
     std::remove(TEST_FILE.c_str());
 
-    return 0;
+    // Was `return 0;` unconditionally: valid.sh reported success even when
+    // every vector failed. The exit status now reflects the result.
+    return (passed == TEST_COUNT) ? 0 : 1;
 }

@@ -70,6 +70,24 @@ def _load(name: str, path: Path) -> ModuleType:
     return module
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _no_bytecode_cache():
+    """Importing an evaluator by path writes ``__pycache__`` next to it.
+
+    ``verification`` and ``frontier_eval`` are readonly paths that the harness
+    fingerprints, so a cache this suite drops there is a spurious readonly
+    violation for the next run -- and, without this, the second consecutive run
+    of this file fails its own
+    ``test_no_stale_bytecode_cache_shadows_the_scorer``.
+    """
+    previous = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        yield
+    finally:
+        sys.dont_write_bytecode = previous
+
+
 @pytest.fixture(scope="module")
 def uav_eval() -> ModuleType:
     return _load("robotics_b_uav_eval", UAV_DIR / "frontier_eval" / "evaluator.py")

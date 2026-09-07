@@ -1,100 +1,124 @@
+"""Hardened unified evaluator for Robotics/QuadrupedGaitOptimization.
+
+What was wrong
+--------------
+The candidate was already run as a subprocess, but the scoring code and the
+simulated world were fetched *after* it had had a turn on the same filesystem::
+
+    proc = subprocess.run([sys.executable, sandbox_program], ...)   # candidate
+    ...
+    eval_path = (benchmark_dir / "verification" / "evaluator.py").resolve()
+    spec.loader.exec_module(module)                                 # scorer
+    raw_speed = float(module.evaluate(sandbox_submission))
+
+``benchmark_dir`` comes from ``FRONTIER_ENGINEERING_ROOT``, which the harness
+points at the real repository, and the whole environment was passed straight
+through to the child. That is invariant 1 of ``benchmarks/_shared/candidate_sandbox``
+violated, and both consequences were confirmed exploitable against the old file:
+
+1. **Scorer loaded from a path the candidate had just written.** A candidate
+   whose body was ``(repo/.../verification/evaluator.py).write_text(
+   "def evaluate(p): return 999.0")`` plus a junk ``{"junk": 1}`` submission was
+   graded by its own code: ``combined_score`` 0.022154337029966706 (honest
+   baseline, 0.0222 m/s) -> **999.0**.
+2. **The graded instance was supplied by the candidate.** ``evaluate()`` resolves
+   ``references/gait_config.json`` and ``references/ant.xml`` from its own
+   ``__file__``, i.e. re-reads them at scoring time. Rewriting ``gait_config.json``
+   so ``ranges`` is unbounded and ``torque_limit`` / ``pitch_roll_limit_rad`` /
+   ``min_distance_m`` are disabled, then submitting out-of-range gait parameters
+   (``step_frequency=3.0``, ``step_length=5.0``), measured **0.5866806310579801**
+   m/s against the same trusted simulator code -- a 26x inflation with no change
+   to the scorer at all. ``ant.xml`` is the same class of hole: the candidate can
+   redefine the robot it is graded on.
+
+The fix
+-------
+* A *private* copy of ``verification/`` and ``references/`` is staged, and the
+  trusted scorer is exec_module'd from that copy (mujoco and numpy included),
+  **before** the candidate is started. Because the trusted module resolves its
+  config and its model relative to ``__file__``, importing it from the private
+  tree pins both to bytes captured ahead of the candidate. The candidate is never
+  told where that tree is.
+* The candidate runs via ``candidate_sandbox.run_candidate_isolated``: its own
+  process, a scrubbed environment (no ``FRONTIER_ENGINEERING_ROOT``), resource
+  limits and a hard timeout. It never enters this process, so it cannot rebind
+  the rollout.
+* The eight gait parameters are re-validated here, on the scorer's side, against
+  the trusted ranges, with an explicit finite/non-bool check ahead of the
+  interval test -- ``lo <= NaN <= hi`` is False, so NaN was already rejected, but
+  by accident rather than on purpose.
+
+Deliberately unchanged: ``verification/evaluator.py`` is byte-for-byte the same
+file. The MuJoCo rollout, the PD controller, the roll/pitch and torque gates, the
+minimum-progress gate and the ``speed = distance / duration`` objective all still
+live there and are still the only thing that produces a number. An honest
+candidate's score is bit-identical to the pre-hardening value in this
+environment (0.022154337029966706 for ``baseline/solution.py``; note that
+``baseline/result_log.txt`` records 0.02215433702997223, a ~2.5e-13 drift from a
+different mujoco build that predates this change).
+
+Not fixed here, reported instead: the scenario is fixed and unseeded, so a
+candidate can overfit the single rollout completely.
+"""
+
 from __future__ import annotations
 
+import hashlib
 import importlib.util
+import json
+import math
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
 import time
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
+# The pre-hardening evaluator reported 0.0 for an unusable run, and 0.0 is what
+# the trusted evaluator itself returns for every hard-constraint violation. It is
+# kept verbatim so hardening moves no published number, honest or otherwise.
+INVALID_COMBINED_SCORE = 0.0
 
-def evaluate(program_path: str, *, repo_root: Path | None = None):
-    start = time.time()
-    repo_root = (repo_root or Path.cwd()).expanduser().resolve()
-    program_path_p = Path(program_path).expanduser().resolve()
+TASK_NAME = "QuadrupedGaitOptimization"
 
-    benchmark_dir = (
-        repo_root / "benchmarks" / "Robotics" / "QuadrupedGaitOptimization"
-    ).resolve()
-    if not benchmark_dir.is_dir():
-        benchmark_dir = (repo_root / "Robotics" / "QuadrupedGaitOptimization").resolve()
+PARAM_KEYS = (
+    "step_frequency",
+    "duty_factor",
+    "step_length",
+    "step_height",
+    "phase_FR",
+    "phase_RL",
+    "phase_RR",
+    "lateral_distance",
+)
 
-    metrics: dict[str, float] = {
-        "combined_score": 0.0,
-        "valid": 0.0,
-        "timeout": 0.0,
-        "runtime_s": 0.0,
-    }
-    artifacts: dict[str, str] = {}
+# Matches the trusted evaluator: the three phase offsets are half-open [lo, hi).
+HALF_OPEN_KEYS = frozenset({"phase_FR", "phase_RL", "phase_RR"})
 
-    if not benchmark_dir.is_dir():
-        artifacts["error_message"] = f"benchmark dir not found: {benchmark_dir}"
-        metrics["runtime_s"] = float(time.time() - start)
-        return _wrap(metrics, artifacts)
-    if not program_path_p.is_file():
-        artifacts["error_message"] = f"program not found: {program_path_p}"
-        metrics["runtime_s"] = float(time.time() - start)
-        return _wrap(metrics, artifacts)
+MAX_SUBMISSION_BYTES = 1 * 1024 * 1024
 
-    evaluator_timeout_s = float(os.environ.get("FRONTIER_EVAL_EVALUATOR_TIMEOUT_S", "240") or "240")
-    work_dir = Path(tempfile.mkdtemp(prefix="fe_quadruped_")).resolve()
-    try:
-        sandbox_program = work_dir / "solution.py"
-        sandbox_submission = work_dir / "submission.json"
-        shutil.copy2(program_path_p, sandbox_program)
+# Keep FRONTIER_ENGINEERING_ROOT and the harness variables away from the child so
+# it is not simply handed the path of the tree it must not touch. This raises the
+# cost of finding the real repo; it does not close /proc/<ppid>/ (see the helper
+# docstring). HOME is required: numpy/mujoco may live in the per-user site
+# directory.
+CANDIDATE_ENV_ALLOWLIST = (
+    "PATH",
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "LD_LIBRARY_PATH",
+    "TMPDIR",
+    "TERM",
+)
 
-        try:
-            proc = subprocess.run(
-                [sys.executable, str(sandbox_program)],
-                cwd=str(work_dir),
-                capture_output=True,
-                text=True,
-                timeout=max(1.0, evaluator_timeout_s),
-            )
-        except subprocess.TimeoutExpired as exc:
-            metrics["timeout"] = 1.0
-            artifacts["error_message"] = f"candidate timeout: {exc}"
-            metrics["runtime_s"] = float(time.time() - start)
-            return _wrap(metrics, artifacts)
-
-        artifacts["candidate_stdout"] = proc.stdout[-8000:]
-        artifacts["candidate_stderr"] = proc.stderr[-8000:]
-        metrics["candidate_returncode"] = float(proc.returncode)
-        if proc.returncode != 0:
-            artifacts["error_message"] = "candidate program exited non-zero"
-            metrics["runtime_s"] = float(time.time() - start)
-            return _wrap(metrics, artifacts)
-        if not sandbox_submission.is_file():
-            artifacts["error_message"] = "candidate did not generate submission.json"
-            metrics["runtime_s"] = float(time.time() - start)
-            return _wrap(metrics, artifacts)
-
-        eval_path = (benchmark_dir / "verification" / "evaluator.py").resolve()
-        spec = importlib.util.spec_from_file_location("fe_quadruped_eval", eval_path)
-        if spec is None or spec.loader is None:
-            artifacts["error_message"] = f"failed to load evaluator: {eval_path}"
-            metrics["runtime_s"] = float(time.time() - start)
-            return _wrap(metrics, artifacts)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        benchmark_evaluate = getattr(module, "evaluate")
-
-        raw_speed = float(benchmark_evaluate(sandbox_submission))
-        feasible = raw_speed > 0.0
-        metrics["feasible"] = 1.0 if feasible else 0.0
-        if feasible:
-            metrics["valid"] = 1.0
-            metrics["speed_mps"] = raw_speed
-            metrics["combined_score"] = raw_speed
-        else:
-            artifacts["error_message"] = "infeasible gait"
-
-        metrics["runtime_s"] = float(time.time() - start)
-        return _wrap(metrics, artifacts)
-    finally:
-        shutil.rmtree(work_dir, ignore_errors=True)
+# FSIZE bounds a candidate that tries to fill the disk (or hand us a submission
+# too large to parse); NOFILE bounds descriptor exhaustion. No RLIMIT_AS: BLAS
+# reserves large virtual arenas and would fail to initialise.
+CANDIDATE_RLIMITS = {"FSIZE": 64 * 1024 * 1024, "NOFILE": 1024}
 
 
 def _wrap(metrics: dict[str, float], artifacts: dict[str, str]):
@@ -103,3 +127,238 @@ def _wrap(metrics: dict[str, float], artifacts: dict[str, str]):
     except Exception:
         return {"metrics": metrics, "artifacts": artifacts}
     return EvaluationResult(metrics=metrics, artifacts=artifacts)
+
+
+def _repo_root_guess(repo_root: Path | None) -> Path:
+    if repo_root is not None:
+        return Path(repo_root).expanduser().resolve()
+    env_root = (os.environ.get("FRONTIER_ENGINEERING_ROOT") or "").strip()
+    if env_root:
+        return Path(env_root).expanduser().resolve()
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "benchmarks").is_dir() and (parent / "frontier_eval").is_dir():
+            return parent
+    return Path.cwd().resolve()
+
+
+def _resolve_benchmark_dir(repo_root: Path) -> Path:
+    for cand in (repo_root / "benchmarks" / "Robotics" / TASK_NAME,
+                 repo_root / "Robotics" / TASK_NAME):
+        if cand.is_dir():
+            return cand.resolve()
+    # Last resort: the copy this file lives in. Still safe, because everything
+    # trusted is read before the candidate has run.
+    return Path(__file__).resolve().parents[1]
+
+
+def _import_sandbox_helper(repo_root: Path) -> ModuleType:
+    shared = repo_root / "benchmarks" / "_shared"
+    if str(shared) not in sys.path:
+        sys.path.insert(0, str(shared))
+    import candidate_sandbox  # noqa: PLC0415
+
+    return candidate_sandbox
+
+
+def _load_trusted_scorer(evaluator_path: Path) -> ModuleType:
+    """exec_module the *private* copy of the verification module.
+
+    Called before the candidate is started, from a directory the candidate is
+    never told about. The module resolves ``references/`` relative to its own
+    ``__file__``, so loading it from here also pins the config and the MuJoCo
+    model to the private copies staged alongside it.
+    """
+    spec = importlib.util.spec_from_file_location("fe_quadruped_trusted_eval", evaluator_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"failed to load trusted evaluator: {evaluator_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    if not hasattr(module, "evaluate"):
+        raise RuntimeError(f"trusted evaluator defines no evaluate(): {evaluator_path}")
+    return module
+
+
+def _finite_number(value: Any) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    return math.isfinite(float(value))
+
+
+def _validate_params(obj: Any, cfg: dict[str, Any]) -> tuple[dict[str, float] | None, str]:
+    """Scorer-side gate on the gait parameters, against the trusted ranges.
+
+    Returns a *rebuilt* dict holding exactly the eight parameters, so no other
+    field in the submission can reach the simulator.
+    """
+    if not isinstance(obj, dict):
+        return None, "submission must be a JSON object"
+
+    ranges = cfg.get("ranges")
+    if not isinstance(ranges, dict):
+        return None, "trusted config has no 'ranges' section"
+
+    clean: dict[str, float] = {}
+    for key in PARAM_KEYS:
+        if key not in obj:
+            return None, f"missing key '{key}'"
+        value = obj[key]
+        # Explicit and ahead of the interval test: every comparison against NaN
+        # is False, so an interval check alone rejects NaN for the wrong reason
+        # and would silently admit it if the test were ever inverted.
+        if not _finite_number(value):
+            return None, f"key '{key}' must be a finite number, got {value!r}"
+        try:
+            lo, hi = (float(x) for x in ranges[key])
+        except Exception:
+            return None, f"trusted config has no bounds for {key}"
+        val = float(value)
+        ok = (lo <= val < hi) if key in HALF_OPEN_KEYS else (lo <= val <= hi)
+        if not ok:
+            closing = ")" if key in HALF_OPEN_KEYS else "]"
+            return None, f"{key}={val:.6f} out of range [{lo}, {hi}{closing}"
+        clean[key] = val
+
+    return clean, "ok"
+
+
+def evaluate(program_path: str, *, repo_root: Path | None = None):
+    start = time.time()
+    program_path_p = Path(program_path).expanduser().resolve()
+    root = _repo_root_guess(repo_root)
+    benchmark_dir = _resolve_benchmark_dir(root)
+
+    metrics: dict[str, float] = {
+        "combined_score": INVALID_COMBINED_SCORE,
+        "valid": 0.0,
+        "timeout": 0.0,
+        "runtime_s": 0.0,
+    }
+    artifacts: dict[str, str] = {}
+
+    def _bail(message: str):
+        artifacts["error_message"] = message
+        metrics["runtime_s"] = float(time.time() - start)
+        return _wrap(metrics, artifacts)
+
+    if not benchmark_dir.is_dir():
+        return _bail(f"benchmark dir not found: {benchmark_dir}")
+    if not program_path_p.is_file():
+        return _bail(f"program not found: {program_path_p}")
+
+    trusted_eval_src = benchmark_dir / "verification" / "evaluator.py"
+    cfg_src = benchmark_dir / "references" / "gait_config.json"
+    model_src = benchmark_dir / "references" / "ant.xml"
+    for required in (trusted_eval_src, cfg_src, model_src):
+        if not required.is_file():
+            return _bail(f"trusted asset not found: {required}")
+
+    private = Path(tempfile.mkdtemp(prefix="fe_quadruped_trusted_")).resolve()
+    try:
+        # ------------------------------------------------------------ trusted
+        # Everything in this block happens before the candidate is started.
+        trusted_eval_bytes = trusted_eval_src.read_bytes()
+        cfg_bytes = cfg_src.read_bytes()
+        model_bytes = model_src.read_bytes()
+        artifacts["trusted_evaluator_sha256"] = hashlib.sha256(trusted_eval_bytes).hexdigest()
+        artifacts["trusted_config_sha256"] = hashlib.sha256(cfg_bytes).hexdigest()
+        artifacts["trusted_model_sha256"] = hashlib.sha256(model_bytes).hexdigest()
+
+        try:
+            cfg = json.loads(cfg_bytes.decode("utf-8-sig"))
+        except Exception as exc:
+            return _bail(f"trusted config unreadable: {exc}")
+
+        (private / "verification").mkdir(parents=True)
+        (private / "references").mkdir(parents=True)
+        private_eval = private / "verification" / "evaluator.py"
+        private_eval.write_bytes(trusted_eval_bytes)
+        (private / "references" / "gait_config.json").write_bytes(cfg_bytes)
+        (private / "references" / "ant.xml").write_bytes(model_bytes)
+
+        try:
+            sandbox = _import_sandbox_helper(root)
+            trusted = _load_trusted_scorer(private_eval)
+        except Exception as exc:
+            return _bail(f"failed to prepare trusted scoring context: {exc}")
+
+        # ---------------------------------------------------------- candidate
+        timeout_s = max(1.0, float(os.environ.get("FRONTIER_EVAL_EVALUATOR_TIMEOUT_S", "240") or "240"))
+
+        try:
+            run = sandbox.run_candidate_isolated(
+                program_path_p,
+                # The published task tree puts `references/` next to the working
+                # directory, so a candidate that reads the config keeps working.
+                # It gets private copies; scoring uses the bytes captured above,
+                # so tampering with them is pointless.
+                inputs={
+                    "references/gait_config.json": cfg_bytes,
+                    "references/ant.xml": model_bytes,
+                    # Seeded so a candidate that never writes still produces the
+                    # expected output and we keep its return code (invariant 3)
+                    # instead of losing it to a missing-output exception.
+                    "submission.json": b"",
+                },
+                expected_outputs=("submission.json",),
+                timeout_s=timeout_s,
+                # Copy into the sandbox: keeps sys.path[0] and __file__ inside a
+                # directory holding nothing but the candidate and its own copies
+                # of the references. Matches the pre-hardening contract, where
+                # the candidate ran from a scratch dir containing only itself.
+                copy_into_workdir=True,
+                env_allowlist=CANDIDATE_ENV_ALLOWLIST,
+                rlimits=CANDIDATE_RLIMITS,
+            )
+        except sandbox.InvalidSubmissionError as exc:
+            return _bail(f"candidate produced no usable output: {exc}")
+
+        artifacts["candidate_stdout"] = run.stdout_tail
+        artifacts["candidate_stderr"] = run.stderr_tail
+        metrics["candidate_returncode"] = float(run.returncode)
+        if run.timed_out:
+            metrics["timeout"] = 1.0
+            return _bail("candidate timeout")
+        if run.returncode != 0:
+            return _bail("candidate program exited non-zero")
+
+        submission_bytes = run.read_output_bytes("submission.json")
+        if not submission_bytes.strip():
+            return _bail("candidate did not generate submission.json")
+        if len(submission_bytes) > MAX_SUBMISSION_BYTES:
+            return _bail(f"submission.json too large: {len(submission_bytes)} bytes")
+
+        try:
+            raw = json.loads(submission_bytes.decode("utf-8-sig"))
+        except Exception as exc:
+            return _bail(f"invalid submission json: {exc}")
+
+        params, reason = _validate_params(raw, cfg)
+        if params is None:
+            return _bail(f"invalid submission: {reason}")
+
+        # -------------------------------------------------------------- score
+        # Trusted rollout, trusted model, trusted config; candidate-supplied gait
+        # parameters only.
+        scoring_submission = private / "submission.json"
+        scoring_submission.write_text(json.dumps(params), encoding="utf-8")
+
+        try:
+            raw_speed = float(trusted.evaluate(scoring_submission))
+        except Exception as exc:
+            return _bail(f"trusted scorer raised: {exc}")
+
+        if not math.isfinite(raw_speed):
+            return _bail(f"trusted scorer returned a non-finite speed: {raw_speed!r}")
+
+        feasible = raw_speed > 0.0
+        metrics["feasible"] = 1.0 if feasible else 0.0
+        if not feasible:
+            return _bail("infeasible gait")
+
+        metrics["valid"] = 1.0
+        metrics["speed_mps"] = raw_speed
+        metrics["combined_score"] = raw_speed
+        metrics["runtime_s"] = float(time.time() - start)
+        return _wrap(metrics, artifacts)
+    finally:
+        shutil.rmtree(private, ignore_errors=True)

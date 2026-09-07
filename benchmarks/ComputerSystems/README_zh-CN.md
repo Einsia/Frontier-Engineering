@@ -3,5 +3,6 @@
 包含以下计算机系统工程优化任务：
 - `MallocLab`：动态内存分配。
 - `DuckDBWorkloadOptimization`：分析型 SQL 负载调优（索引/物化视图选择 + 查询改写）。
+- `EdgeServiceReplicaPlacement`：在流量突发、节点故障和链路退化下动态放置边缘服务副本并调度请求路由。
 
 贡献提示：请确保被 evolve 的 baseline 源码文件包含 `EVOLVE-BLOCK-START` / `EVOLVE-BLOCK-END` 标记（C/C++ 中使用 `// ...`）。

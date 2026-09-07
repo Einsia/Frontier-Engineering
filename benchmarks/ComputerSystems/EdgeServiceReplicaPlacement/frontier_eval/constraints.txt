@@ -1,0 +1,9 @@
+Edge service replica placement constraints:
+1) Edit only `scripts/init.py` inside the EVOLVE-BLOCK markers.
+2) Keep `decide(observation) -> dict` working; `reset_policy()` is optional.
+3) Return exactly `replicas` and `routes`; use only IDs present in the observation.
+4) Replica counts must be non-negative integers (booleans are not integers) and placements must respect live-node CPU capacity.
+5) Route fractions must be finite numbers in [0, 1], sum to at most 1 per service/source region, and target active replicas retained by the current placement.
+6) Keep the policy deterministic and use only current or historical observable state; future trace events are unavailable.
+7) The worker allows 0.35 seconds per decision, 12 seconds per scenario, and at most 64 KiB per JSON response.
+8) Do not read, write, or modify evaluator, simulator, reference, result, or environment-secret files.

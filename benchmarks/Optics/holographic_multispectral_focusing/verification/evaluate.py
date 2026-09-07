@@ -1,95 +1,126 @@
-"""Verification script for Task 3: multi-wavelength focusing/splitting."""
+"""Verification script for Holographic H3: multi-wavelength focusing/splitting.
+
+Contract (changed -- see ``benchmarks/_shared/optics_holographic.py``):
+
+* the problem definition lives in ``verification/problem_spec.py``, not in the
+  candidate;
+* the candidate runs as its own process and returns only the decision variables
+  -- one physical thickness profile per layer -- as arrays in ``submission.npz``;
+* this file builds the dispersive modulator stack from those arrays, builds the
+  four input fields, propagates each of them, and computes every metric.
+
+The old contract read ``result["system"]`` and ``result["input_fields"]`` from
+the candidate, so a submission could return a lookup object whose
+``measure_at_z`` handed back whatever the metric wanted. Only float arrays cross
+the boundary now.
+
+Reference asymmetry (unchanged in intent, now explicit): the oracle is allowed a
+*per-wavelength* phase mask, i.e. four independent holograms rather than one
+shared dispersive stack. That is a deliberate upper bound, it is selected here by
+the scorer and never by a submission, and it is recorded in ``summary.json`` as
+``reference.design_space``.
+"""
 
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import math
+import os
+import sys
 import time
 from pathlib import Path
 from typing import Any
 
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import torch
-
-from torchoptics.profiles import gaussian
-
-
 THIS_DIR = Path(__file__).resolve().parent
 TASK_DIR = THIS_DIR.parent
+if str(THIS_DIR) not in sys.path:
+    sys.path.insert(0, str(THIS_DIR))
 
 
-def _load_module(path: Path, module_name: str):
-    spec = importlib.util.spec_from_file_location(module_name, path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Failed to load module from {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+def _find_repo_root() -> Path:
+    env_root = (os.environ.get("FRONTIER_ENGINEERING_ROOT") or "").strip()
+    if env_root:
+        return Path(env_root).expanduser().resolve()
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "benchmarks").is_dir() and (parent / "frontier_eval").is_dir():
+            return parent
+    raise RuntimeError("could not locate repo root for holographic_multispectral_focusing")
 
 
-def _make_spec(baseline_module, args: argparse.Namespace) -> dict[str, Any]:
-    spec = baseline_module.make_default_spec()
-    spec.update(
-        {
-            "roi_radius_m": 3 * spec["spacing"],
-            "valid_mean_target_efficiency_min": 0.004,
-            "valid_mean_crosstalk_max": 0.88,
-            "valid_mean_score_min": 0.12,
-            "score_eff_target": 0.06,
-            "score_spectral_scale": 0.10,
-            "better_score_margin": 0.10,
-            "better_shape_margin": 0.04,
-            "reference_steps": args.reference_steps,
-            "reference_lr": 0.045,
-        }
+_REPO = _find_repo_root()
+if str(_REPO / "benchmarks" / "_shared") not in sys.path:
+    sys.path.insert(0, str(_REPO / "benchmarks" / "_shared"))
+
+# Invariant 1: every scoring dependency is resident before the candidate runs.
+import numpy as np  # noqa: E402
+import torch  # noqa: E402
+
+import optics_holographic as shared  # noqa: E402
+import problem_spec  # noqa: E402
+import reference_solver  # noqa: E402
+
+TASK_NAME = problem_spec.TASK_NAME
+
+
+# --------------------------------------------------------------------------- #
+# Scorer-owned forward models.
+# --------------------------------------------------------------------------- #
+def _input_fields(spec: dict[str, Any], device: str) -> list:
+    return [
+        shared.gaussian_input_field(
+            spec["shape"], spec["waist_radius"], device=device, wavelength=float(wl)
+        )
+        for wl in spec["wavelengths"]
+    ]
+
+
+def _outputs_shared_stack(thickness: np.ndarray, spec: dict[str, Any], device: str, fields) -> list:
+    """Candidate design space: ONE dispersive thickness stack for all wavelengths."""
+    system = shared.build_thickness_system(
+        thickness, spec["layer_z"], float(spec["refractive_index"]), device
     )
-    spec["steps"] = args.baseline_steps
-    return spec
+    with torch.no_grad():
+        return [system.measure_at_z(f, z=float(spec["output_z"])) for f in fields]
 
 
-def _roi_power(field, center: tuple[float, float], radius: float) -> torch.Tensor:
-    x, y = field.meshgrid()
-    intensity = field.intensity()
-    mask = ((x - center[0]) ** 2 + (y - center[1]) ** 2) <= radius**2
-    return (intensity * mask.to(intensity.dtype)).sum()
+def _outputs_per_wavelength(phases: np.ndarray, spec: dict[str, Any], device: str, fields) -> list:
+    """Oracle-only relaxation: an independent phase mask per wavelength at z=0."""
+    outs = []
+    with torch.no_grad():
+        for idx, field in enumerate(fields):
+            phase = torch.as_tensor(np.asarray(phases[idx]), dtype=torch.double, device=device)
+            outs.append(
+                field.modulate(torch.exp(1j * phase)).propagate_to_z(float(spec["output_z"]))
+            )
+    return outs
 
 
-def _cosine_similarity(a: torch.Tensor, b: torch.Tensor) -> float:
-    a_f = a.flatten()
-    b_f = b.flatten()
-    sim = torch.dot(a_f, b_f) / (torch.norm(a_f) * torch.norm(b_f) + 1e-12)
-    return float(sim.item())
-
-
-def _evaluate_solution(result: dict[str, Any], spec: dict[str, Any]) -> dict[str, Any]:
+# --------------------------------------------------------------------------- #
+# Scorer-owned metrics.
+# --------------------------------------------------------------------------- #
+def _score_outputs(outputs, spec: dict[str, Any], device: str) -> dict[str, Any]:
     roi_radius = float(spec["roi_radius_m"])
 
     per_wavelength = []
     target_powers = []
 
-    for idx, field in enumerate(result["input_fields"]):
-        out = result["system"].measure_at_z(field, z=spec["output_z"])
-
-        all_designated = torch.stack([_roi_power(out, c, roi_radius) for c in spec["target_centers"]])
+    for idx, out in enumerate(outputs):
+        all_designated = shared.roi_powers(out, spec["target_centers"], roi_radius)
         target_power = all_designated[idx]
         target_powers.append(target_power)
 
         designated_total = all_designated.sum() + 1e-12
-        total_power = out.intensity().sum() + 1e-12
+        intensity = out.intensity()
+        total_power = intensity.sum() + 1e-12
 
         target_eff = (target_power / total_power).item()
         crosstalk = ((designated_total - target_power) / designated_total).item()
-        pred_norm = out.intensity() / (out.intensity().sum() + 1e-12)
-        target_map = gaussian(spec["shape"], spec["waist_radius"], offset=spec["target_centers"][idx]).real.to(
-            pred_norm.device
+        pred_norm = intensity / total_power
+        target_norm = shared.normalized_gaussian_map(
+            spec["shape"], spec["waist_radius"], spec["target_centers"][idx], device
         )
-        target_norm = target_map / (target_map.sum() + 1e-12)
-        shape_cosine = _cosine_similarity(pred_norm, target_norm)
+        shape_cosine = shared.cosine_similarity(pred_norm, target_norm)
         shape_l1 = float(torch.mean(torch.abs(pred_norm - target_norm)).item())
 
         per_wavelength.append(
@@ -99,29 +130,32 @@ def _evaluate_solution(result: dict[str, Any], spec: dict[str, Any]) -> dict[str
                 "designated_crosstalk": crosstalk,
                 "shape_cosine": shape_cosine,
                 "shape_l1": shape_l1,
-                "intensity": out.intensity().detach().cpu(),
+                "intensity": intensity.detach().cpu(),
             }
         )
 
     target_powers_t = torch.stack(target_powers)
     pred_spectral = target_powers_t / (target_powers_t.sum() + 1e-12)
-    target_spectral = torch.tensor(spec["target_spectral_ratios"], dtype=torch.double, device=pred_spectral.device)
+    target_spectral = torch.tensor(
+        spec["target_spectral_ratios"], dtype=torch.double, device=pred_spectral.device
+    )
     target_spectral = target_spectral / target_spectral.sum()
 
     spectral_ratio_mae = torch.mean(torch.abs(pred_spectral - target_spectral)).item()
-    mean_eff = sum(x["target_efficiency"] for x in per_wavelength) / len(per_wavelength)
-    mean_xt = sum(x["designated_crosstalk"] for x in per_wavelength) / len(per_wavelength)
-    mean_shape_cosine = sum(x["shape_cosine"] for x in per_wavelength) / len(per_wavelength)
-    efficiency_score = float(min(1.0, max(0.0, mean_eff / float(spec["score_eff_target"]))))
-    isolation_score = float(min(1.0, max(0.0, 1.0 - mean_xt)))
+    n = len(per_wavelength)
+    mean_eff = sum(x["target_efficiency"] for x in per_wavelength) / n
+    mean_xt = sum(x["designated_crosstalk"] for x in per_wavelength) / n
+    mean_shape_cosine = sum(x["shape_cosine"] for x in per_wavelength) / n
+
+    efficiency_score = shared.clip01(mean_eff / float(spec["score_eff_target"]))
+    isolation_score = shared.clip01(1.0 - mean_xt)
     spectral_score = math.exp(-spectral_ratio_mae / float(spec["score_spectral_scale"]))
     score = (
         (efficiency_score**0.45)
         * (isolation_score**0.25)
-        * (spectral_score**0.20)
-        * (mean_shape_cosine**0.10)
+        * (max(spectral_score, 0.0) ** 0.20)
+        * (max(mean_shape_cosine, 0.0) ** 0.10)
     )
-    score = float(min(1.0, max(0.0, score)))
 
     return {
         "per_wavelength": per_wavelength,
@@ -134,35 +168,29 @@ def _evaluate_solution(result: dict[str, Any], spec: dict[str, Any]) -> dict[str
         "spectral_ratio_mae": spectral_ratio_mae,
         "pred_spectral_ratios": pred_spectral.detach().cpu().tolist(),
         "target_spectral_ratios": target_spectral.detach().cpu().tolist(),
-        "mean_score": score,
+        "mean_score": shared.clip01(score),
     }
 
 
-def _plot_outputs(spec, baseline_eval, reference_eval, baseline_losses, ref_losses, save_dir: Path):
+# --------------------------------------------------------------------------- #
+# Reporting.
+# --------------------------------------------------------------------------- #
+def _plot_outputs(spec, baseline_eval, reference_eval, baseline_losses, ref_losses, device, save_dir: Path):
+    plt = shared.use_agg_matplotlib()
+    _norm = shared.norm_for_plot
     n = len(spec["wavelengths"])
 
-    fig, axes = plt.subplots(n, 3, figsize=(10, 3.2 * n))
-    if n == 1:
-        axes = [axes]
-
-    shape = spec["shape"]
-    waist = spec["waist_radius"]
-
+    fig, axes = plt.subplots(n, 3, figsize=(10, 3.2 * n), squeeze=False)
     for i, wl in enumerate(spec["wavelengths"]):
-        target_map = gaussian(shape, waist, offset=spec["target_centers"][i]).real.detach().cpu()
-        base_img = baseline_eval["per_wavelength"][i]["intensity"]
-        ref_img = reference_eval["per_wavelength"][i]["intensity"]
-
-        def _norm(x):
-            return x / (x.max() + 1e-12)
-
+        target_map = shared.normalized_gaussian_map(
+            spec["shape"], spec["waist_radius"], spec["target_centers"][i], device
+        ).detach().cpu()
         axes[i][0].imshow(_norm(target_map), cmap="inferno")
         axes[i][0].set_title(f"{wl*1e9:.0f}nm Target")
-        axes[i][1].imshow(_norm(base_img), cmap="inferno")
-        axes[i][1].set_title("Baseline")
-        axes[i][2].imshow(_norm(ref_img), cmap="inferno")
+        axes[i][1].imshow(_norm(baseline_eval["per_wavelength"][i]["intensity"]), cmap="inferno")
+        axes[i][1].set_title("Candidate")
+        axes[i][2].imshow(_norm(reference_eval["per_wavelength"][i]["intensity"]), cmap="inferno")
         axes[i][2].set_title("Reference")
-
         for j in range(3):
             axes[i][j].axis("off")
 
@@ -171,8 +199,10 @@ def _plot_outputs(spec, baseline_eval, reference_eval, baseline_losses, ref_loss
     plt.close(fig)
 
     fig, axes = plt.subplots(1, 2, figsize=(10, 3.8))
-    axes[0].plot(baseline_losses, label="Baseline")
-    axes[0].plot(ref_losses, label="Reference")
+    if baseline_losses:
+        axes[0].plot(baseline_losses, label="Candidate (self-reported)")
+    if ref_losses:
+        axes[0].plot(ref_losses, label="Reference")
     axes[0].set_yscale("log")
     axes[0].set_title("Training Loss")
     axes[0].set_xlabel("Iteration")
@@ -180,7 +210,7 @@ def _plot_outputs(spec, baseline_eval, reference_eval, baseline_losses, ref_loss
 
     idx = list(range(len(spec["wavelengths"])))
     axes[1].bar([i - 0.25 for i in idx], baseline_eval["target_spectral_ratios"], width=0.25, label="Target")
-    axes[1].bar(idx, baseline_eval["pred_spectral_ratios"], width=0.25, label="Baseline")
+    axes[1].bar(idx, baseline_eval["pred_spectral_ratios"], width=0.25, label="Candidate")
     axes[1].bar([i + 0.25 for i in idx], reference_eval["pred_spectral_ratios"], width=0.25, label="Reference")
     axes[1].set_xticks(idx)
     axes[1].set_xticklabels([f"{wl*1e9:.0f}nm" for wl in spec["wavelengths"]])
@@ -192,31 +222,70 @@ def _plot_outputs(spec, baseline_eval, reference_eval, baseline_losses, ref_loss
     plt.close(fig)
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--device", default=None)
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--baseline-steps", type=int, default=24)
-    parser.add_argument("--reference-steps", type=int, default=60)
-    parser.add_argument("--artifacts-dir", default=str(THIS_DIR / "artifacts"))
+    shared.add_common_cli_args(
+        parser,
+        default_artifacts_dir=THIS_DIR / "artifacts",
+        default_reference_steps=40,
+    )
     args = parser.parse_args()
 
     artifacts_dir = Path(args.artifacts_dir)
     artifacts_dir.mkdir(parents=True, exist_ok=True)
+    candidate_path = Path(args.candidate) if args.candidate else TASK_DIR / "baseline" / "init.py"
 
-    baseline_module = _load_module(TASK_DIR / "baseline" / "init.py", "task3_baseline_solver")
-    reference_module = _load_module(THIS_DIR / "reference_solver.py", "task3_reference_solver")
+    spec = problem_spec.make_spec(
+        baseline_steps=args.baseline_steps, reference_steps=args.reference_steps
+    )
+    device = args.device or "cpu"
+    shared.configure_torchoptics(spec["spacing"], spec["reference_wavelength"])
 
-    spec = _make_spec(baseline_module, args)
+    thickness_spec = shared.ArraySpec(
+        shape=tuple(spec["thickness_shape"]),
+        max_abs=float(spec["max_thickness_m"]),
+        min_value=0.0,
+        max_value=float(spec["max_thickness_m"]),
+    )
 
+    # ---- candidate: isolated subprocess, arrays only ----
     t0 = time.time()
-    baseline_res = baseline_module.solve(spec=spec, device=args.device, seed=args.seed)
+    try:
+        submitted = shared.run_candidate_arrays(
+            candidate_path,
+            problem=problem_spec.candidate_problem(spec),
+            arrays={"thickness": thickness_spec},
+            optional_arrays=("loss_history",),
+            timeout_s=args.candidate_timeout,
+        )
+    except shared.CandidateRejected as exc:
+        shared.write_rejection(artifacts_dir, TASK_NAME, candidate_path, str(exc))
+        print(f"Candidate rejected: {exc}", file=sys.stderr)
+        return 3
     t1 = time.time()
-    reference_res = reference_module.solve(spec=spec, device=args.device, seed=args.seed)
-    t2 = time.time()
 
-    baseline_eval = _evaluate_solution(baseline_res, spec)
-    reference_eval = _evaluate_solution(reference_res, spec)
+    # ---- reference: trusted, in-process, held to an arrays-only contract too ----
+    ref_res = reference_solver.solve(spec=spec, device=device, seed=args.seed)
+    t2 = time.time()
+    ref_phase_spec = shared.ArraySpec(
+        shape=(int(spec["n_wavelengths"]), int(spec["shape"]), int(spec["shape"])),
+        max_abs=1.0e4,
+    )
+    try:
+        ref_phases = shared.validate_array(
+            ref_res["phase_per_wavelength"], "reference phase_per_wavelength", ref_phase_spec
+        )
+    except shared.CandidateRejected as exc:
+        raise RuntimeError(f"reference solver produced an invalid submission: {exc}") from exc
+
+    # ---- scoring: one metric function, both design spaces owned here ----
+    fields = _input_fields(spec, device)
+    baseline_eval = _score_outputs(
+        _outputs_shared_stack(submitted["thickness"], spec, device, fields), spec, device
+    )
+    reference_eval = _score_outputs(
+        _outputs_per_wavelength(ref_phases, spec, device, fields), spec, device
+    )
 
     baseline_valid = (
         baseline_eval["mean_target_efficiency"] >= spec["valid_mean_target_efficiency_min"]
@@ -229,62 +298,52 @@ def main() -> None:
         >= baseline_eval["mean_shape_cosine"] + float(spec["better_shape_margin"])
     )
 
+    candidate_losses = [float(v) for v in np.asarray(submitted.get("loss_history", [])).ravel()]
     _plot_outputs(
         spec,
         baseline_eval,
         reference_eval,
-        baseline_res["loss_history"],
-        reference_res["loss_history"],
+        candidate_losses,
+        list(ref_res.get("loss_history") or []),
+        device,
         artifacts_dir,
     )
 
+    def _strip(ev: dict[str, Any]) -> dict[str, Any]:
+        out = {k: v for k, v in ev.items() if k != "per_wavelength"}
+        out["per_wavelength"] = [
+            {k: v for k, v in x.items() if k != "intensity"} for x in ev["per_wavelength"]
+        ]
+        return out
+
     summary = {
-        "task": "task3_multispectral_focusing",
-        "spec": spec,
+        "task": TASK_NAME,
+        "candidate_module": str(candidate_path.resolve()),
+        "candidate_execution": "isolated_subprocess",
+        "spec": {k: v for k, v in spec.items() if k != "thickness_shape"},
         "timing_seconds": {
             "baseline": round(t1 - t0, 3),
             "reference": round(t2 - t1, 3),
         },
         "baseline": {
             "valid": baseline_valid,
-            "mean_target_efficiency": baseline_eval["mean_target_efficiency"],
-            "mean_crosstalk": baseline_eval["mean_crosstalk"],
-            "mean_shape_cosine": baseline_eval["mean_shape_cosine"],
-            "efficiency_score": baseline_eval["efficiency_score"],
-            "isolation_score": baseline_eval["isolation_score"],
-            "spectral_score": baseline_eval["spectral_score"],
-            "spectral_ratio_mae": baseline_eval["spectral_ratio_mae"],
-            "mean_score": baseline_eval["mean_score"],
-            "pred_spectral_ratios": baseline_eval["pred_spectral_ratios"],
-            "per_wavelength": [
-                {k: v for k, v in x.items() if k != "intensity"}
-                for x in baseline_eval["per_wavelength"]
-            ],
+            "design_space": "shared_dispersive_thickness_stack",
+            **_strip(baseline_eval),
         },
         "reference": {
-            "oracle_backend": reference_res.get("oracle_backend", "unknown"),
+            "oracle_backend": ref_res.get("oracle_backend", "unknown"),
+            "design_space": "per_wavelength_phase_mask (deliberate upper bound)",
             "better_than_baseline": reference_better,
-            "mean_target_efficiency": reference_eval["mean_target_efficiency"],
-            "mean_crosstalk": reference_eval["mean_crosstalk"],
-            "mean_shape_cosine": reference_eval["mean_shape_cosine"],
-            "efficiency_score": reference_eval["efficiency_score"],
-            "isolation_score": reference_eval["isolation_score"],
-            "spectral_score": reference_eval["spectral_score"],
-            "spectral_ratio_mae": reference_eval["spectral_ratio_mae"],
-            "mean_score": reference_eval["mean_score"],
-            "pred_spectral_ratios": reference_eval["pred_spectral_ratios"],
-            "per_wavelength": [
-                {k: v for k, v in x.items() if k != "intensity"}
-                for x in reference_eval["per_wavelength"]
-            ],
+            **_strip(reference_eval),
         },
     }
 
     with open(artifacts_dir / "summary.json", "w", encoding="utf-8") as f:
-        json.dump(summary, f, indent=2)
+        json.dump(summary, f, indent=2, default=str)
 
-    print(json.dumps(summary, indent=2))
+    print(json.dumps(summary, indent=2, default=str))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

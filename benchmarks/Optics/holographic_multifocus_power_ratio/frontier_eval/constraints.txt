@@ -1,5 +1,33 @@
-Optics unified constraints:
+Optics holographic_* unified constraints:
+
 1) Edit only `baseline/init.py`.
-2) Keep the required public function signatures used by verification scripts.
-3) Do not modify files under `verification/`.
-4) Candidate outputs must be deterministic and finite (no NaN/Inf).
+
+2) The candidate runs as its OWN PROCESS in a throwaway directory that contains
+   exactly two files: a copy of `baseline/init.py` and `problem.json`. Nothing
+   from the task tree is importable there.
+   - Read the problem from `problem.json` in the current directory.
+   - Write the decision variables to `submission.npz` in the current directory.
+   - Keep the `if __name__ == "__main__":` block at the bottom of the file.
+     Without a valid `submission.npz` the run scores as invalid.
+
+3) Submit DECISION VARIABLES ONLY -- the real-valued phase (or thickness) maps of
+   the modulator stack, as plain float arrays. `problem.json` states the exact
+   array names, shapes and bounds under its `submission` key.
+   `verification/evaluate.py` builds the optical system from those arrays, runs
+   the propagation, builds the targets and computes every metric itself.
+   Returning a `system`, an `input_field`, a `target_field` or a self-reported
+   score/metric is not part of the contract and has no effect on the score.
+   `submission.npz` is loaded with `allow_pickle=False`: only arrays survive.
+
+4) The problem definition (grid, wavelength(s), layer positions, focus
+   coordinates, target power ratios, ROI radius and all scoring constants) is
+   owned by `verification/problem_spec.py`. It is read-only and is loaded by the
+   evaluator before your process starts.
+
+5) Do not modify anything under `verification/` or `frontier_eval/`.
+
+6) Submitted arrays are validated for shape, dtype, finiteness and range. A
+   crash, a timeout, a missing `submission.npz` or an out-of-range array is a
+   hard rejection (`combined_score = -1e18`).
+
+7) Candidate output must be deterministic and finite (no NaN/Inf).

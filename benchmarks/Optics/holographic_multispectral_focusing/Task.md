@@ -40,46 +40,93 @@ Read-only in challenge setup:
 
 ## Core file/function to modify
 
-Main function:
+- `baseline/init.py`
+- Core function: `solve(spec, device=None, seed=0)`
 
-- `solve(spec, device=None, seed=0)` in `baseline/init.py`
+You may add or change helpers in the same file. Keep the
+`if __name__ == "__main__":` block at the bottom: it is the evaluation entry
+point.
 
-Keep return structure unchanged.
+## How your program is run
 
-## Input contract (`spec`)
+Your file is executed as **its own process**, in a throwaway directory that
+contains exactly two files:
 
-Key fields:
+- `problem.json` -- the problem, as data (written by the evaluator),
+- a copy of `baseline/init.py` -- your program.
 
-- `wavelengths`: list of wavelengths.
-- `target_centers`: one target coordinate per wavelength.
-- `target_spectral_ratios`: desired power ratio among wavelengths.
-- optical geometry: `shape`, `spacing`, `layer_z`, `output_z`, `waist_radius`.
-- `roi_radius_m`: ROI size for energy measurement.
+Nothing else is reachable from there: the task tree, `verification/`, the oracle
+and the evaluator are all absent and not importable. You read `problem.json` from
+the current directory and write `submission.npz` to the current directory.
 
-Evaluator-injected constants:
+## Input contract (`problem.json`)
 
-- `score_eff_target`, `score_spectral_scale`,
-- `valid_*` thresholds,
-- reference comparison margins.
+The problem definition is owned by `verification/problem_spec.py` and is
+identical for every submission. It is read-only and is loaded by the evaluator
+*before* your process starts.
 
-## Output contract (`solve`)
+Fields you receive:
 
-Must return at least:
+- `shape`, `spacing`, `waist_radius`, `layer_z`, `output_z` -- the geometry.
+- `wavelengths` -- the four wavelengths sharing the same hardware.
+- `refractive_index` -- the medium's (constant) refractive index `n`.
+- `target_centers` -- one target coordinate per wavelength.
+- `target_spectral_ratios` -- the desired power split across wavelengths.
+- `roi_radius_m` -- ROI radius for energy measurement.
+- `steps`, `lr`, `init_thickness_mean`, `init_thickness_std`, `num_restarts` --
+  the optimisation budget the evaluator advertises.
+- scoring constants: `score_eff_target`, `score_spectral_scale`, `valid_*`.
 
-- `system`: shared optical system.
-- `input_fields`: list of input fields, one per wavelength.
-- `loss_history`.
-- `spec` (recommended).
+`problem.json["submission"]` restates the exact array names, shapes and bounds
+your submission must satisfy.
 
-Evaluator will run each wavelength through the returned system and compute metrics.
+## Output contract (`submission.npz`)
+
+Write **decision variables only** -- plain real-valued arrays:
+
+- `thickness`: `float64`, shape `(n_layers, shape, shape)` -- the **physical
+  thickness** of each layer in metres, in the order of `layer_z`, bounded to
+  `[0, max_thickness_m]`.
+
+The design variable is a thickness, not a phase, because one physical profile
+imprints a *wavelength-dependent* phase
+
+    phi(x, y; lambda) = 2*pi/lambda * (n - 1) * t(x, y)
+
+which is what makes this a shared-hardware problem rather than four independent
+single-wavelength holograms.
+
+Optional, diagnostics only (never scored): `loss_history`, a 1-D float array.
+
+`verification/evaluate.py` then does all of the following itself:
+
+1. builds the dispersive `PolychromaticPhaseModulator` stack from your `thickness`,
+2. builds one Gaussian input field per wavelength,
+3. propagates each of them to `output_z`,
+4. computes per-wavelength efficiency, crosstalk and shape cosine,
+5. computes the spectral ratio error and the final score.
+
+The oracle in `verification/reference_solver.py` is deliberately allowed a
+*per-wavelength* phase mask (four independent holograms). That relaxation is an
+upper bound chosen by the evaluator, is recorded in `summary.json` as
+`reference.design_space`, and is not available to submissions.
+
+Consequences you should design for:
+
+- Returning a `system`, an `input_field`, a `target_field` or a self-reported
+  score/metric has **no effect** -- nothing but the named arrays is read.
+- `submission.npz` is loaded with `allow_pickle=False`, so only arrays survive.
+- Arrays are validated for shape, dtype, finiteness and range. A crash, a
+  timeout, a missing `submission.npz` or an out-of-range array is a hard
+  rejection (`combined_score = -1e18`), not a low score.
 
 ## Baseline implementation (current)
 
 Current baseline is intentionally minimal:
 
-1. Build one shared multi-wavelength phase system.
-2. For each wavelength, optimize only target-ROI efficiency.
-3. Average loss across wavelengths.
+1. Build one shared dispersive thickness stack (`PolychromaticPhaseModulator`).
+2. For each wavelength, optimize target-ROI efficiency with a crosstalk term.
+3. Average loss across wavelengths, clamping thickness into its bounds each step.
 
 Missing pieces (deliberate):
 

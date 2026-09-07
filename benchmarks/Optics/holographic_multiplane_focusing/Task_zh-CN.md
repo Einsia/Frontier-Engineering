@@ -36,42 +36,63 @@
 
 ## 核心修改文件/函数
 
-主要函数：
-
 - `baseline/init.py`
-- `solve(spec, device=None, seed=0)`
+- 核心函数：`solve(spec, device=None, seed=0)`
 
-保持返回字段与 evaluator 兼容。
+可以在同一文件内增删辅助函数，但必须保留文件底部的
+`if __name__ == "__main__":` 块——它是评测入口。
 
-## 输入协议（`spec`）
+## 程序如何被运行
 
-主要字段：
+你的文件会作为**独立进程**执行，工作目录是一个临时目录，其中只有两个文件：
 
-- 全局光学配置：
-  - `shape`, `spacing`, `wavelength`, `waist_radius`, `layer_z`
-- `planes`：平面配置列表，每个平面包含：
-  - `z`：输出面深度，
-  - `centers`：目标焦点坐标，
-  - `ratios`：该平面的目标功率配比。
-- `roi_radius_m`：统计焦点功率的 ROI 半径。
+- `problem.json`——以数据形式给出的题目（由评分器写入），
+- `baseline/init.py` 的一份副本——你的程序。
 
-评测还会注入：
+除此之外什么都访问不到：任务目录、`verification/`、oracle 和评分脚本都不存在，
+也无法 import。你从当前目录读 `problem.json`，向当前目录写 `submission.npz`。
 
-- 评分参数 `score_eff_target`, `score_ratio_scale`，
-- valid 阈值，
-- reference 对比 margin。
+## 输入协议（`problem.json`）
 
-## 输出协议（`solve` 返回）
+题目定义由 `verification/problem_spec.py` 拥有，对所有提交完全一致。该文件只读，
+并且在你的进程启动**之前**就已被评分器加载。
 
-至少包含：
+你会收到的字段：
 
-- `system`
-- `input_field`
-- `target_fields`（每个平面一个）
-- `loss_history`
-- `spec`（建议）
+- `shape`、`spacing`、`wavelength`、`waist_radius`、`layer_z`——共享的相位面堆叠。
+- `planes`——各观测面配置的列表，每项包含 `z`、`centers`、`ratios`。
+- `roi_radius_m`——统计单个光斑功率的 ROI 半径。
+- `steps`、`lr`——评分器给出的优化预算。
+- 评分常数：`score_eff_target`、`score_ratio_scale`、`valid_*`。
 
-评测会对每个平面调用 `system.measure_at_z(input_field, z=plane_z)`。
+`problem.json["submission"]` 会再次给出提交数组的准确名称、形状与取值范围。
+
+## 输出协议（`submission.npz`）
+
+只写**决策变量**——纯实数数组：
+
+- `phases`：`float64`，形状 `(n_layers, shape, shape)`——按 `layer_z` 顺序给出每层
+  `PhaseModulator` 的相位图。单位弧度，要求 `|phase| <= 1e4`。
+
+同一套堆叠必须同时服务 `planes` 中的所有观测面，不存在逐面独立的掩模。
+
+可选、仅用于绘图诊断（不参与评分）：`loss_history`，一维浮点数组。
+
+随后 `verification/evaluate.py` 自己完成以下全部工作：
+
+1. 用你的 `phases` 构建 `PhaseModulator` 光学系统；
+2. 构建高斯输入场；
+3. 传播到 `planes` 中的每个 `z`；
+4. 用各面的 `centers` / `ratios` 构建该面的目标场；
+5. 计算逐面的 `ratio_mae`、`efficiency`、`shape_cosine` 及平均分。
+
+由此带来的设计约束：
+
+- 返回 `system`、`input_field`、`target_field` 或自报的分数/指标**完全无效**——
+  除上述数组外的任何内容都不会被读取。
+- `submission.npz` 以 `allow_pickle=False` 加载，因此只有数组能通过。
+- 数组会校验形状、dtype、有限性与取值范围。崩溃、超时、缺少 `submission.npz`
+  或数组越界都是**硬拒绝**（`combined_score = -1e18`），而不是低分。
 
 ## Baseline 当前实现
 

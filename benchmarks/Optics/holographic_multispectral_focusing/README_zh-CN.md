@@ -13,7 +13,12 @@
 
 ## agent 需要修改的内容
 
-- 目标文件：`baseline/init.py`
+- 目标文件：`baseline/init.py`，且只能改这一个文件。
+- 该文件会作为独立进程运行，唯一输入是 `problem.json`，唯一输出是 `submission.npz`。
+  完整契约见 `Task.md`。
+- `verification/` 下所有文件只读。其中 `verification/problem_spec.py` 拥有题目定义
+  （网格、波长、目标坐标、功率比、ROI 半径以及全部评分常数），
+  `verification/evaluate.py` 拥有前向物理与指标计算。
 
 ## 目录结构
 
@@ -23,6 +28,7 @@ task3_multispectral_focusing/
     init.py
   verification/
     evaluate.py
+    problem_spec.py
     reference_solver.py
   README.md
   README_zh-CN.md

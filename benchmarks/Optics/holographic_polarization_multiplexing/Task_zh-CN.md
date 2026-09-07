@@ -41,40 +41,69 @@ CS 类比：
 
 ## 核心修改文件/函数
 
-主要修改：
+- `baseline/init.py`
+- 核心函数：`solve(spec, device=None, seed=0)`
 
-- `baseline/init.py` 的 `solve(spec, device=None, seed=0)`
+可以在同一文件内增删辅助函数，但必须保留文件底部的
+`if __name__ == "__main__":` 块——它是评测入口。
 
-保持返回字段兼容。
+## 程序如何被运行
 
-## 输入协议（`spec`）
+你的文件会作为**独立进程**执行，工作目录是一个临时目录，其中只有两个文件：
 
-核心字段：
+- `problem.json`——以数据形式给出的题目（由评分器写入），
+- `baseline/init.py` 的一份副本——你的程序。
 
-- 光学设置：
-  - `shape`, `spacing`, `wavelength`, `layer_z`, `output_z`, `waist_radius`
-- X 通道目标：
-  - `pattern_x_centers`, `pattern_x_ratios`
-- Y 通道目标：
-  - `pattern_y_centers`, `pattern_y_ratios`
-- `roi_radius_m`
+除此之外什么都访问不到：任务目录、`verification/`、oracle 和评分脚本都不存在，
+也无法 import。你从当前目录读 `problem.json`，向当前目录写 `submission.npz`。
 
-评测会注入：
+## 输入协议（`problem.json`）
 
-- 评分参数 `score_eff_target`, `score_ratio_scale`，
-- valid 阈值，
-- better 判定 margin。
+题目定义由 `verification/problem_spec.py` 拥有，对所有提交完全一致。该文件只读，
+并且在你的进程启动**之前**就已被评分器加载。
 
-## 输出协议（`solve` 返回）
+你会收到的字段：
 
-至少返回：
+- `shape`、`spacing`、`wavelength`、`waist_radius`、`layer_z`、`output_z`。
+- `pattern_x_centers` / `pattern_x_ratios`——x 偏振输入应当形成的图案。
+- `pattern_y_centers` / `pattern_y_ratios`——y 偏振输入对应的图案。
+- `roi_radius_m`——统计功率的 ROI 半径。
+- `steps`、`lr`——评分器给出的优化预算。
+- 评分常数：`score_eff_target`、`score_ratio_scale`、`valid_*`。
 
-- `output_field_x`, `output_field_y`
-- `target_map_x`, `target_map_y`
-- `loss_history`
-- 以及评测依赖字段（`input_field_x`, `input_field_y`, `spec` 建议保留）
+`problem.json["submission"]` 会再次给出提交数组的准确名称、形状与取值范围。
 
-评测会直接读取这些字段计算指标。
+## 输出协议（`submission.npz`）
+
+只写**决策变量**——纯实数数组：
+
+- `phase_x`：`float64`，形状 `(n_layers, shape, shape)`——按 `layer_z` 顺序给出每层
+  Jones 矩阵 `[0,0]` 元的相位。
+- `phase_y`：`float64`，同样形状——每层 Jones 矩阵 `[1,1]` 元的相位。
+
+单位均为弧度，要求 `|phase| <= 1e4`。
+
+可选、仅用于绘图诊断（不参与评分）：`loss_history`，一维浮点数组。
+
+随后 `verification/evaluate.py` 自己完成以下全部工作：
+
+1. 构建两路偏振高斯输入场；
+2. 对每一层：先 `propagate_to_z(layer_z[i])`，再用
+   `diag(exp(1j*phase_x[i]), exp(1j*phase_y[i]), 1)` 做 `polarized_modulate`；
+3. 传播到 `output_z`；
+4. 用 `pattern_*` 字段构建两张目标图；
+5. 计算 match、separation、own-efficiency、比例误差与最终分数。
+
+旧契约直接从候选返回值里读取**输出场和目标图**并互相比较——评分器本身完全没有做传播。
+现在比较的两端都由评分器自己构建。
+
+由此带来的设计约束：
+
+- 返回 `system`、`input_field`、`target_field` 或自报的分数/指标**完全无效**——
+  除上述数组外的任何内容都不会被读取。
+- `submission.npz` 以 `allow_pickle=False` 加载，因此只有数组能通过。
+- 数组会校验形状、dtype、有限性与取值范围。崩溃、超时、缺少 `submission.npz`
+  或数组越界都是**硬拒绝**（`combined_score = -1e18`），而不是低分。
 
 ## Baseline 当前实现
 

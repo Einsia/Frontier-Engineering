@@ -1,70 +1,66 @@
-"""Verification script for Task 2: multi-plane focusing."""
+"""Verification script for Holographic H2: multi-plane focusing.
+
+Contract (changed -- see ``benchmarks/_shared/optics_holographic.py``):
+
+* the problem definition lives in ``verification/problem_spec.py``, not in the
+  candidate;
+* the candidate runs as its own process and returns only the decision variables
+  -- the phase map of each modulator layer -- as arrays in ``submission.npz``;
+* this file builds the optical system from those arrays, propagates to every
+  observation plane, builds each plane's target, and computes every metric.
+
+The old contract consumed ``result["system"]``, ``result["input_field"]`` and
+``result["target_fields"]`` straight from the candidate, so a submission could
+hand back a fake system whose ``measure_at_z`` returned the very targets it also
+supplied. That is no longer expressible: only float arrays cross the boundary.
+"""
 
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import math
+import os
+import sys
 import time
 from pathlib import Path
 from typing import Any
 
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import torch
-
-
 THIS_DIR = Path(__file__).resolve().parent
 TASK_DIR = THIS_DIR.parent
+if str(THIS_DIR) not in sys.path:
+    sys.path.insert(0, str(THIS_DIR))
 
 
-def _load_module(path: Path, module_name: str):
-    spec = importlib.util.spec_from_file_location(module_name, path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Failed to load module from {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+def _find_repo_root() -> Path:
+    env_root = (os.environ.get("FRONTIER_ENGINEERING_ROOT") or "").strip()
+    if env_root:
+        return Path(env_root).expanduser().resolve()
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "benchmarks").is_dir() and (parent / "frontier_eval").is_dir():
+            return parent
+    raise RuntimeError("could not locate repo root for holographic_multiplane_focusing")
 
 
-def _make_spec(baseline_module, args: argparse.Namespace) -> dict[str, Any]:
-    spec = baseline_module.make_default_spec()
-    spec.update(
-        {
-            "roi_radius_m": 3 * spec["spacing"],
-            "valid_mean_ratio_mae_max": 0.34,
-            "valid_mean_efficiency_min": 0.015,
-            "valid_mean_score_min": 0.18,
-            "score_eff_target": 0.09,
-            "score_ratio_scale": 0.12,
-            "better_score_margin": 0.07,
-            "better_shape_margin": 0.03,
-            "reference_steps": args.reference_steps,
-            "reference_lr": 0.045,
-        }
-    )
-    spec["steps"] = args.baseline_steps
-    return spec
+_REPO = _find_repo_root()
+if str(_REPO / "benchmarks" / "_shared") not in sys.path:
+    sys.path.insert(0, str(_REPO / "benchmarks" / "_shared"))
+
+# Invariant 1: every scoring dependency is resident before the candidate runs.
+import numpy as np  # noqa: E402
+import torch  # noqa: E402
+
+import optics_holographic as shared  # noqa: E402
+import problem_spec  # noqa: E402
+import reference_solver  # noqa: E402
+
+TASK_NAME = problem_spec.TASK_NAME
 
 
-def _cosine_similarity(a: torch.Tensor, b: torch.Tensor) -> float:
-    a_f = a.flatten()
-    b_f = b.flatten()
-    sim = torch.dot(a_f, b_f) / (torch.norm(a_f) * torch.norm(b_f) + 1e-12)
-    return float(sim.item())
-
-
-def _plane_metrics(
-    output_field,
-    target_field,
-    plane_cfg: dict[str, Any],
-    roi_radius: float,
-    score_eff_target: float,
-    score_ratio_scale: float,
-) -> dict[str, Any]:
+# --------------------------------------------------------------------------- #
+# Scorer-owned forward model + metrics.
+# --------------------------------------------------------------------------- #
+def _plane_metrics(output_field, target_field, plane_cfg, roi_radius, score_eff_target, score_ratio_scale):
     x, y = output_field.meshgrid()
     intensity = output_field.intensity()
     pred_norm = intensity / (intensity.sum() + 1e-12)
@@ -88,11 +84,10 @@ def _plane_metrics(
     ratio_mae = torch.mean(torch.abs(pred_ratios - target_ratios)).item()
     efficiency = (focus_power / total_power).item()
     ratio_score = math.exp(-ratio_mae / score_ratio_scale)
-    efficiency_score = float(min(1.0, max(0.0, efficiency / score_eff_target)))
-    shape_cosine = _cosine_similarity(pred_norm, target_norm)
+    efficiency_score = shared.clip01(efficiency / score_eff_target)
+    shape_cosine = shared.cosine_similarity(pred_norm, target_norm)
     shape_l1 = float(torch.mean(torch.abs(pred_norm - target_norm)).item())
-    score = (efficiency_score**0.50) * (ratio_score**0.35) * (shape_cosine**0.15)
-    score = float(min(1.0, max(0.0, score)))
+    score = (efficiency_score**0.50) * (max(ratio_score, 0.0) ** 0.35) * (max(shape_cosine, 0.0) ** 0.15)
 
     return {
         "ratio_mae": ratio_mae,
@@ -101,61 +96,56 @@ def _plane_metrics(
         "efficiency_score": efficiency_score,
         "shape_cosine": shape_cosine,
         "shape_l1": shape_l1,
-        "score": score,
+        "score": shared.clip01(score),
         "pred_ratios": pred_ratios.detach().cpu().tolist(),
         "target_ratios": target_ratios.detach().cpu().tolist(),
         "intensity": intensity.detach().cpu(),
     }
 
 
-def _evaluate_solution(result: dict[str, Any], spec: dict[str, Any]) -> dict[str, Any]:
+def _evaluate_phases(phases: np.ndarray, spec: dict[str, Any], device: str, target_fields) -> dict[str, Any]:
+    """Build the stack from raw phase maps, propagate to each plane, score it."""
+    system = shared.build_phase_system(phases, spec["layer_z"], device)
+    input_field = shared.gaussian_input_field(spec["shape"], spec["waist_radius"], device=device)
+
     roi_radius = float(spec["roi_radius_m"])
     score_eff_target = float(spec["score_eff_target"])
     score_ratio_scale = float(spec["score_ratio_scale"])
+
     per_plane = []
+    with torch.no_grad():
+        for plane_cfg, target_field in zip(spec["planes"], target_fields):
+            out = system.measure_at_z(input_field, z=float(plane_cfg["z"]))
+            per_plane.append(
+                _plane_metrics(out, target_field, plane_cfg, roi_radius, score_eff_target, score_ratio_scale)
+            )
 
-    for plane_cfg, target_field in zip(spec["planes"], result["target_fields"]):
-        out = result["system"].measure_at_z(result["input_field"], z=plane_cfg["z"])
-        per_plane.append(
-            _plane_metrics(out, target_field, plane_cfg, roi_radius, score_eff_target, score_ratio_scale)
-        )
-
-    mean_ratio_mae = sum(m["ratio_mae"] for m in per_plane) / len(per_plane)
-    mean_efficiency = sum(m["efficiency"] for m in per_plane) / len(per_plane)
-    mean_score = sum(m["score"] for m in per_plane) / len(per_plane)
-    mean_shape_cosine = sum(m["shape_cosine"] for m in per_plane) / len(per_plane)
-
+    n = len(per_plane)
     return {
         "per_plane": per_plane,
-        "mean_ratio_mae": mean_ratio_mae,
-        "mean_efficiency": mean_efficiency,
-        "mean_score": mean_score,
-        "mean_shape_cosine": mean_shape_cosine,
+        "mean_ratio_mae": sum(m["ratio_mae"] for m in per_plane) / n,
+        "mean_efficiency": sum(m["efficiency"] for m in per_plane) / n,
+        "mean_score": sum(m["score"] for m in per_plane) / n,
+        "mean_shape_cosine": sum(m["shape_cosine"] for m in per_plane) / n,
     }
 
 
+# --------------------------------------------------------------------------- #
+# Reporting.
+# --------------------------------------------------------------------------- #
 def _plot_outputs(spec, baseline_eval, reference_eval, baseline_losses, ref_losses, target_fields, save_dir: Path):
+    plt = shared.use_agg_matplotlib()
+    _norm = shared.norm_for_plot
     n = len(spec["planes"])
 
-    fig, axes = plt.subplots(n, 3, figsize=(10, 3.2 * n))
-    if n == 1:
-        axes = [axes]
-
+    fig, axes = plt.subplots(n, 3, figsize=(10, 3.2 * n), squeeze=False)
     for i, plane_cfg in enumerate(spec["planes"]):
-        target_i = target_fields[i].intensity().detach().cpu()
-        base_i = baseline_eval["per_plane"][i]["intensity"]
-        ref_i = reference_eval["per_plane"][i]["intensity"]
-
-        def _norm(x):
-            return x / (x.max() + 1e-12)
-
-        axes[i][0].imshow(_norm(target_i), cmap="viridis")
+        axes[i][0].imshow(_norm(target_fields[i].intensity().detach().cpu()), cmap="viridis")
         axes[i][0].set_title(f"Plane z={plane_cfg['z']:.2f} Target")
-        axes[i][1].imshow(_norm(base_i), cmap="viridis")
-        axes[i][1].set_title("Baseline")
-        axes[i][2].imshow(_norm(ref_i), cmap="viridis")
+        axes[i][1].imshow(_norm(baseline_eval["per_plane"][i]["intensity"]), cmap="viridis")
+        axes[i][1].set_title("Candidate")
+        axes[i][2].imshow(_norm(reference_eval["per_plane"][i]["intensity"]), cmap="viridis")
         axes[i][2].set_title("Reference")
-
         for j in range(3):
             axes[i][j].axis("off")
 
@@ -164,7 +154,8 @@ def _plot_outputs(spec, baseline_eval, reference_eval, baseline_losses, ref_loss
     plt.close(fig)
 
     fig, axes = plt.subplots(1, 2, figsize=(10, 3.8))
-    axes[0].plot(baseline_losses, label="Baseline")
+    if baseline_losses:
+        axes[0].plot(baseline_losses, label="Candidate (self-reported)")
     axes[0].plot(ref_losses, label="Reference")
     axes[0].set_yscale("log")
     axes[0].set_title("Training Loss")
@@ -174,7 +165,7 @@ def _plot_outputs(spec, baseline_eval, reference_eval, baseline_losses, ref_loss
     x = list(range(len(spec["planes"])))
     base_eff = [m["efficiency"] for m in baseline_eval["per_plane"]]
     ref_eff = [m["efficiency"] for m in reference_eval["per_plane"]]
-    axes[1].bar([i - 0.2 for i in x], base_eff, width=0.4, label="Baseline")
+    axes[1].bar([i - 0.2 for i in x], base_eff, width=0.4, label="Candidate")
     axes[1].bar([i + 0.2 for i in x], ref_eff, width=0.4, label="Reference")
     axes[1].set_xticks(x)
     axes[1].set_xticklabels([f"z={p['z']:.2f}" for p in spec["planes"]])
@@ -186,31 +177,62 @@ def _plot_outputs(spec, baseline_eval, reference_eval, baseline_losses, ref_loss
     plt.close(fig)
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--device", default=None)
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--baseline-steps", type=int, default=24)
-    parser.add_argument("--reference-steps", type=int, default=90)
-    parser.add_argument("--artifacts-dir", default=str(THIS_DIR / "artifacts"))
+    shared.add_common_cli_args(
+        parser,
+        default_artifacts_dir=THIS_DIR / "artifacts",
+        default_reference_steps=40,
+    )
     args = parser.parse_args()
 
     artifacts_dir = Path(args.artifacts_dir)
     artifacts_dir.mkdir(parents=True, exist_ok=True)
+    candidate_path = Path(args.candidate) if args.candidate else TASK_DIR / "baseline" / "init.py"
 
-    baseline_module = _load_module(TASK_DIR / "baseline" / "init.py", "task2_baseline_solver")
-    reference_module = _load_module(THIS_DIR / "reference_solver.py", "task2_reference_solver")
+    spec = problem_spec.make_spec(
+        baseline_steps=args.baseline_steps, reference_steps=args.reference_steps
+    )
+    device = args.device or "cpu"
+    shared.configure_torchoptics(spec["spacing"], spec["wavelength"])
 
-    spec = _make_spec(baseline_module, args)
+    phase_spec = shared.ArraySpec(
+        shape=tuple(spec["phase_shape"]), max_abs=float(spec["max_abs_phase"])
+    )
 
+    # ---- candidate: isolated subprocess, arrays only ----
     t0 = time.time()
-    baseline_res = baseline_module.solve(spec=spec, device=args.device, seed=args.seed)
+    try:
+        submitted = shared.run_candidate_arrays(
+            candidate_path,
+            problem=problem_spec.candidate_problem(spec),
+            arrays={"phases": phase_spec},
+            optional_arrays=("loss_history",),
+            timeout_s=args.candidate_timeout,
+        )
+    except shared.CandidateRejected as exc:
+        shared.write_rejection(artifacts_dir, TASK_NAME, candidate_path, str(exc))
+        print(f"Candidate rejected: {exc}", file=sys.stderr)
+        return 3
     t1 = time.time()
-    reference_res = reference_module.solve(spec=spec, device=args.device, seed=args.seed)
-    t2 = time.time()
 
-    baseline_eval = _evaluate_solution(baseline_res, spec)
-    reference_eval = _evaluate_solution(reference_res, spec)
+    # ---- reference: trusted, in-process, but held to the same contract ----
+    ref_res = reference_solver.solve(spec=spec, device=device, seed=args.seed)
+    t2 = time.time()
+    try:
+        ref_phases = shared.validate_array(ref_res["phases"], "reference phases", phase_spec)
+    except shared.CandidateRejected as exc:
+        raise RuntimeError(f"reference solver produced an invalid submission: {exc}") from exc
+
+    # ---- scoring: one set of targets, one forward model, both owned here ----
+    target_fields = [
+        shared.build_target_field(
+            spec["shape"], spec["waist_radius"], p["centers"], p["ratios"], p["z"], device
+        )
+        for p in spec["planes"]
+    ]
+    baseline_eval = _evaluate_phases(submitted["phases"], spec, device, target_fields)
+    reference_eval = _evaluate_phases(ref_phases, spec, device, target_fields)
 
     baseline_valid = (
         baseline_eval["mean_ratio_mae"] <= spec["valid_mean_ratio_mae_max"]
@@ -223,19 +245,22 @@ def main() -> None:
         >= baseline_eval["mean_shape_cosine"] + float(spec["better_shape_margin"])
     )
 
+    candidate_losses = [float(v) for v in np.asarray(submitted.get("loss_history", [])).ravel()]
     _plot_outputs(
         spec,
         baseline_eval,
         reference_eval,
-        baseline_res["loss_history"],
-        reference_res["loss_history"],
-        baseline_res["target_fields"],
+        candidate_losses,
+        list(ref_res.get("loss_history") or []),
+        target_fields,
         artifacts_dir,
     )
 
     summary = {
-        "task": "task2_multiplane_focusing",
-        "spec": spec,
+        "task": TASK_NAME,
+        "candidate_module": str(candidate_path.resolve()),
+        "candidate_execution": "isolated_subprocess",
+        "spec": {k: v for k, v in spec.items() if k != "phase_shape"},
         "timing_seconds": {
             "baseline": round(t1 - t0, 3),
             "reference": round(t2 - t1, 3),
@@ -247,29 +272,28 @@ def main() -> None:
             "mean_score": baseline_eval["mean_score"],
             "mean_shape_cosine": baseline_eval["mean_shape_cosine"],
             "per_plane": [
-                {k: v for k, v in p.items() if k != "intensity"}
-                for p in baseline_eval["per_plane"]
+                {k: v for k, v in p.items() if k != "intensity"} for p in baseline_eval["per_plane"]
             ],
         },
         "reference": {
-            "oracle_backend": reference_res.get("oracle_backend", "unknown"),
+            "oracle_backend": ref_res.get("oracle_backend", "unknown"),
             "better_than_baseline": reference_better,
             "mean_ratio_mae": reference_eval["mean_ratio_mae"],
             "mean_efficiency": reference_eval["mean_efficiency"],
             "mean_score": reference_eval["mean_score"],
             "mean_shape_cosine": reference_eval["mean_shape_cosine"],
             "per_plane": [
-                {k: v for k, v in p.items() if k != "intensity"}
-                for p in reference_eval["per_plane"]
+                {k: v for k, v in p.items() if k != "intensity"} for p in reference_eval["per_plane"]
             ],
         },
     }
 
     with open(artifacts_dir / "summary.json", "w", encoding="utf-8") as f:
-        json.dump(summary, f, indent=2)
+        json.dump(summary, f, indent=2, default=str)
 
-    print(json.dumps(summary, indent=2))
+    print(json.dumps(summary, indent=2, default=str))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

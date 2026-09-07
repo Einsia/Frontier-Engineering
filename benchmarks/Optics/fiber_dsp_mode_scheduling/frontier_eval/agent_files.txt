@@ -1,8 +1,14 @@
+# The scorer's own solution is deliberately NOT listed here. The harness reads
+# every agent_files entry and puts its full source into the solver's context, so
+# listing it hands over a working answer -- and these tasks have no rule against
+# copying one (unlike JobShop, whose constraints.txt requires pure standard
+# library). combined_score is the candidate's own score and never uses the
+# oracle's number, so nothing about scoring depends on shipping it. The
+# evaluator still reads the file from disk; only the prompt loses it.
 README.md
 README_zh-CN.md
 Task.md
 Task_zh-CN.md
 baseline/init.py
 verification/run_validation.py
-verification/oracle.py
 frontier_eval/constraints.txt

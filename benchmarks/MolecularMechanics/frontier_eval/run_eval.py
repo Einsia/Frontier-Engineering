@@ -10,6 +10,12 @@ import time
 from pathlib import Path
 from typing import Any
 
+# Wall-clock cap per stage. Without one, a candidate that never terminates hangs
+# the whole evaluation instead of failing it.
+_STAGE_TIMEOUT_S = float(
+    os.environ.get("FRONTIER_EVAL_EVALUATOR_TIMEOUT_S", "1800") or "1800"
+)
+
 
 def _maybe_float(value: Any) -> float | None:
     if isinstance(value, bool):
@@ -172,7 +178,17 @@ def main() -> int:
                     cwd=str(benchmark_dir),
                     capture_output=True,
                     text=True,
+                    timeout=_STAGE_TIMEOUT_S,
                 )
+            except subprocess.TimeoutExpired as exc:
+                failed_stage = stage_name
+                metrics[f"{stage_name}_runtime_s"] = float(time.time() - stage_start_s)
+                metrics["timeout"] = 1.0
+                artifacts["error_message"] = (
+                    f"{stage_name} stage exceeded {_STAGE_TIMEOUT_S:.0f}s timeout"
+                )
+                run_meta_lines.append(f"{stage_name}_timeout={_STAGE_TIMEOUT_S}")
+                break
             except Exception as exc:
                 failed_stage = stage_name
                 metrics[f"{stage_name}_runtime_s"] = float(time.time() - stage_start_s)

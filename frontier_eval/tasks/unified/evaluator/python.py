@@ -549,6 +549,21 @@ def evaluate(program_path: str, *, spec: UnifiedTaskSpec) -> Any:
             artifacts["readonly_files"] = "\n".join(spec.readonly_files)
         readonly_saved_modes = _enforce_readonly(sandbox_benchmark, spec.readonly_files)
 
+        # The sandbox is a *copy*. FRONTIER_ENGINEERING_ROOT (set below) points
+        # at the real repo, and the candidate runs under our own uid, so it can
+        # write to the source tree the sandbox was copied from -- which the
+        # snapshot above does not cover. A candidate that rewrote a scoring
+        # module there would score honestly this run and poison every run after
+        # it, silently.
+        #
+        # We cannot prevent that write from inside this process (chmod is
+        # reversible by the owner, and stripping the env var is not possible:
+        # the scorer-side scripts depend on it). We can refuse to believe a run
+        # that did it, and say so loudly enough that a human restores the tree.
+        source_readonly_snapshot = _snapshot_readonly(
+            spec.benchmark_dir.resolve(), spec.readonly_files
+        )
+
         eval_cwd = (sandbox_benchmark / spec.eval_cwd_rel).resolve()
         if not _is_within(eval_cwd, sandbox_benchmark):
             artifacts["error_message"] = f"eval cwd escapes sandbox: {eval_cwd}"
@@ -827,6 +842,26 @@ def evaluate(program_path: str, *, spec: UnifiedTaskSpec) -> Any:
                 artifacts["readonly_violations"] = "\n".join(violations[:200])
                 if "error_message" not in artifacts:
                     artifacts["error_message"] = "readonly files modified by evaluation run"
+
+        if source_readonly_snapshot:
+            source_violations = _check_readonly_violations(
+                spec.benchmark_dir.resolve(), source_readonly_snapshot
+            )
+            if source_violations:
+                # Strictly worse than a sandbox violation: the sandbox is thrown
+                # away, the source tree is not. Every later evaluation of this
+                # task is now suspect until the tree is restored.
+                metrics["readonly_violation"] = 1.0
+                metrics["source_tree_violation"] = 1.0
+                metrics["valid"] = 0.0
+                metrics["combined_score"] = INVALID_COMBINED_SCORE
+                artifacts["source_tree_violations"] = "\n".join(source_violations[:200])
+                artifacts["error_message"] = (
+                    "evaluation run modified the SOURCE benchmark tree at "
+                    f"{spec.benchmark_dir} -- this persists across runs; restore "
+                    "the tree (e.g. git checkout) before trusting any later score "
+                    "for this task"
+                )
 
         metrics["runtime_s"] = float(time.time() - start)
         return _wrap(metrics, artifacts)

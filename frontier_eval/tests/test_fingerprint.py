@@ -134,3 +134,55 @@ class TestFingerprintPrimitives:
         same = benchmark / "verification" / "copy.py"
         same.write_text((benchmark / "verification" / "reference.py").read_text())
         assert _fingerprint_path(same) == _fingerprint_path(benchmark / "verification" / "reference.py")
+
+
+class TestSourceTreeTampering:
+    """The sandbox is a copy; the tree it was copied from is not protected.
+
+    FRONTIER_ENGINEERING_ROOT is set to the real repo root and the candidate
+    runs under the scorer's own uid, so it can write to the source benchmark
+    tree. That write survives the run: the sandbox is deleted, the source tree
+    is not, so a candidate could score honestly once and poison every later
+    evaluation of the task. The fingerprint must therefore cover both trees.
+    """
+
+    @pytest.fixture()
+    def source_and_sandbox(self, tmp_path: Path) -> tuple[Path, Path]:
+        import shutil
+
+        source = tmp_path / "repo" / "benchmarks" / "Demo"
+        (source / "verification").mkdir(parents=True)
+        (source / "verification" / "evaluator.py").write_text(
+            "def score(sub):\n    return sub['value']\n"
+        )
+        (source / "README.md").write_text("# demo\n")
+        sandbox = tmp_path / "work" / "benchmark"
+        shutil.copytree(source, sandbox)
+        return source, sandbox
+
+    def test_poisoning_the_source_tree_is_detected(self, source_and_sandbox) -> None:
+        source, sandbox = source_and_sandbox
+        readonly = ("verification",)
+        sandbox_before = _snapshot_readonly(sandbox, readonly)
+        source_before = _snapshot_readonly(source, readonly)
+
+        # The candidate leaves the sandbox alone and rewrites the *source*
+        # scorer instead -- honest this run, rigged for every run after it.
+        (source / "verification" / "evaluator.py").write_text(
+            "def score(sub):\n    return 999.0\n"
+        )
+
+        assert _check_readonly_violations(sandbox, sandbox_before) == [], (
+            "the sandbox is untouched, which is exactly why this attack used to "
+            "go unnoticed"
+        )
+        assert _check_readonly_violations(source, source_before) == ["verification"]
+
+    def test_an_honest_run_touches_neither_tree(self, source_and_sandbox) -> None:
+        source, sandbox = source_and_sandbox
+        readonly = ("verification",)
+        sandbox_before = _snapshot_readonly(sandbox, readonly)
+        source_before = _snapshot_readonly(source, readonly)
+        (sandbox / "output.json").write_text("{}\n")  # writing outside readonly is fine
+        assert _check_readonly_violations(sandbox, sandbox_before) == []
+        assert _check_readonly_violations(source, source_before) == []

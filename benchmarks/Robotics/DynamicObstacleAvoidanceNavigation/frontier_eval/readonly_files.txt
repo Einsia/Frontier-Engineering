@@ -5,3 +5,4 @@ Task_zh-CN.md
 references
 verification
 frontier_eval
+baseline/result_log.txt

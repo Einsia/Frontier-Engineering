@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import math
+import os
 import sys
+import tempfile
 import traceback
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,77 @@ TASK_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG_PATH = TASK_ROOT / "references" / "battery_config.json"
 FARADAY_C_PER_MOL = 96485.33212
 GAS_CONSTANT_J_PER_MOLK = 8.314462618
+
+# Wall-clock budget for the candidate's own process. The policy builder is a
+# pure function of the published config, so this is generous by design.
+CANDIDATE_TIMEOUT_S = 300.0
+
+
+def _find_repo_root() -> Path:
+    env_root = (os.environ.get("FRONTIER_ENGINEERING_ROOT") or "").strip()
+    if env_root:
+        return Path(env_root).expanduser().resolve()
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "benchmarks").is_dir() and (parent / "frontier_eval").is_dir():
+            return parent
+    raise RuntimeError("could not locate repo root for BatteryFastChargingSPMe evaluator")
+
+
+# Import the isolation helper at *module import time*, i.e. strictly before the
+# candidate has ever run. It lives outside every benchmark directory so a
+# copy_files.txt of "." cannot drag it into the sandbox for the candidate to
+# rewrite.
+_SHARED_DIR = str(_find_repo_root() / "benchmarks" / "_shared")
+if _SHARED_DIR not in sys.path:
+    sys.path.insert(0, _SHARED_DIR)
+import candidate_sandbox as sandbox  # noqa: E402
+
+
+# Runner executed inside the sandbox subprocess. It imports the candidate,
+# calls the entry point and serialises the *data* it returned. Anything that is
+# not JSON (a callable, an object, a patched module) fails here, in the child,
+# where it cannot touch this scorer.
+_RUNNER_SOURCE = '''#!/usr/bin/env python3
+"""Sandbox runner for BatteryFastChargingSPMe candidates."""
+from __future__ import annotations
+
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+
+def main() -> int:
+    # Never drop a __pycache__ next to the candidate: the scoring path must not
+    # write into the task tree it is grading.
+    sys.dont_write_bytecode = True
+    candidate_path = Path(sys.argv[1]).resolve()
+    sys.path.insert(0, str(candidate_path.parent))
+    spec = importlib.util.spec_from_file_location("battery_fast_charge_spme_candidate", candidate_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("failed to load candidate module from %s" % candidate_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+    except SystemExit as exc:
+        # Refuse to let import-time sys.exit() short-circuit the runner and
+        # leave whatever the candidate may have dropped on disk standing in
+        # for a real return value.
+        raise RuntimeError("candidate called sys.exit() during import") from exc
+    if not hasattr(module, "build_charging_policy"):
+        raise AttributeError("candidate must define build_charging_policy()")
+    fn = getattr(module, "build_charging_policy")
+    if not callable(fn):
+        raise TypeError("build_charging_policy must be callable")
+    policy = fn()
+    Path("submission.json").write_text(json.dumps(policy), encoding="utf-8")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+'''
 
 
 def _clamp(value: float, low: float, high: float) -> float:
@@ -85,18 +157,52 @@ def _entropy_term(theta_p: float, theta_n: float, cfg: dict[str, Any]) -> float:
 
 
 def _load_candidate(path: Path) -> Any:
-    spec = importlib.util.spec_from_file_location("battery_fast_charge_spme_candidate", path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"failed to load candidate module from {path}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    if not hasattr(module, "build_charging_policy"):
-        raise AttributeError("candidate must define build_charging_policy()")
-    fn = getattr(module, "build_charging_policy")
-    if not callable(fn):
-        raise TypeError("build_charging_policy must be callable")
-    return fn()
+    """Run the candidate in its own process and return only the JSON it wrote.
+
+    The candidate never executes inside this interpreter, so it cannot reach
+    ``_validate_policy`` / ``_simulate`` -- where every hard limit (4.25 V,
+    -0.015 V plating margin, 46 C, 3600 s) is enforced -- to replace them.
+    """
+    candidate_path = Path(path).resolve()
+    with tempfile.TemporaryDirectory(prefix="fe_spme_runner_") as tmp:
+        runner_path = Path(tmp) / "_spme_candidate_runner.py"
+        runner_path.write_text(_RUNNER_SOURCE, encoding="utf-8")
+        try:
+            run = sandbox.run_candidate_isolated(
+                runner_path,
+                expected_outputs=("submission.json",),
+                timeout_s=CANDIDATE_TIMEOUT_S,
+                argv=(str(candidate_path),),
+                copy_into_workdir=True,
+            )
+        except sandbox.InvalidSubmissionError as exc:
+            raise RuntimeError(f"candidate produced no usable submission: {exc}") from exc
+
+    if run.timed_out:
+        raise RuntimeError(f"candidate exceeded the {CANDIDATE_TIMEOUT_S:.0f}s time budget")
+    if run.returncode != 0:
+        detail = (run.stderr_tail or "").strip().splitlines()
+        tail = detail[-1] if detail else "no stderr"
+        raise RuntimeError(f"candidate exited non-zero ({run.returncode}): {tail}")
+
+    return sandbox.load_json_output(run)
+
+
+def _finite_number(value: Any, label: str) -> float:
+    """Accept only a real, finite number.
+
+    ``isinstance(x, (int, float))`` alone lets ``True``, ``float("inf")`` and
+    ``float("nan")`` through, and every interval test below is *false* for NaN,
+    so a NaN would silently take whichever branch happens to be safe-looking.
+    Reject all three explicitly instead. JSON round-trips ``Infinity``/``NaN``
+    literals, so this must be checked after parsing, not only before.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"{label} must be a number, got {type(value).__name__}")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{label} must be finite, got {value!r}")
+    return number
 
 
 def _validate_policy(policy: Any, cfg: dict[str, Any]) -> tuple[list[float], list[float]]:
@@ -108,9 +214,9 @@ def _validate_policy(policy: Any, cfg: dict[str, Any]) -> tuple[list[float], lis
     bounds = cfg["profile_bounds"]
     battery = cfg["battery"]
 
-    if not isinstance(currents, list) or not all(isinstance(x, (int, float)) for x in currents):
+    if not isinstance(currents, list):
         raise TypeError("currents_c must be a list of numbers")
-    if not isinstance(switch_soc, list) or not all(isinstance(x, (int, float)) for x in switch_soc):
+    if not isinstance(switch_soc, list):
         raise TypeError("switch_soc must be a list of numbers")
 
     if not (int(bounds["min_stages"]) <= len(currents) <= int(bounds["max_stages"])):
@@ -118,8 +224,8 @@ def _validate_policy(policy: Any, cfg: dict[str, Any]) -> tuple[list[float], lis
     if len(switch_soc) != len(currents) - 1:
         raise ValueError("switch_soc length must equal len(currents_c) - 1")
 
-    currents_f = [float(x) for x in currents]
-    switch_f = [float(x) for x in switch_soc]
+    currents_f = [_finite_number(x, f"currents_c[{i}]") for i, x in enumerate(currents)]
+    switch_f = [_finite_number(x, f"switch_soc[{i}]") for i, x in enumerate(switch_soc)]
 
     for current in currents_f:
         if not (float(bounds["min_current_c"]) <= current <= float(bounds["max_current_c"])):

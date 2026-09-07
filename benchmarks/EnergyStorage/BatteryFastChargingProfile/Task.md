@@ -26,6 +26,7 @@ The current example configuration uses:
 - hard safety cutoff voltage: `4.25 V`
 - soft thermal limit: `45 C`
 - hard thermal cutoff: `47 C`
+- hard plating-loss cutoff: `0.015 Ah` (0.5% of nominal capacity)
 
 Users may replace the values in `references/battery_config.json` to define another cell, thermal environment, or scoring preference without editing evaluator code.
 
@@ -89,7 +90,8 @@ Simulation constraints:
 
 1. terminal voltage must never exceed `4.25 V`
 2. cell temperature must never exceed `47 C`
-3. the simulation must reach `SOC >= 0.80` within the evaluation horizon
+3. cumulative lithium-plating loss must never exceed `0.015 Ah`
+4. the simulation must reach `SOC >= 0.80` within the evaluation horizon
 
 Any violation makes the candidate invalid.
 

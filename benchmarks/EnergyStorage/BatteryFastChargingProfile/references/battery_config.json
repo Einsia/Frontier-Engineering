@@ -10,7 +10,8 @@
     "max_voltage_v": 4.2,
     "hard_voltage_cutoff_v": 4.25,
     "soft_temp_c": 45.0,
-    "hard_temp_c": 47.0
+    "hard_temp_c": 47.0,
+    "hard_plating_loss_ah": 0.015
   },
   "simulation": {
     "dt_s": 1.0,

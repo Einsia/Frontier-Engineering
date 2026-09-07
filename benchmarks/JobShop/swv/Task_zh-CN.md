@@ -27,23 +27,38 @@
 
 ### 输入（概念层面）
 
-每次运行读取一个基准实例，核心字段包括：
+评测器在独立子进程中运行 `baseline/init.py`，对每个基准实例调用一次
+`solve_instance(instance)`。`instance` 只有三个键：
 
+- `name`：实例名
 - `duration_matrix[j][k]`：工件 `j` 第 `k` 道工序的加工时间
 - `machines_matrix[j][k]`：工件 `j` 第 `k` 道工序使用的机器
-- 元数据：`optimum`、`lower_bound`、`upper_bound`、`reference`
+
+**不包含元数据**。`optimum`、`lower_bound`、`upper_bound` 是评分的分母，只保留在
+评测器一侧；求解器若能读到它们，就等于自己给自己判分。实例由评测器从
+`JobShop/data/benchmark_instances.json` 读取，不由候选方提供。
 
 ### 输出（概念层面）
 
-一个可行调度结果：
+返回一个描述可行调度的字典：
 
-- 每道工序的开工时间
-- 由此得到的机器时间线与工件完成时间
-- 标量目标值：`makespan`
+```python
+{"machine_schedules": [                 # 按机器 id 索引
+    [{"job_id": 0, "operation_index": 0, "start_time": 0, "end_time": 7}, ...],
+    ...
+]}
+```
+
+- 每道工序的 `duration` 可选；若填写，必须与实例一致。
+- `makespan` 可选。若上报，会与评测器根据你的调度重算出的值交叉校验，不一致即判该
+  实例无效；它永远不会成为分数，评分一律使用重算值。
+
+评测器会拒绝不合法的调度：每道工序必须恰好出现一次，落在实例指定的机器上，时长与
+实例一致，同一机器上工序互不重叠，且同一工件的工序不得乱序。
 
 在本工作区中：
 
-- baseline 输出纯 Python 字典（含 `makespan`）。
+- baseline 输出纯 Python 字典（含 `machine_schedules`）。
 - reference 输出 `job_shop_lib` 的 `Schedule`。
 
 ## 预期结果

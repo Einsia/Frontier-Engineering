@@ -1,3 +1,18 @@
+"""Unified evaluator entrypoint for the JobShop family subtasks.
+
+Two properties this file is responsible for, both of which used to be missing:
+
+1. **Instance data is scorer-owned.** The benchmark instances -- the matrices
+   feasibility is checked against and the `optimum` used as the scoring
+   denominator -- are read here from the vendored
+   `benchmarks/JobShop/data/benchmark_instances.json`, which lives outside the
+   candidate's sandbox copy. Previously they were loaded by calling into the
+   candidate's own module, i.e. from the candidate itself, so a
+   self-consistent fake instance scored 100.
+2. **The candidate never runs in this process.** It is executed per instance in
+   a subprocess (see `verification/evaluate.py`) and hands back only a schedule.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -13,6 +28,22 @@ import traceback
 from pathlib import Path
 from types import ModuleType
 from typing import Any
+
+_HERE = Path(__file__).resolve()
+#: <repo>/benchmarks/JobShop
+JOBSHOP_DIR = _HERE.parents[1]
+#: <repo>/benchmarks/_shared
+SHARED_DIR = _HERE.parents[2] / "_shared"
+#: The single trusted source of instances, bounds and optima.
+TRUSTED_BENCHMARK_JSON = JOBSHOP_DIR / "data" / "benchmark_instances.json"
+
+KNOWN_FAMILIES = ("abz", "ft", "la", "orb", "swv", "ta", "yn")
+
+# Import the isolation helper before any candidate code can run, and put it on
+# sys.path so the per-family evaluator picks up the same module.
+if str(SHARED_DIR) not in sys.path:
+    sys.path.insert(0, str(SHARED_DIR))
+import candidate_sandbox as _sandbox  # noqa: E402,F401  (imported for its side effect of being resident)
 
 
 def _load_module(module_name: str, path: Path) -> ModuleType:
@@ -164,6 +195,34 @@ def _compute_metrics(results: list[Any]) -> dict[str, float]:
     }
 
 
+def _resolve_family(benchmark_dir: Path, eval_mod: ModuleType) -> str:
+    """Decide which family's instances to score, without asking the candidate.
+
+    The unified harness copies the task into `<workdir>/benchmark`, so the
+    directory name is not always the family. `FAMILY_PREFIX` comes from
+    `verification/evaluate.py`, which is a readonly, fingerprinted file, and is
+    cross-checked against the directory name and the known family list so a
+    mislabelled tree cannot silently switch to an easier family.
+    """
+    prefix = str(getattr(eval_mod, "FAMILY_PREFIX", "")).strip()
+    if prefix not in KNOWN_FAMILIES:
+        raise ValueError(
+            f"verification/evaluate.py declares unknown FAMILY_PREFIX {prefix!r}; "
+            f"expected one of {list(KNOWN_FAMILIES)}"
+        )
+
+    for name in (
+        benchmark_dir.name,
+        Path(os.environ.get("FRONTIER_EVAL_UNIFIED_SOURCE_BENCHMARK_DIR", "")).name,
+    ):
+        if name in KNOWN_FAMILIES and name != prefix:
+            raise ValueError(
+                f"family mismatch: benchmark directory says {name!r} but "
+                f"verification/evaluate.py says {prefix!r}"
+            )
+    return prefix
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Unified evaluator entrypoint for JobShop family subtasks."
@@ -192,14 +251,22 @@ def main() -> int:
         default=None,
         help="Optional explicit instance names (defaults to JOBSHOP_EVAL_INSTANCES).",
     )
+    parser.add_argument(
+        "--candidate-timeout-s",
+        type=float,
+        default=None,
+        help=(
+            "Wall-clock limit for the candidate subprocess, per instance "
+            "(defaults to JOBSHOP_CANDIDATE_TIMEOUT_S)."
+        ),
+    )
     args = parser.parse_args()
 
     benchmark_dir = Path(args.benchmark_dir).resolve()
     family = benchmark_dir.name
-    vendored_json = (Path(__file__).resolve().parents[1] / "data" / "benchmark_instances.json").resolve()
-    if vendored_json.is_file():
-        # Ensure baseline/init.py can locate vendored benchmark data in unified sandbox runs.
-        os.environ.setdefault("JOBSHOP_BENCHMARK_JSON", str(vendored_json))
+    # No JOBSHOP_BENCHMARK_JSON here on purpose: the candidate has no loader to
+    # point at any more, and pointing it at the vendored data would hand it the
+    # optima this evaluator is trying to keep away from it.
     metrics_out = Path(args.metrics_out).resolve() if args.metrics_out else (benchmark_dir / "metrics.json")
     artifacts_out = (
         Path(args.artifacts_out).resolve() if args.artifacts_out else (benchmark_dir / "artifacts.json")
@@ -238,23 +305,55 @@ def main() -> int:
     }
 
     try:
-        eval_mod = _load_module(f"jobshop_eval_{family}", benchmark_dir / "verification" / "evaluate.py")
-        baseline_mod = eval_mod._load_module(
-            f"jobshop_baseline_{family}", benchmark_dir / "baseline" / "init.py"
-        )
-        reference_mod = eval_mod._load_module(
-            f"jobshop_reference_{family}", benchmark_dir / "verification" / "reference.py"
-        )
+        if not TRUSTED_BENCHMARK_JSON.is_file():
+            raise FileNotFoundError(
+                f"trusted benchmark data not found: {TRUSTED_BENCHMARK_JSON}"
+            )
 
-        all_instances = baseline_mod.load_family_instances()
+        eval_mod = _load_module(f"jobshop_eval_{family}", benchmark_dir / "verification" / "evaluate.py")
+        family_prefix = _resolve_family(benchmark_dir, eval_mod)
+        artifacts["family_prefix"] = family_prefix
+        artifacts["instances_source"] = str(TRUSTED_BENCHMARK_JSON)
+
+        candidate_path = (
+            Path(args.candidate).resolve()
+            if args.candidate
+            else (benchmark_dir / "baseline" / "init.py")
+        )
+        if not candidate_path.is_file():
+            raise FileNotFoundError(f"candidate not found: {candidate_path}")
+        artifacts["candidate_resolved_path"] = str(candidate_path)
+
+        # The reference solver is a comparison datapoint only; it never feeds
+        # combined_score, so a missing job_shop_lib/OR-Tools must not zero out a
+        # candidate that solved everything.
+        reference_mod: ModuleType | None = None
+        try:
+            reference_mod = eval_mod._load_module(
+                f"jobshop_reference_{family}", benchmark_dir / "verification" / "reference.py"
+            )
+        except Exception as exc:
+            artifacts["reference_module_error"] = str(exc)
+
+        # Trusted instances, with metadata, straight from the vendored JSON. The
+        # candidate is handed only eval_mod.PUBLIC_INSTANCE_FIELDS of each.
+        all_instances = eval_mod.load_family_instances(TRUSTED_BENCHMARK_JSON)
         selected = eval_mod._select_instances(all_instances, instances, max_instances)
         artifacts["selected_instances"] = [ins["name"] for ins in selected]
+        artifacts["candidate_isolation"] = "subprocess (one per instance)"
+        artifacts["candidate_visible_fields"] = list(eval_mod.PUBLIC_INSTANCE_FIELDS)
+        artifacts["candidate_timeout_s"] = float(
+            args.candidate_timeout_s
+            if args.candidate_timeout_s is not None
+            else eval_mod._default_candidate_timeout_s()
+        )
 
         results = eval_mod.evaluate_instances(
             selected,
             float(reference_time_limit),
-            baseline_mod,
+            candidate_path,
             reference_mod,
+            candidate_timeout_s=args.candidate_timeout_s,
         )
         report_text = _capture_report(eval_mod, results)
         stdout_log.parent.mkdir(parents=True, exist_ok=True)

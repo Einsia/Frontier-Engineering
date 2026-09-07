@@ -48,6 +48,8 @@ Benchmark family designed for richer search-space analysis, including larger 50x
 ## Quick start
 
 ```bash
-python JobShop/swv/baseline/init.py --max-instances 2
+# The baseline is driven by the evaluator, which runs it in a subprocess.
+# It no longer loads instances itself; to run it by hand, hand it one instance:
+#   python JobShop/swv/baseline/init.py --instance-json /path/to/instance.json
 python JobShop/swv/verification/evaluate.py --max-instances 2 --reference-time-limit 5
 ```

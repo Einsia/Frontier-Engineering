@@ -1,4 +1,11 @@
 Optimize baseline/init.py for this JobShop family.
 Objective: minimize makespan for classical JSSP instances.
 Keep solution as pure Python (standard library only), no external solver/library usage in baseline.
-Preserve expected interfaces used by verification/evaluate.py (e.g., solve_instance output fields).
+The evaluator runs this file in an isolated subprocess and calls solve_instance(instance) once per
+instance. Keep solve_instance(instance) -> dict as the only entry point; the evaluator does not use
+any other function in this file.
+The instance passed in has exactly three keys: name, duration_matrix, machines_matrix. There is no
+metadata: optimum and the bounds stay with the evaluator, which also owns the instance data.
+Return {"machine_schedules": [...]} indexed by machine id, each entry
+{"job_id", "operation_index", "start_time", "end_time"} ("duration" optional). A reported "makespan"
+is only cross-checked against the evaluator's recomputed value and never becomes the score.

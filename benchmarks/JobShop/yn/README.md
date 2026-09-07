@@ -48,6 +48,8 @@ Small family of dense 20x20 instances from genetic-algorithm research; typically
 ## Quick start
 
 ```bash
-python JobShop/yn/baseline/init.py --max-instances 2
+# The baseline is driven by the evaluator, which runs it in a subprocess.
+# It no longer loads instances itself; to run it by hand, hand it one instance:
+#   python JobShop/yn/baseline/init.py --instance-json /path/to/instance.json
 python JobShop/yn/verification/evaluate.py --max-instances 2 --reference-time-limit 5
 ```

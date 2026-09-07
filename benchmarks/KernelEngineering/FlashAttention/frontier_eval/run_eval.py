@@ -1,8 +1,17 @@
+"""Entry point the unified harness invokes for the KernelEngineering tasks.
+
+This process loads the task's own ``evaluator.py`` (a readonly, fingerprinted
+file next to this one) and nothing else. The candidate is never imported here:
+``evaluator.evaluate`` drives it in dedicated subprocesses and returns only
+metrics and artifacts. See ``benchmarks/_shared/kernel_isolation.py``.
+"""
+
 from __future__ import annotations
 
 import argparse
 import inspect
 import json
+import math
 import os
 import sys
 import traceback
@@ -37,8 +46,27 @@ def _normalize_result(result: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     )
 
 
+def _sanitize(metrics: dict[str, Any]) -> dict[str, Any]:
+    """A run that did not produce a usable score must not look like one.
+
+    ``valid`` and ``combined_score`` are the two fields the harness ranks on, so
+    they are pinned to the invalid sentinel whenever the evaluator returned
+    something that is not a finite number.
+    """
+    score = metrics.get("combined_score")
+    if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(float(score)):
+        metrics["combined_score"] = INVALID_COMBINED_SCORE
+        metrics["valid"] = 0.0
+    valid = metrics.get("valid")
+    if isinstance(valid, bool) or not isinstance(valid, (int, float)) or not math.isfinite(float(valid)):
+        metrics["valid"] = 0.0
+    return metrics
+
+
 def _load_local_evaluator() -> Any:
     evaluator_path = Path(__file__).with_name("evaluator.py").resolve()
+    if not evaluator_path.is_file():
+        raise RuntimeError(f"local evaluator missing: {evaluator_path}")
     spec = spec_from_file_location("_frontier_eval_local_evaluator", evaluator_path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"Failed to load local evaluator from {evaluator_path}")
@@ -105,11 +133,15 @@ def main(argv: list[str]) -> int:
     }
 
     try:
+        if not candidate_path.is_file():
+            raise FileNotFoundError(f"candidate program not found: {candidate_path}")
         evaluate_fn = _load_local_evaluator()
         result = evaluate_fn(str(candidate_path), **_build_kwargs(evaluate_fn))
         metrics, evaluator_artifacts = _normalize_result(result)
+        metrics = _sanitize(metrics)
         artifacts.update(evaluator_artifacts)
     except Exception as exc:
+        metrics = {"combined_score": INVALID_COMBINED_SCORE, "valid": 0.0}
         artifacts["error_message"] = str(exc)
         artifacts["traceback"] = traceback.format_exc()
 

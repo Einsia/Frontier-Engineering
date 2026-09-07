@@ -1,3 +1,19 @@
+"""Local self-test tool for this benchmark -- NOT the scoring path.
+
+This script imports the candidate (``baseline.submission``) into the same
+process as the reference implementation, the tolerance check and the clock, and
+reports through the inherited, writable fd named by ``POPCORN_FD``. That is fine
+for a kernel author checking their own work, and unusable for scoring: every
+function this process uses to judge the candidate can be replaced by the module
+it imports, and the log the score used to be parsed from can simply be written
+by hand.
+
+Scoring lives in ``frontier_eval/evaluator.py``. It runs the candidate in a
+dedicated subprocess, has a separate trusted process verify every output against
+its own reference implementation, and times the calls with its own clock.
+Numbers produced by this script are advisory only.
+"""
+
 import dataclasses
 import re
 import time
@@ -19,7 +35,6 @@ try:
 except ImportError:
     TestSpec = dict
 
-from baseline.submission import custom_kernel
 from baseline.reference import check_implementation, generate_input
 
 WARMUP_RUNS = 10
@@ -106,6 +121,7 @@ def get_test_cases(file_name: str) -> list[TestCase]:
 
 
 def warm_up(test: TestCase):
+    from baseline.submission import custom_kernel
     config, data, kv_cache = generate_input(**test.args)
     config_copy = copy_config_weights(config)
     start = time.perf_counter()
@@ -166,6 +182,7 @@ def run_testing(logger: PopcornOutput, tests: list[TestCase]):
     @param tests: A list of TestCase objects representing the test cases to be executed.
     @return: An integer representing the exit status: 0 if all tests pass, otherwise 112.
     """
+    from baseline.submission import custom_kernel
     passed = True
     logger.log("test-count", len(tests))
     for idx, test in enumerate(tests):
@@ -203,6 +220,7 @@ def benchmark(test: TestCase, recheck: bool, max_repeats: int, max_time_ns: floa
     @param max_time_ns: Timeout time in nanoseconds.
     @return: A Stats object for this particular benchmark case or an error if the test fails.
     """
+    from baseline.submission import custom_kernel
     durations = []
     # generate input data once
     config, data, kv_cache = generate_input(**test.args)

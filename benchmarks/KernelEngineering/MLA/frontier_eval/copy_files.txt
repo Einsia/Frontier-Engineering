@@ -1,1 +1,16 @@
-.
+# Explicit whitelist. It used to be "." -- a full copytree of the benchmark --
+# which put reference *solutions* into the directory the candidate runs in
+# (TriMul/baseline/solution.py is a complete Triton implementation;
+# MLA/baseline/mla_code_*.py are worked solutions). They are not copied now, and
+# neither are the papers/screenshots under references/ and assets/.
+frontier_eval
+verification
+baseline/task.py
+baseline/utils.py
+baseline/reference.py
+baseline/submission.py
+baseline/task.yml
+README.md
+README_zh-CN.md
+Task.md
+Task_zh-CN.md

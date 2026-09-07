@@ -15,12 +15,39 @@ TASK_DIR = Path(__file__).resolve().parents[1]
 if str(TASK_DIR) not in sys.path:
     sys.path.insert(0, str(TASK_DIR))
 
-from baseline.init import solve as solve_baseline  # noqa: E402
+# The candidate now runs in its own subprocess and writes submission.json, so
+# we never exec_module/import it into this process. Bring in the isolation
+# helper from the shared location; it sits outside any benchmark dir so a
+# copy_files.txt of "." cannot drag it into the sandbox. The repo root is
+# located via the env var the harness sets, falling back to walking up.
+def _find_repo_root() -> Path:
+    env_root = (__import__("os").environ.get("FRONTIER_ENGINEERING_ROOT") or "").strip()
+    if env_root:
+        return Path(env_root).expanduser().resolve()
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "benchmarks").is_dir() and (parent / "frontier_eval").is_dir():
+            return parent
+    raise RuntimeError("could not locate repo root for disruption_eoqd evaluator")
+
+
+_REPO = _find_repo_root()
+if str(_REPO / "benchmarks" / "_shared") not in sys.path:
+    sys.path.insert(0, str(_REPO / "benchmarks" / "_shared"))
+import candidate_sandbox as sandbox  # noqa: E402
+
 from verification.reference import solve as solve_reference  # noqa: E402
 
 
 def clip(x: float) -> float:
-    return max(0.0, min(1.0, float(x)))
+    """NaN-safe clip to [0, 1] (max/min with NaN silently pass NaN through)."""
+    xf = float(x)
+    if not math.isfinite(xf):
+        return 0.0
+    return max(0.0, min(1.0, xf))
+
+
+def classic_eoq(fixed_cost: float, holding_cost: float, demand_rate: float) -> float:
+    return math.sqrt(2.0 * fixed_cost * demand_rate / holding_cost)
 
 
 def simulate_q_policy(
@@ -159,6 +186,81 @@ def score_solution(solution_q: float, q_baseline: float, cfg: dict):
     }
 
 
+class _Validation:
+    """Strict, scorer-owned checks on the candidate's reported order quantity.
+
+    ``q_classic`` -- the scoring anchor used as the denominator for cost and
+    risk scores -- is *not* part of the candidate's output. It is computed
+    here from the fixed cfg (see ``main``), so a candidate cannot shrink it to
+    inflate its own relative improvement (the historical exploit: reporting
+    q_classic=1.0 alongside a normal Q saturated both scores to 1.0).
+    """
+
+    MAX_Q = 1.0e6
+
+    def __init__(self) -> None:
+        self.errors: list[str] = []
+
+    def fail(self, message: str) -> None:
+        self.errors.append(message)
+
+    def validate(self, solution: dict) -> bool:
+        if not isinstance(solution, dict):
+            self.fail("submission must be a JSON object")
+            return False
+
+        q = solution.get("order_quantity")
+        if isinstance(q, bool) or not isinstance(q, (int, float)):
+            self.fail("order_quantity must be a number")
+            return False
+        qf = float(q)
+        if not math.isfinite(qf):
+            self.fail("order_quantity must be finite")
+            return False
+        if qf <= 0.0:
+            self.fail(f"order_quantity must be positive, got {qf}")
+            return False
+        if qf > self.MAX_Q:
+            self.fail(f"order_quantity too large: {qf} > {self.MAX_Q}")
+            return False
+
+        return not self.errors
+
+
+def run_candidate(candidate_path: Path, cfg: dict) -> tuple[float | None, str]:
+    """Run the candidate in a subprocess and return (order_quantity, error)."""
+    try:
+        run = sandbox.run_candidate_isolated(
+            candidate_path,
+            inputs={"config.json": json.dumps(cfg).encode("utf-8")},
+            expected_outputs=("submission.json",),
+            timeout_s=60,
+            # Copy the candidate into the sandbox and run it from there, so
+            # sys.path[0] and __file__ both stay inside the throwaway workdir.
+            # Running in place would leave __file__ pointing at
+            # <task>/baseline/init.py, from which an archived candidate walked
+            # up to read ../verification/reference.py.
+            copy_into_workdir=True,
+        )
+    except sandbox.InvalidSubmissionError as exc:
+        return None, str(exc)
+    if run.timed_out:
+        return None, "candidate timed out"
+    if run.returncode != 0:
+        return None, f"candidate exited non-zero ({run.returncode})"
+
+    try:
+        submission = sandbox.load_json_output(run)
+    except sandbox.InvalidSubmissionError as exc:
+        return None, str(exc)
+
+    validator = _Validation()
+    if not validator.validate(submission):
+        return None, "; ".join(validator.errors)
+
+    return float(submission["order_quantity"]), None
+
+
 def main() -> None:
     output_dir = TASK_DIR / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -172,14 +274,35 @@ def main() -> None:
         "recovery_rate": 0.35,
     }
 
-    q_classic, q_manual, safety_multiplier = solve_baseline(cfg)
+    # The scoring anchor is always computed by the evaluator, never taken from
+    # the candidate: this is the value a candidate previously overrode.
+    q_classic = classic_eoq(cfg["fixed_cost"], cfg["holding_cost"], cfg["demand_rate"])
+
+    candidate_path = TASK_DIR / "baseline" / "init.py"
+    q_manual, error_message = run_candidate(candidate_path, cfg)
+
+    if q_manual is None:
+        comparison = {
+            "task": "disruption_eoqd",
+            "baseline_final_score": 0.0,
+            "reference_final_score": 0.0,
+            "gap_reference_minus_baseline": 0.0,
+            "winner": "reference",
+            "candidate_error": error_message,
+        }
+        (output_dir / "comparison.json").write_text(
+            json.dumps(comparison, indent=2), encoding="utf-8"
+        )
+        print(f"Candidate rejected: {error_message}")
+        return
+
     q_reference = solve_reference(cfg)
 
     baseline_result = {
         "task": "disruption_eoqd",
         "method": "baseline",
         "algorithm": "classic EOQ with manual disruption multiplier",
-        "safety_multiplier": safety_multiplier,
+        "safety_multiplier": q_manual / q_classic,
         **score_solution(q_manual, q_classic, cfg),
     }
     reference_result = {

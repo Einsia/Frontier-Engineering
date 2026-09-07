@@ -13,8 +13,30 @@ TASK_DIR = Path(__file__).resolve().parents[1]
 if str(TASK_DIR) not in sys.path:
     sys.path.insert(0, str(TASK_DIR))
 
-from baseline.init import solve as solve_baseline  # noqa: E402
+# The candidate now runs in its own subprocess and writes submission.json, so
+# we never exec_module/import it into this process. Bring in the isolation
+# helper from the shared location; it sits outside any benchmark dir so a
+# copy_files.txt of "." cannot drag it into the sandbox. The repo root is
+# located via the env var the harness sets, falling back to walking up.
+def _find_repo_root() -> Path:
+    env_root = (__import__("os").environ.get("FRONTIER_ENGINEERING_ROOT") or "").strip()
+    if env_root:
+        return Path(env_root).expanduser().resolve()
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "benchmarks").is_dir() and (parent / "frontier_eval").is_dir():
+            return parent
+    raise RuntimeError("could not locate repo root for tree_gsm_safety_stock evaluator")
+
+
+_REPO = _find_repo_root()
+if str(_REPO / "benchmarks" / "_shared") not in sys.path:
+    sys.path.insert(0, str(_REPO / "benchmarks" / "_shared"))
+import candidate_sandbox as sandbox  # noqa: E402
+
 from verification.reference import build_tree, solve as solve_reference  # noqa: E402
+
+NODE_IDS = (1, 2, 3, 4)
+MAX_CST = 50
 
 
 def clip(x: float) -> float:
@@ -69,11 +91,123 @@ def score_solution(solution_cst: dict[int, int]):
     }
 
 
+class _Validation:
+    """Strict, scorer-owned checks on the candidate's reported CST.
+
+    The historical exploit here was a ``dict`` subclass that used
+    ``inspect.stack()`` to hand back a compliant CST to the SLA check and a
+    more aggressive CST to the cost function -- one "solution" wearing two
+    faces. Running the candidate in a subprocess and reading back only JSON
+    already makes that attack impossible (JSON has no notion of a class or a
+    call stack); what remains here is normalizing the parsed JSON into a
+    plain ``{int: int}`` dict (JSON object keys are always strings) and
+    bounding the values so a candidate cannot smuggle in a CST that blows up
+    or dominates ``net_lead_time``.
+    """
+
+    def __init__(self) -> None:
+        self.errors: list[str] = []
+
+    def fail(self, message: str) -> None:
+        self.errors.append(message)
+
+    def validate_and_normalize(self, submission: dict) -> dict[int, int] | None:
+        if not isinstance(submission, dict):
+            self.fail("submission must be a JSON object")
+            return None
+
+        raw_cst = submission.get("cst")
+        if not isinstance(raw_cst, dict):
+            self.fail("submission['cst'] must be a JSON object")
+            return None
+
+        normalized: dict[int, int] = {}
+        for key, value in raw_cst.items():
+            try:
+                node_id = int(key)
+            except (TypeError, ValueError):
+                self.fail(f"cst key {key!r} is not an integer node id")
+                continue
+            if isinstance(value, bool) or not isinstance(value, int):
+                self.fail(f"cst[{key!r}] must be an integer, got {value!r}")
+                continue
+            if value < 0 or value > MAX_CST:
+                self.fail(f"cst[{key!r}]={value} out of range [0, {MAX_CST}]")
+                continue
+            normalized[node_id] = int(value)
+
+        if self.errors:
+            return None
+
+        if set(normalized) != set(NODE_IDS):
+            self.fail(f"cst must have exactly keys {sorted(NODE_IDS)}, got {sorted(normalized)}")
+            return None
+
+        return normalized
+
+
+def run_candidate(candidate_path: Path) -> tuple[dict[int, int] | None, str]:
+    """Run the candidate in a subprocess and return (cst, error_message)."""
+    try:
+        run = sandbox.run_candidate_isolated(
+            candidate_path,
+            expected_outputs=("submission.json",),
+            timeout_s=60,
+            # Copy the candidate into the sandbox and run it from there, so
+            # sys.path[0] and __file__ both stay inside the throwaway workdir.
+            # Running in place would leave __file__ pointing at
+            # <task>/baseline/init.py, from which an archived candidate walked
+            # up to read ../verification/reference.py.
+            copy_into_workdir=True,
+        )
+    except sandbox.InvalidSubmissionError as exc:
+        return None, str(exc)
+    if run.timed_out:
+        return None, "candidate timed out"
+    if run.returncode != 0:
+        return None, f"candidate exited non-zero ({run.returncode})"
+
+    try:
+        submission = sandbox.load_json_output(run)
+    except sandbox.InvalidSubmissionError as exc:
+        return None, str(exc)
+
+    validator = _Validation()
+    cst = validator.validate_and_normalize(submission)
+    if cst is None:
+        return None, "; ".join(validator.errors)
+
+    nominal = build_tree(1.0)
+    try:
+        solution_cost_from_cst(nominal, cst)
+    except Exception as exc:  # infeasible CST (e.g. negative net lead time)
+        return None, f"cst is infeasible: {exc}"
+
+    return cst, None
+
+
 def main() -> None:
     output_dir = TASK_DIR / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    baseline_solution = solve_baseline()
+    candidate_path = TASK_DIR / "baseline" / "init.py"
+    baseline_solution, error_message = run_candidate(candidate_path)
+
+    if baseline_solution is None:
+        comparison = {
+            "task": "tree_gsm_safety_stock",
+            "baseline_final_score": 0.0,
+            "reference_final_score": 0.0,
+            "gap_reference_minus_baseline": 0.0,
+            "winner": "reference",
+            "candidate_error": error_message,
+        }
+        (output_dir / "comparison.json").write_text(
+            json.dumps(comparison, indent=2), encoding="utf-8"
+        )
+        print(f"Candidate rejected: {error_message}")
+        return
+
     reference_solution = solve_reference(build_tree(1.0))
 
     baseline_result = {

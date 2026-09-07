@@ -176,7 +176,10 @@ def run_candidate(candidate_path: Path) -> tuple[dict | None, str]:
             candidate_path,
             expected_outputs=("submission.json",),
             timeout_s=60,
-            copy_into_workdir=False,  # candidate lives at baseline/init.py in task tree
+            # Copy the candidate into the sandbox: running it in place leaves
+            # __file__ pointing at the task tree, so ../verification/reference.py
+            # stays readable -- the exact path an archived submission used.
+            copy_into_workdir=True,
         )
     except sandbox.InvalidSubmissionError as exc:
         return None, str(exc)

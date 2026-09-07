@@ -53,17 +53,17 @@ def _run_evaluator() -> dict:
 
 @pytest.fixture()
 def restore_candidate():
+    """Snapshot and restore the files a case may touch.
+
+    Uses a plain snapshot rather than `git checkout` so the test never runs git
+    against a tree someone else may be working in.
+    """
+    output_dir = TASK_DIR / "output"
+    saved = {p: p.read_bytes() for p in output_dir.glob("*.json")}
     yield
     CANDIDATE.write_text(HONEST, encoding="utf-8")
-    # Reset regenerated comparison artifacts so we never commit them.
-    import subprocess as sp
-
-    sp.run(
-        ["git", "checkout", "--", str(TASK_DIR / "output")],
-        cwd=str(REPO_ROOT),
-        check=False,
-        capture_output=True,
-    )
+    for path, blob in saved.items():
+        path.write_bytes(blob)
 
 
 def test_honest_candidate_scores_published_value(restore_candidate) -> None:
@@ -78,3 +78,32 @@ def test_negative_cycle_is_rejected(restore_candidate) -> None:
     comparison = _run_evaluator()
     assert comparison["baseline_final_score"] == 0.0
     assert "positive" in comparison["candidate_error"]
+
+
+def test_candidate_cannot_read_the_reference_solution() -> None:
+    """Running in place would leave ../verification/reference.py readable.
+
+    An archived submission for this domain walked exactly that path, so the
+    evaluator must copy the candidate out of the task tree before running it.
+    """
+    sys.path.insert(0, str(REPO_ROOT / "benchmarks" / "_shared"))
+    import candidate_sandbox as cs
+
+    probe_src = (
+        "import json, pathlib\n"
+        "ref = pathlib.Path(__file__).resolve().parents[1] / 'verification' / 'reference.py'\n"
+        "pathlib.Path('submission.json').write_text("
+        "json.dumps({'reference_readable': ref.is_file()}))\n"
+    )
+    probe = TASK_DIR / "baseline" / "_leak_probe.py"
+    probe.write_text(probe_src, encoding="utf-8")
+    try:
+        run = cs.run_candidate_isolated(
+            probe,
+            expected_outputs=("submission.json",),
+            timeout_s=30,
+            copy_into_workdir=True,
+        )
+        assert cs.load_json_output(run)["reference_readable"] is False
+    finally:
+        probe.unlink(missing_ok=True)

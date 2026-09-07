@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -13,8 +14,29 @@ TASK_DIR = Path(__file__).resolve().parents[1]
 if str(TASK_DIR) not in sys.path:
     sys.path.insert(0, str(TASK_DIR))
 
-from baseline.init import solve as solve_baseline  # noqa: E402
+# The candidate now runs in its own subprocess and writes submission.json, so
+# we never exec_module/import it into this process. Bring in the isolation
+# helper from the shared location; it sits outside any benchmark dir so a
+# copy_files.txt of "." cannot drag it into the sandbox. The repo root is
+# located via the env var the harness sets, falling back to walking up.
+def _find_repo_root() -> Path:
+    env_root = (__import__("os").environ.get("FRONTIER_ENGINEERING_ROOT") or "").strip()
+    if env_root:
+        return Path(env_root).expanduser().resolve()
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "benchmarks").is_dir() and (parent / "frontier_eval").is_dir():
+            return parent
+    raise RuntimeError("could not locate repo root for finite_horizon_dp evaluator")
+
+
+_REPO = _find_repo_root()
+if str(_REPO / "benchmarks" / "_shared") not in sys.path:
+    sys.path.insert(0, str(_REPO / "benchmarks" / "_shared"))
+import candidate_sandbox as sandbox  # noqa: E402
+
 from verification.reference import solve as solve_reference  # noqa: E402
+
+MAX_LEVEL = 1.0e6
 
 
 def clip(x: float) -> float:
@@ -119,6 +141,96 @@ def score_solution(policy_kind: str, cfg: dict, s_levels, S_levels):
     }
 
 
+class _Validation:
+    """Strict, scorer-owned checks on the candidate's reported (s, S) policy."""
+
+    def __init__(self, num_periods: int) -> None:
+        self.num_periods = num_periods
+        self.errors: list[str] = []
+
+    def fail(self, message: str) -> None:
+        self.errors.append(message)
+
+    def _validate_level_list(self, name: str, values) -> list[float] | None:
+        """Validate a level list, returning the entries with their original
+        numeric types (an int stays an int) so the echoed policy in the result
+        JSON matches what the candidate actually submitted."""
+        if not isinstance(values, list) or len(values) != self.num_periods:
+            self.fail(f"{name} must be a list of {self.num_periods} numbers")
+            return None
+        out = []
+        for v in values:
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                self.fail(f"{name} entries must be numbers, got {v!r}")
+                return None
+            vf = float(v)
+            if not math.isfinite(vf):
+                self.fail(f"{name} entries must be finite, got {v!r}")
+                return None
+            if vf < 0.0 or vf > MAX_LEVEL:
+                self.fail(f"{name} entries must be in [0, {MAX_LEVEL}], got {vf}")
+                return None
+            out.append(v)
+        return out
+
+    def validate(self, submission: dict) -> tuple[list[float], list[float]] | None:
+        if not isinstance(submission, dict):
+            self.fail("submission must be a JSON object")
+            return None
+
+        s_levels = self._validate_level_list("reorder_points", submission.get("reorder_points"))
+        S_levels = self._validate_level_list("order_up_to_levels", submission.get("order_up_to_levels"))
+        if s_levels is None or S_levels is None:
+            return None
+
+        for t, (s_t, S_t) in enumerate(zip(s_levels, S_levels)):
+            if s_t > S_t:
+                self.fail(f"reorder_points[{t}]={s_t} must be <= order_up_to_levels[{t}]={S_t}")
+                return None
+
+        return s_levels, S_levels
+
+
+def run_candidate(candidate_path: Path, cfg: dict) -> tuple[tuple[list[float], list[float]] | None, str]:
+    """Run the candidate in a subprocess and return ((s, S), error_message)."""
+    candidate_cfg = {
+        "num_periods": cfg["num_periods"],
+        "demand_mean": cfg["demand_mean"],
+        "demand_sd": cfg["demand_sd"],
+    }
+    try:
+        run = sandbox.run_candidate_isolated(
+            candidate_path,
+            inputs={"config.json": json.dumps(candidate_cfg).encode("utf-8")},
+            expected_outputs=("submission.json",),
+            timeout_s=60,
+            # Copy the candidate into the sandbox and run it from there, so
+            # sys.path[0] and __file__ both stay inside the throwaway workdir.
+            # Running in place would leave __file__ pointing at
+            # <task>/baseline/init.py, from which an archived candidate walked
+            # up to read ../verification/reference.py.
+            copy_into_workdir=True,
+        )
+    except sandbox.InvalidSubmissionError as exc:
+        return None, str(exc)
+    if run.timed_out:
+        return None, "candidate timed out"
+    if run.returncode != 0:
+        return None, f"candidate exited non-zero ({run.returncode})"
+
+    try:
+        submission = sandbox.load_json_output(run)
+    except sandbox.InvalidSubmissionError as exc:
+        return None, str(exc)
+
+    validator = _Validation(cfg["num_periods"])
+    policy = validator.validate(submission)
+    if policy is None:
+        return None, "; ".join(validator.errors)
+
+    return policy, None
+
+
 def main() -> None:
     output_dir = TASK_DIR / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -137,7 +249,25 @@ def main() -> None:
         "baseline_order_up_to": 85.0,
     }
 
-    s_manual, S_manual = solve_baseline(cfg["demand_mean"], cfg["demand_sd"])
+    candidate_path = TASK_DIR / "baseline" / "init.py"
+    policy, error_message = run_candidate(candidate_path, cfg)
+
+    if policy is None:
+        comparison = {
+            "task": "finite_horizon_dp",
+            "baseline_final_score": 0.0,
+            "reference_final_score": 0.0,
+            "gap_reference_minus_baseline": 0.0,
+            "winner": "reference",
+            "candidate_error": error_message,
+        }
+        (output_dir / "comparison.json").write_text(
+            json.dumps(comparison, indent=2), encoding="utf-8"
+        )
+        print(f"Candidate rejected: {error_message}")
+        return
+
+    s_manual, S_manual = policy
     s_ref, S_ref, dp_expected_cost = solve_reference(cfg)
 
     baseline_result = {

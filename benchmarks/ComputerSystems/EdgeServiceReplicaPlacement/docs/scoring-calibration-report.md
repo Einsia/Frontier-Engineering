@@ -159,7 +159,7 @@ an engineering-preference change, not a two-percent relative perturbation.
 | tail signal | all calibration policies exactly 0 | below-180 values clipped | normalize P99 continuously by median configured SLO | nonzero 0.18–0.27 mean components; raw metrics unchanged |
 | compute clipping | 13.95 cost normalized to 2.0 | cap below observed extreme | cap 3.0 | 13.95 normalizes to 2.325; full policies no longer win |
 | bandwidth clipping | traffic above 2 GB/scenario free after cap | cap compressed remote-routing differences | cap 3.0 | more continuous penalty; aggressive remote policy remains low |
-| calibration ranking | weak 76.1354 < reasonable 76.4882 < strong 77.4852 | old normalization | no ranking-targeted tuning | strong 74.4628 > weak 74.0766 > reasonable 73.9434, reflecting explicit trade-offs |
+| calibration ranking | pre-correction scores (invalidated) | old normalization | no ranking-targeted tuning | strong 74.4628 > weak 74.0766 > reasonable 73.9434, reflecting explicit trade-offs |
 
 The final ranking is not encoded as a required test. Tests require valid, deterministic,
 distinct calibration policies rather than forcing a subjective preference ordering.

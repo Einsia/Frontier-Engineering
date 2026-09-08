@@ -58,7 +58,7 @@ Determinism check
 
 Adversarial/unit suite
   command: python -m pytest benchmarks/ComputerSystems/EdgeServiceReplicaPlacement/verification -q
-  result: 36 passed in 9.95 s; exit 0; command wall time 10.78 s
+  result: 36 passed in 11.44 s; exit 0; command wall time 12.56 s
 
 Multi-timestep tiny oracle
   command: python benchmarks/ComputerSystems/EdgeServiceReplicaPlacement/verification/tiny_oracle.py
@@ -69,25 +69,27 @@ Multi-timestep tiny oracle
     compute=0.0916666667, bandwidth=0.0, recovery=0.0
   combined_score: 96.62493678284117
   independent oracle and production evaluator matched exactly
-  command wall time: 0.52 s; exit 0
+  command wall time: 0.26 s; exit 0
 
 Direct evaluator
   valid=true; 10/10 scenarios; score=73.9434
-  command wall time: 1.96 s; exit 0
+  command wall time: 1.31 s; exit 0
 
 frontier_eval/run_eval.sh
   valid=true; 10/10 scenarios; score=73.9434
-  command wall time: 2.22 s; exit 0
+  command wall time: 1.68 s; exit 0
 
 Unified zero-iteration
   valid=1; benchmark_returncode=0; score=73.9434
-  benchmark runtime_s=2.8343; complete command wall time=5.52 s; exit 0
+  benchmark runtime_s=3.0958; complete command wall time=6.17 s; exit 0
   Windows-specific invocation used Git Bash plus an explicit existing Python 3.12
   executable. No machine-specific absolute path is stored in task metadata.
 
 Metadata/readonly audit
-  repository audit command exited 0 in non-strict mode. It printed warnings for existing
+  repository audit command exited 0 in standard mode. It printed warnings for existing
   tasks elsewhere in the repository; EdgeServiceReplicaPlacement was not listed.
+  Strict mode additionally treats repository-wide optional recommendations as failures;
+  it is not used as the task pass criterion.
 
 Scoring sensitivity
   Each component weight was varied independently by -5%, -2%, +2%, and +5%, with
@@ -99,10 +101,20 @@ Agent optimization
   command: python -m frontier_eval task=unified
     task.benchmark=ComputerSystems/EdgeServiceReplicaPlacement
     algorithm=openevolve algorithm.iterations=10 [Windows runtime overrides]
-  result: NOT EXECUTED; exit 1 before iteration 0; command wall time 2.75 s
-  reason: OPENAI_API_KEY (or llm.api_key) is unavailable in this environment.
-  No optimization trajectory or learnability claim is made.
+  purpose: generative-optimization sanity check using an OpenAI-compatible LLM backend
+  parser success: 10/10 model responses
+  evaluator-valid candidates: 4/10
+  evaluator-invalid candidates: 6/10 due to candidate constraint violations
+  API timeouts: 0
+  initial score: 73.9434
+  handwritten strong calibration score: 74.4628
+  best evolved score: 74.6663
+  first and best improvement: iteration 6; remained best through iteration 10
+  best raw metrics: availability=0.995251, P99=47.237 ms,
+    SLO violation=0.027664, compute cost=4.342,
+    cross-region=1.027 GB, recovery=0.2 steps
+  The benchmark itself does not depend on the provider used for this local experiment.
+  This run is a sanity check, not evidence of general model performance.
 
 These values demonstrate a deterministic, executable benchmark and calibrated score.
-They do not claim production validity. A real multi-iteration Agent run remains required
-by the current PR-readiness gate.
+They do not claim production validity or comprehensive model performance.

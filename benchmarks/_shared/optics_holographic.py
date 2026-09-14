@@ -18,7 +18,7 @@ by returning a system whose ``measure_at_z`` was a lookup table::
 "predicted" and "target" then agreed to machine precision and the run scored
 0.9999999999 while the runner-up scored 0.72.
 
-The fix is a contract change, not a sandbox: *no callable ever crosses the
+The scorer consumes only design arrays: *no callable ever crosses the
 boundary.* The scorer owns the problem specification (``verification/problem_spec.py``
 in each task), owns the optical model, and owns the metrics. The candidate runs
 alone in a subprocess and hands back one thing -- the decision variables, i.e.
@@ -33,9 +33,8 @@ method on an object the scorer constructs after the candidate is already dead.
 Invariants callers must preserve (mirrors ``candidate_sandbox``):
 
 1. Import this module, ``torch``/``torchoptics``, the task's ``problem_spec`` and
-   the reference solver *before* running the candidate. The candidate shares a
-   filesystem with the scorer; anything imported afterwards could be code it
-   just wrote.
+   the reference solver before running the candidate. The candidate has a
+   restricted filesystem and cannot access the scorer or its private inputs.
 2. Never read a score, metric, loss or field out of the candidate's submission.
    Only the decision variables are consumed, and only after ``validate_array``.
 3. A crash, a timeout, a missing/unreadable ``submission.npz`` or an array that
@@ -239,8 +238,8 @@ def run_candidate_arrays(
     blob = json.dumps(problem, indent=2, default=_json_default, allow_nan=False).encode("utf-8")
 
     try:
-        run = sandbox.run_candidate_isolated(
-            Path(candidate_path),
+        run = sandbox.run_optics_candidate(
+            Path(candidate_path), 'holographic',
             inputs={PROBLEM_NAME: blob},
             expected_outputs=(SUBMISSION_NAME,),
             timeout_s=timeout_s,

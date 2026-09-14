@@ -30,6 +30,8 @@ bash scripts/env/setup_v1_task_envs.sh
 
 Important: this only prepares the framework and the repo-owned runtime environments. Many benchmarks still require task-local dependencies, external assets, Docker, or third-party repos.
 
+Candidate subprocess isolation requires Linux user namespaces and `bubblewrap` (`bwrap`; on Debian/Ubuntu: `sudo apt-get install bubblewrap`). Restricted candidates receive only their declared inputs and have no network; missing isolation support fails the evaluation instead of running without isolation.
+
 Before running a benchmark, always read:
 
 1. `benchmarks/<Domain>/README*.md`

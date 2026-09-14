@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import ast
 import contextlib
 import hmac
 import importlib.util
@@ -27,13 +26,8 @@ TASK_IDS: tuple[str, ...] = (
     "YJ_03",
 )
 
-# The candidate submission is *data*, not a program. It is parsed with a
-# non-executing literal reader (see `_load_submission`), so nothing inside it
-# ever runs -- neither in this orchestrator process nor in the per-task child
-# processes. These bounds keep the parser itself cheap and non-pathological.
+# Bound source and serialized submission size in the candidate subprocess.
 MAX_CANDIDATE_BYTES = 8 * 1024 * 1024
-MAX_LITERAL_DEPTH = 80
-MAX_LITERAL_NODES = 2_000_000
 
 SUBMISSION_NAMES: tuple[str, ...] = ("SUBMISSION", "submission", "ENGDESIGN_SUBMISSION")
 
@@ -45,7 +39,7 @@ SCORE_MAX = 100.0
 
 
 class SubmissionFormatError(ValueError):
-    """Raised when the candidate file is not a readable literal submission."""
+    """Raised when the candidate file is not a readable submission."""
 
 
 def _tail(text: str, limit: int = 8000) -> str:
@@ -136,127 +130,23 @@ def _load_module(module_name: str, module_path: Path, extra_paths: list[Path]) -
             sys.modules[module_name] = previous_module
 
 
-# ---------------------------------------------------------------------------
-# Non-executing submission reader
-# ---------------------------------------------------------------------------
-#
-# The submission is a pure data payload for seven independent sub-tasks. It used
-# to be loaded with `runpy.run_path`, which granted arbitrary code execution to
-# whatever produced the file -- both here in the orchestrator (which then spawns
-# the per-task children, parses their results and writes metrics.json) and again
-# inside every child. The reader below parses the file with `ast` and evaluates
-# only literal nodes, so the file can no longer run anything at all.
-#
-# Deliberately NOT used: `runpy`, `exec`, `eval`, `compile`,
-# `importlib.util.spec_from_file_location(...).exec_module(...)`. Swapping
-# `runpy` for `exec_module` would only relocate the same primitive.
-
-
-def _static_eval(node: ast.AST, consts: dict[str, Any], depth: int = 0) -> Any:
-    """Evaluate a *literal* AST node. Never executes candidate code.
-
-    Supported: constants, tuple/list/set/dict displays, unary +/- on numbers,
-    and references to top-level names that were themselves bound to literals
-    earlier in the same file. Anything else (calls, attributes, subscripts,
-    comprehensions, f-strings, imports, ...) is rejected.
-    """
-    if depth > MAX_LITERAL_DEPTH:
+def _validate_submission_payload(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise SubmissionFormatError("SUBMISSION must be a JSON-compatible dict")
+    try:
+        json.dumps(value, allow_nan=False)
+    except (ValueError, TypeError, RecursionError) as exc:
+        raise SubmissionFormatError(f"Invalid submission data: {exc}") from exc
+    missing = [t for t in TASK_IDS if t not in value]
+    if missing:
         raise SubmissionFormatError(
-            f"Submission literal nesting exceeds {MAX_LITERAL_DEPTH} levels."
+            f"SUBMISSION is missing required task keys: {', '.join(missing)}"
         )
-
-    if isinstance(node, ast.Constant):
-        return node.value
-    if isinstance(node, ast.Tuple):
-        return tuple(_static_eval(e, consts, depth + 1) for e in node.elts)
-    if isinstance(node, ast.List):
-        return [_static_eval(e, consts, depth + 1) for e in node.elts]
-    if isinstance(node, ast.Set):
-        return {_static_eval(e, consts, depth + 1) for e in node.elts}
-    if isinstance(node, ast.Dict):
-        out: dict[Any, Any] = {}
-        for key_node, value_node in zip(node.keys, node.values):
-            if key_node is None:
-                raise SubmissionFormatError(
-                    "Dict unpacking (`**other`) is not allowed in a submission literal."
-                )
-            out[_static_eval(key_node, consts, depth + 1)] = _static_eval(
-                value_node, consts, depth + 1
-            )
-        return out
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
-        operand = _static_eval(node.operand, consts, depth + 1)
-        if not isinstance(operand, (int, float, complex)) or isinstance(operand, bool):
-            raise SubmissionFormatError("Unary +/- is only allowed on numeric literals.")
-        return operand if isinstance(node.op, ast.UAdd) else -operand
-    if isinstance(node, ast.Name):
-        if node.id in consts:
-            return consts[node.id]
-        raise SubmissionFormatError(
-            f"Name `{node.id}` is not a top-level literal constant defined earlier "
-            "in the submission file. Submissions must be plain data: inline the "
-            "value, or bind it to a module-level literal (no function calls)."
-        )
-
-    raise SubmissionFormatError(
-        f"Unsupported expression `{type(node).__name__}` in submission literal. "
-        "The submission file is parsed as data only -- function calls, attribute "
-        "access, comprehensions and f-strings are not evaluated."
-    )
-
-
-def _collect_literal_consts(tree: ast.Module) -> dict[str, Any]:
-    """Best-effort table of top-level `NAME = <literal>` bindings, in file order."""
-    consts: dict[str, Any] = {}
-    for stmt in tree.body:
-        targets: list[ast.expr]
-        if isinstance(stmt, ast.Assign):
-            targets = list(stmt.targets)
-            value = stmt.value
-        elif isinstance(stmt, ast.AnnAssign) and stmt.value is not None:
-            targets = [stmt.target]
-            value = stmt.value
-        else:
-            continue
-        names = [t.id for t in targets if isinstance(t, ast.Name)]
-        if not names:
-            continue
-        try:
-            resolved = _static_eval(value, consts)
-        except SubmissionFormatError:
-            # Non-literal helpers (functions, calls) simply stay unresolvable.
-            continue
-        for name in names:
-            consts[name] = resolved
-    return consts
-
-
-def _find_submission_node(tree: ast.Module) -> tuple[str, ast.expr]:
-    found: tuple[str, ast.expr] | None = None
-    for stmt in tree.body:
-        if isinstance(stmt, ast.Assign):
-            targets, value = list(stmt.targets), stmt.value
-        elif isinstance(stmt, ast.AnnAssign) and stmt.value is not None:
-            targets, value = [stmt.target], stmt.value
-        else:
-            continue
-        for target in targets:
-            if isinstance(target, ast.Name) and target.id in SUBMISSION_NAMES:
-                found = (target.id, value)  # last top-level binding wins
-    if found is None:
-        raise SubmissionFormatError(
-            "Candidate must define a top-level dict literal named `SUBMISSION` "
-            "containing all EngDesign task payloads."
-        )
-    return found
+    return value
 
 
 def _load_submission(candidate_path: Path) -> dict[str, Any]:
-    """Read `SUBMISSION` from the candidate file without executing it.
-
-    `.json` candidates are read as JSON; anything else is parsed as a Python
-    source file from which only the literal `SUBMISSION` assignment is read.
-    """
+    """Read JSON directly or evaluate Python SUBMISSION in a restricted child."""
     if not candidate_path.is_file():
         raise SubmissionFormatError(f"Candidate file not found: {candidate_path}")
 
@@ -280,37 +170,43 @@ def _load_submission(candidate_path: Path) -> dict[str, Any]:
             for key in SUBMISSION_NAMES:
                 inner = payload.get(key)
                 if isinstance(inner, dict):
-                    return inner
-            return payload
+                    return _validate_submission_payload(inner)
+            return _validate_submission_payload(payload)
         raise SubmissionFormatError("Candidate JSON must contain a top-level object.")
 
-    try:
-        tree = ast.parse(text, filename=str(candidate_path))
-    except SyntaxError as exc:
-        raise SubmissionFormatError(f"Candidate file does not parse: {exc}") from exc
-
-    node_count = sum(1 for _ in ast.walk(tree))
-    if node_count > MAX_LITERAL_NODES:
-        raise SubmissionFormatError(
-            f"Candidate file is too complex ({node_count} AST nodes)."
-        )
-
-    consts = _collect_literal_consts(tree)
-    name, value_node = _find_submission_node(tree)
-    try:
-        value = _static_eval(value_node, consts)
-    except RecursionError as exc:
-        raise SubmissionFormatError(f"Submission literal is too deeply nested: {exc}") from exc
-
-    if not isinstance(value, dict):
-        raise SubmissionFormatError(f"`{name}` must be a dict literal, got {type(value).__name__}.")
-
-    missing = [t for t in TASK_IDS if t not in value]
-    if missing:
-        raise SubmissionFormatError(
-            f"`{name}` is missing required task keys: {', '.join(missing)}"
-        )
-    return value
+    shared = next((parent / "benchmarks" / "_shared" for parent in Path(__file__).resolve().parents
+                   if (parent / "benchmarks" / "_shared" / "candidate_sandbox.py").is_file()), None)
+    if shared is None:
+        raise SubmissionFormatError("candidate isolation helper not found")
+    if str(shared) not in sys.path:
+        sys.path.insert(0, str(shared))
+    import candidate_sandbox as sandbox
+    runner = """import json, runpy
+from pathlib import Path
+scope = runpy.run_path('candidate.py', run_name='engdesign_candidate')
+for name in ('SUBMISSION', 'submission', 'ENGDESIGN_SUBMISSION'):
+    if name in scope:
+        Path('submission.json').write_text(json.dumps(scope[name], allow_nan=False))
+        break
+else:
+    raise ValueError('Candidate must define SUBMISSION')
+"""
+    with tempfile.TemporaryDirectory(prefix="fe_engdesign_runner_") as tmp:
+        wrapper = Path(tmp) / "runner.py"
+        wrapper.write_text(runner)
+        try:
+            run = sandbox.run_candidate_isolated(
+                wrapper, inputs={"candidate.py": text.encode()},
+                expected_outputs=("submission.json",), timeout_s=60,
+                readonly_paths=(), env_allowlist=("PATH", "LANG", "LC_ALL"),
+                rlimits={"FSIZE": MAX_CANDIDATE_BYTES},
+            )
+            if not run.ok:
+                raise SubmissionFormatError(f"Candidate failed: {run.stderr_tail}")
+            value = sandbox.load_json_output(run)
+        except sandbox.InvalidSubmissionError as exc:
+            raise SubmissionFormatError(str(exc)) from exc
+    return _validate_submission_payload(value)
 
 
 def _normalize_payload(task_id: str, section: Any) -> dict[str, Any]:

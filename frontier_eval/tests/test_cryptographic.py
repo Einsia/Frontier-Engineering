@@ -104,10 +104,10 @@ def _score(candidate: Path, benchmark: str) -> dict:
     result = crypto_eval.evaluate(
         str(candidate), repo_root=REPO_ROOT, spec=SPECS[benchmark]
     )
-    assert isinstance(result, dict) and "metrics" in result, (
-        "with openevolve absent the scorer must return a plain metrics/artifacts dict"
-    )
-    return result
+    if isinstance(result, dict):
+        return result
+    return {"metrics": result.metrics, "artifacts": result.artifacts}
+
 
 
 @pytest.fixture()

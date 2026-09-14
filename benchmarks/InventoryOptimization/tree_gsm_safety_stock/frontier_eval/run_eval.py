@@ -146,7 +146,11 @@ def main() -> int:
         if candidate_score is None:
             error_message = "baseline_final_score is missing in output/comparison.json"
 
-    valid = 1.0 if proc.returncode == 0 and candidate_score is not None else 0.0
+    valid = 1.0 if (proc.returncode == 0 and candidate_score is not None
+                    and not comparison.get("candidate_error")
+                    and comparison.get("valid", True)) else 0.0
+    if comparison and comparison.get("candidate_error"):
+        error_message = str(comparison["candidate_error"])
     combined_score = float(candidate_score) if valid > 0 else 0.0
 
     metrics: dict[str, float] = {

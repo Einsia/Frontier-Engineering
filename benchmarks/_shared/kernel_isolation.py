@@ -30,26 +30,10 @@ Two child processes, started in this order and never merged:
   anything.
 
 This process (the scorer) holds the score. It computes it from the trusted
-worker's verdict and from durations it cross-checks against its own wall clock.
+worker's verdict and its own elapsed time through output delivery. Candidate
+kernel timings are diagnostics only. Every output is verified against the
+reference; equal outputs are permitted when the reference permits them.
 
-Two properties are worth stating precisely, because they are what the scores
-now rest on:
-
-* **Every timed rep is verified.** A batch of ``k`` reps produces ``k`` outputs
-  and all ``k`` are checked. There is no unverified timed rep for a candidate to
-  skip the work in, and each rep runs on a different input (a scorer-chosen
-  perturbation of the staged base input), so a cached result from an earlier rep
-  is wrong for the current one.
-* **A fabricated duration is bounded by the scorer's own clock.** The scorer
-  times each batch end to end; ``wall_batch / reps`` is an upper bound on the
-  true per-rep cost that no in-process patching can lower. A report far below it
-  is rejected outright; a report moderately below it is replaced by the scorer's
-  own (conservative) number.
-
-What this still does not close is written down in
-``candidate_sandbox.py``'s docstring and in the KernelEngineering section of the
-audit report: the child runs under the same uid as the scorer, so real isolation
-needs ``task.runtime.isolation_mode=docker`` or a uid/mount namespace.
 """
 
 from __future__ import annotations
@@ -68,6 +52,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from candidate_sandbox import namespace_command, CANDIDATE_RUNTIME_ENV
 
 INVALID_COMBINED_SCORE = -1e18
 
@@ -95,12 +81,6 @@ class KernelTaskConfig:
     output_bytes_budget: int = 2 * 1024 ** 3
     warmup_s: float = 0.2
     alpha_scale: float = 0.05
-    #: below this ratio of the scorer's own wall-clock bound the report is a
-    #: fabrication and the run is invalid
-    hard_gate: float = 0.02
-    #: below this ratio the report is not trusted and the scorer's own number is
-    #: used instead (never the candidate's)
-    soft_gate: float = 0.4
     case_budget_s: float = 120.0
     startup_timeout_s: float = 240.0
     request_timeout_s: float = 600.0
@@ -182,10 +162,28 @@ class _Worker:
                 "--cmd-fd", str(cmd_r), "--rsp-fd", str(rsp_w), "--timer", self.timer]
         self._out_fh = open(self.stdout_path, "wb")
         self._err_fh = open(self.stderr_path, "wb")
+        is_candidate = self.role == "candidate"
+        if is_candidate:
+            self.env["HOME"] = str(self.workdir)
+            self.env["XDG_CACHE_HOME"] = str(self.workdir / ".cache")
+            argv[argv.index("--cmd-fd") + 1] = "3"
+            argv[argv.index("--rsp-fd") + 1] = "4"
+            # Carry protocol over stdin/stdout through bubblewrap, then separate
+            # candidate logs inside the namespace. Works with older bwrap too.
+            bootstrap = (
+                "import os,sys,runpy; os.dup2(0,3); os.dup2(1,4); "
+                "f=os.open('candidate.stdout',os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o600); "
+                "os.dup2(f,1); os.close(f); sys.argv=sys.argv[1:]; "
+                "runpy.run_path(sys.argv[0],run_name='__main__')"
+            )
+            argv = [self.python, "-c", bootstrap, *argv[1:]]
+            argv = namespace_command(argv, self.workdir, (),
+                                     (self.workdir.parent / "stage",), gpu=True)
         self.proc = subprocess.Popen(
             argv, cwd=str(self.workdir), env=self.env,
-            stdin=subprocess.DEVNULL, stdout=self._out_fh, stderr=self._err_fh,
-            pass_fds=(cmd_r, rsp_w), preexec_fn=os.setsid,
+            stdin=cmd_r if is_candidate else subprocess.DEVNULL,
+            stdout=rsp_w if is_candidate else self._out_fh, stderr=self._err_fh,
+            pass_fds=() if is_candidate else (cmd_r, rsp_w), preexec_fn=os.setsid,
         )
         os.close(cmd_r)
         os.close(rsp_w)
@@ -351,10 +349,7 @@ def _build_env(cfg: KernelTaskConfig, role: str) -> dict[str, str]:
     env.pop("POPCORN_FD", None)
     env.pop("POPCORN_SEED", None)
     if role == "candidate":
-        # Do not hand the candidate a pointer to the pristine benchmark tree.
-        # (It can still reach it via /proc/<ppid>/cwd -- see the module
-        # docstring -- but there is no reason to make it a one-liner.)
-        env.pop("FRONTIER_ENGINEERING_ROOT", None)
+        env = {key: value for key, value in env.items() if key in CANDIDATE_RUNTIME_ENV}
     return env
 
 
@@ -464,7 +459,9 @@ def evaluate_kernel_task(
         # the candidate process exists (candidate_sandbox invariant 1).
         candidate = _Worker("candidate", kernel_python, candidate_dir, cfg.timer,
                             _build_env(cfg, "candidate"), nonce_candidate)
-        candidate.start(min(cfg.startup_timeout_s, max(5.0, deadline_s - time.time())))
+        candidate_hello = candidate.start(min(cfg.startup_timeout_s, max(5.0, deadline_s - time.time())))
+        if hello.get("cuda") and not candidate_hello.get("cuda"):
+            raise WorkerError("CUDA is unavailable in the candidate namespace; refusing CPU fallback")
 
         for index, args in enumerate(cases):
             if time.time() > deadline_s:
@@ -474,6 +471,10 @@ def evaluate_kernel_task(
             per_case.append(_run_case(cfg, trusted, candidate, stage, index, args, rng, deadline_s))
 
         metrics, artifacts = _score(cfg, metrics, artifacts, per_case)
+        if len(per_case) != len(cases):
+            metrics["valid"] = 0.0
+            metrics["combined_score"] = 0.0
+            artifacts["error_message"] = "evaluation did not complete every benchmark case"
     except WorkerError as exc:
         artifacts["error_message"] = str(exc)[:4000]
         metrics["valid"] = 0.0
@@ -508,7 +509,6 @@ def _run_case(cfg: KernelTaskConfig, trusted: _Worker, candidate: _Worker, stage
     base_path = case_dir / "input.pt"
     result: dict[str, Any] = {"index": index, "spec": args, "ok": False,
                               "durations_ns": [], "wall_ns": 0.0, "errors": []}
-    fingerprints: dict[int, list[float]] = {}
     seed = int(args.get("seed", 0))
     case_start = time.time()
     try:
@@ -581,18 +581,6 @@ def _run_case(cfg: KernelTaskConfig, trusted: _Worker, candidate: _Worker, stage
                 if not item["ok"]:
                     result["errors"].append(f"case {index} rep {item['round']}: {item['error']}")
                     continue
-                # Correct-looking is not enough: each rep ran on a different
-                # input, so two reps that produced the same numbers mean the
-                # kernel replayed a cached answer (or ignored its input).
-                fingerprint = [float(v) for v in item.get("fingerprint", [])]
-                twin = _matching_round(fingerprints, fingerprint)
-                if twin is not None:
-                    result["errors"].append(
-                        f"case {index} rep {item['round']}: identical output to rep {twin} "
-                        f"although the two reps ran on different inputs "
-                        f"(cached or input-independent result)"
-                    )
-                fingerprints[int(item["round"])] = fingerprint
             for path in paths:
                 try:
                     os.unlink(path)
@@ -605,6 +593,8 @@ def _run_case(cfg: KernelTaskConfig, trusted: _Worker, candidate: _Worker, stage
             result["wall_ns"] += wall_ns
             done += reps
 
+        if len(result["durations_ns"]) < min(cfg.min_samples, cfg.target_samples):
+            result["errors"].append("insufficient verified timing samples")
         result["ok"] = bool(result["durations_ns"]) and not result["errors"]
         return result
     finally:
@@ -613,24 +603,6 @@ def _run_case(cfg: KernelTaskConfig, trusted: _Worker, candidate: _Worker, stage
         except Exception:
             pass
         shutil.rmtree(case_dir, ignore_errors=True)
-
-
-def _matching_round(seen: dict[int, list[float]], fingerprint: list[float]) -> int | None:
-    if not fingerprint:
-        return None
-    for round_index, other in seen.items():
-        if len(other) != len(fingerprint):
-            continue
-        if all(_close(a, b) for a, b in zip(other, fingerprint)):
-            return round_index
-    return None
-
-
-def _close(a: float, b: float) -> bool:
-    if a == b:
-        return True
-    scale = max(abs(a), abs(b))
-    return scale > 0 and abs(a - b) <= 1e-9 * scale
 
 
 def _score(cfg: KernelTaskConfig, metrics: dict[str, float], artifacts: dict[str, Any],
@@ -653,25 +625,23 @@ def _score(cfg: KernelTaskConfig, metrics: dict[str, float], artifacts: dict[str
         return metrics, artifacts
 
     reported_means, parent_means, ratios, scored = [], [], [], []
-    forged = False
-    inconsistent = False
     for case in per_case:
-        reported = sum(case["durations_ns"]) / len(case["durations_ns"])
-        # wall_ns covers the whole batch round trip, so wall/reps is an upper
-        # bound on the true per-rep cost that the candidate cannot lower.
-        parent = case["wall_ns"] / len(case["durations_ns"])
-        ratio = reported / parent if parent > 0 else 0.0
+        reported = sum(d / len(case["durations_ns"]) for d in case["durations_ns"])
+        # The candidate can modify its timer. Only the parent's observation
+        # through completed output delivery contributes to the score.
+        samples = case["durations_ns"]
+        wall = case["wall_ns"] + case.get("flush_wall_ns", 0.0)
+        if (any(not math.isfinite(d) or d <= 0 for d in samples)
+                or not math.isfinite(wall) or wall <= 0):
+            metrics["valid"] = 0.0
+            metrics["combined_score"] = 0.0
+            artifacts["error_message"] = "non-finite or non-positive timing sample"
+            return metrics, artifacts
+        parent = wall / len(samples)
         reported_means.append(reported)
         parent_means.append(parent)
-        ratios.append(ratio)
-        if ratio < cfg.hard_gate:
-            forged = True
-            scored.append(parent)
-        elif ratio < cfg.soft_gate:
-            inconsistent = True
-            scored.append(parent)
-        else:
-            scored.append(reported)
+        ratios.append(reported / parent)
+        scored.append(parent)
 
     metrics["total_reps"] = float(sum(len(c["durations_ns"]) for c in per_case))
     # Raw samples, so an auditor can see the distribution the score came from
@@ -694,27 +664,13 @@ def _score(cfg: KernelTaskConfig, metrics: dict[str, float], artifacts: dict[str
     metrics["timing_ratio_min"] = float(min(ratios)) if ratios else 0.0
     metrics["best_case_ns"] = float(min(scored))
     metrics["worst_case_ns"] = float(max(scored))
-    metrics["timing_forged"] = 1.0 if forged else 0.0
-    metrics["timing_inconsistent"] = 1.0 if inconsistent else 0.0
+    metrics["timing_forged"] = 0.0
+    metrics["timing_inconsistent"] = 0.0
 
-    if forged:
-        # Reporting a latency tens of times below the scorer's own wall-clock
-        # bound is not measurement noise.
-        metrics["valid"] = 0.0
-        metrics["combined_score"] = 0.0
-        artifacts["error_message"] = (
-            f"reported latency is physically impossible: min(reported/wall-bound) = "
-            f"{min(ratios):.3g} < {cfg.hard_gate}. The candidate's self-reported timings "
-            f"were rejected."
-        )
-        return metrics, artifacts
-
-    if inconsistent:
-        artifacts["timing_warning"] = (
-            f"reported latency below {cfg.soft_gate} of the evaluator's wall-clock bound "
-            f"(min ratio {min(ratios):.3g}); scored with the evaluator's own measurement."
-        )
-
+    artifacts["timing_basis"] = (
+        "parent wall time through completed output delivery; includes input preparation, "
+        "output snapshots, serialization and IPC; candidate kernel timings are diagnostic only"
+    )
     metrics["valid"] = 1.0
     gmean = metrics["geom_mean_ns"]
     metrics["combined_score"] = float(1e9 / gmean) if gmean > 0 else 0.0

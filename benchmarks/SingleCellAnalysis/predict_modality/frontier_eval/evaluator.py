@@ -36,6 +36,11 @@ CANDIDATE_ENV_ALLOWLIST = (
     "MKL_NUM_THREADS",
     "OPENBLAS_NUM_THREADS",
     "NUMEXPR_NUM_THREADS",
+    "CUDA_VISIBLE_DEVICES",
+    "CUDA_DEVICE_ORDER",
+    "NVIDIA_VISIBLE_DEVICES",
+    "ROCR_VISIBLE_DEVICES",
+    "HIP_VISIBLE_DEVICES",
 )
 CANDIDATE_RLIMITS = {"FSIZE": 4 << 30, "NOFILE": 4096}
 
@@ -213,7 +218,14 @@ def evaluate(program_path: str, *, repo_root: Path | None = None) -> Any:
     missing = [name for name in CANDIDATE_INPUTS if not (dataset_dir / name).is_file()]
     artifacts["dataset_dir"] = str(dataset_dir)
     if missing:
-        artifacts["missing_inputs"] = ", ".join(missing)
+        # Downloads belong to the trusted evaluator; candidates have no network.
+        try:
+            for name in missing:
+                scorer._download(BASE_URL + name, dataset_dir / name)
+        except Exception as exc:
+            artifacts["error_message"] = f"could not prepare candidate inputs: {exc}"
+            metrics["runtime_s"] = float(time.time() - start)
+            return _wrap(metrics, artifacts)
 
     work_dir = Path(tempfile.mkdtemp(prefix="fe_predict_modality_")).resolve()
     try:
@@ -233,6 +245,8 @@ def evaluate(program_path: str, *, repo_root: Path | None = None) -> Any:
                 env_allowlist=CANDIDATE_ENV_ALLOWLIST,
                 rlimits=CANDIDATE_RLIMITS,
                 python=sys.executable,
+                readonly_paths=tuple(dataset_dir / name for name in CANDIDATE_INPUTS),
+                gpu=True,
             )
         except sandbox.InvalidSubmissionError as e:
             artifacts["error_message"] = f"prediction.h5ad not generated: {e}"

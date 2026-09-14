@@ -6,7 +6,7 @@ collects their results and writes metrics.json. These tests pin the three
 properties that keep that pipeline trustworthy:
 
 A. the orchestrator process never executes candidate-supplied code;
-B. the candidate file is read as data (literals), not run;
+B. Python submission builders run only in a restricted child;
 C. per-task results travel through an authenticated file, not child stdout.
 
 Every case builds a throwaway benchmark directory with seven stub task folders,
@@ -149,8 +149,8 @@ class TestHonestSubmissionStillScores:
         assert metrics["combined_score"] == pytest.approx(5.0)
 
 
-class TestCandidateCodeIsNeverExecuted:
-    """Problem A + B: neither the orchestrator nor the children run the file."""
+class TestCandidateCodeIsIsolated:
+    """Candidate effects stay inside its own restricted process."""
 
     def test_module_level_side_effect_does_not_happen(self, tmp_path: Path) -> None:
         bench = _make_benchmark(tmp_path)
@@ -166,12 +166,11 @@ class TestCandidateCodeIsNeverExecuted:
 
         _, metrics, _ = _run_eval(bench, candidate, tmp_path)
 
-        # The import + write are dead text: no side effect anywhere in the run
-        # (orchestrator process or any of the seven children).
+        # The candidate cannot write outside its staged filesystem.
         assert not marker.exists()
-        # ...and the literal payload is still read correctly.
-        assert metrics["combined_score"] == pytest.approx(3.0)
-        assert metrics["valid"] == 1.0
+        # Its uncaught forbidden write invalidates the submission.
+        assert metrics["combined_score"] == 0.0
+        assert metrics["valid"] == 0.0
 
     def test_orchestrator_survives_candidate_that_would_hijack_it(self, tmp_path: Path) -> None:
         """The pre-check at load time must not hand the orchestrator to the candidate."""
@@ -194,12 +193,11 @@ class TestCandidateCodeIsNeverExecuted:
         proc, metrics, artifacts = _run_eval(bench, candidate, tmp_path)
 
         assert proc.returncode == 0
-        assert metrics["combined_score"] == pytest.approx(1.0)
-        assert metrics["total_tasks"] == float(len(TASK_IDS))
-        # All seven children really ran.
-        assert sorted(artifacts["task_results"]) == sorted(TASK_IDS)
+        assert metrics["combined_score"] == 0.0
+        assert metrics["valid"] == 0.0
+        assert artifacts["error_message"]
 
-    def test_non_literal_submission_is_invalid_with_a_clear_error(self, tmp_path: Path) -> None:
+    def test_builder_missing_task_keys_is_invalid_with_a_clear_error(self, tmp_path: Path) -> None:
         bench = _make_benchmark(tmp_path)
         candidate = tmp_path / "engdesign_submission.py"
         candidate.write_text(
@@ -210,7 +208,19 @@ class TestCandidateCodeIsNeverExecuted:
 
         assert metrics["valid"] == 0.0
         assert metrics["combined_score"] == 0.0
-        assert "Unsupported expression `Call`" in artifacts["error_message"]
+        assert "missing required task keys" in artifacts["error_message"]
+
+    def test_functions_and_comprehensions_remain_legal(self, tmp_path: Path) -> None:
+        candidate = tmp_path / "program.py"
+        candidate.write_text("def build():\n    return {k: {'config': {}} for k in " + repr(TASK_IDS) + "}\nSUBMISSION = build()\n")
+        assert set(es._load_submission(candidate)) == set(TASK_IDS)
+
+    @pytest.mark.parametrize("source", ['{}', '{"AM_02": NaN}'])
+    def test_json_obeys_the_same_validation(self, tmp_path: Path, source: str) -> None:
+        candidate = tmp_path / "submission.json"
+        candidate.write_text(source)
+        with pytest.raises(es.SubmissionFormatError):
+            es._load_submission(candidate)
 
     def test_missing_task_key_is_invalid(self, tmp_path: Path) -> None:
         bench = _make_benchmark(tmp_path)
@@ -430,7 +440,7 @@ class TestRunEvalReturnCode:
 
 
 class TestShippedBaselineStaysReadable:
-    def test_repo_baseline_parses_as_literal_data(self) -> None:
+    def test_repo_baseline_submission_builder_loads(self) -> None:
         baseline = ENGDESIGN_DIR / "submission" / "engdesign_submission.py"
         payload = es._load_submission(baseline)
         assert sorted(payload) == sorted(TASK_IDS)

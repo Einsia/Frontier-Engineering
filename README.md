@@ -123,18 +123,20 @@ If you want the full `v1` problem set with normal optimization runs later, see [
 
 Detailed leaderboard (incl. average rank): [lab.einsia.ai/frontier-eng/leaderboard](https://lab.einsia.ai/frontier-eng/leaderboard). Released score tables and the per-task medal podium: [`leaderboard/`](leaderboard/README.md).
 
-**Medal Score** (gold/silver/bronze podium, higher is better, normalized to `[0,1]` = mean per-task podium credit). On each task the top-3 best scores in the **v1 snapshot (2026-04-14)** are frozen as gold/silver/bronze baselines; a model earns 1.00 / 0.67 / 0.33 for reaching each. Reported on both the full **v1** set (47 tasks) and the **v1-lite** subset (10 tasks); gold/silver/bronze counts are for v1 (see [`leaderboard/`](leaderboard/README.md)):
+**Medal Score** (gold/silver/bronze podium, higher is better, normalized to `[0,1]` = mean per-task podium credit). On each task the top-3 valid model scores in the **corrected v1 snapshot (2026-09-14)** are frozen as gold/silver/bronze baselines; a model earns 1.00 / 0.67 / 0.33 for reaching each. Reported on both the full **v1** set (47 tasks) and the **v1-lite** subset (10 tasks); gold/silver/bronze counts are for v1 (see [`leaderboard/`](leaderboard/README.md)):
+
+This snapshot combines rescored archived submissions, fixed-design calculations and available replacement best programs with different iteration budgets. Invalid results receive no medal credit. Scoring conventions are documented in [`leaderboard/`](leaderboard/README.md).
 
 | Rank | Model | Medal (v1) | Medal (v1-lite) | 🥇 | 🥈 | 🥉 |
 | :--: | :--- | --: | --: | --: | --: | --: |
-| 1 | GPT-5.4 | 0.596 | 0.667 | 24 | 5 | 2 |
-| 2 | Claude Opus 4.6 | 0.490 | 0.501 | 9 | 18 | 6 |
-| 3 | GLM-5 | 0.312 | 0.233 | 4 | 10 | 12 |
-| 4 | DeepSeek V3.2 | 0.248 | 0.166 | 3 | 9 | 8 |
-| 5 | Gemini 3.1 Pro Preview | 0.213 | 0.200 | 3 | 6 | 9 |
-| 6 | Seed 2.0 Pro | 0.185 | 0.100 | 3 | 7 | 3 |
-| 7 | Grok 4.20 | 0.184 | 0.133 | 3 | 6 | 5 |
-| 8 | Qwen3 Coder Next | 0.121 | 0.000 | 3 | 3 | 2 |
+| 1 | Claude Opus 4.6 | 0.533 | 0.501 | 14 | 15 | 3 |
+| 2 | GPT-5.4 | 0.454 | 0.267 | 18 | 4 | 2 |
+| 3 | GLM-5 | 0.347 | 0.300 | 7 | 8 | 12 |
+| 4 | Gemini 3.1 Pro Preview | 0.277 | 0.267 | 7 | 7 | 4 |
+| 5 | DeepSeek V3.2 | 0.269 | 0.299 | 6 | 6 | 8 |
+| 6 | Grok 4.20 | 0.227 | 0.200 | 6 | 5 | 4 |
+| 7 | Seed 2.0 Pro | 0.206 | 0.100 | 6 | 4 | 3 |
+| 8 | Qwen3 Coder Next | 0.170 | 0.066 | 5 | 3 | 3 |
 
 ## Contributing
 

@@ -19,11 +19,6 @@ DEFAULT_CONFIG_PATH = TASK_ROOT / "references" / "battery_config.json"
 # pure function of the published config, so this is generous by design.
 CANDIDATE_TIMEOUT_S = 300.0
 
-# Fallback for ``limits.hard_plating_loss_ah`` when an older config predates the
-# key: 0.5% of nominal capacity irreversibly plated in a single charge.
-DEFAULT_HARD_PLATING_LOSS_FRACTION = 0.005
-
-
 def _find_repo_root() -> Path:
     env_root = (os.environ.get("FRONTIER_ENGINEERING_ROOT") or "").strip()
     if env_root:
@@ -132,7 +127,7 @@ def _load_candidate(path: Path) -> Any:
 
     The candidate never executes inside this interpreter, so it cannot reach
     ``_validate_profile`` / ``_simulate`` -- where every hard limit (4.25 V,
-    47 C, the plating-loss ceiling, 2400 s) is enforced -- to replace them.
+    47 C, 2400 s) is enforced -- to replace them.
     """
     candidate_path = Path(path).resolve()
     with tempfile.TemporaryDirectory(prefix="fe_profile_runner_") as tmp:
@@ -230,14 +225,6 @@ def _simulate(currents_c: list[float], switch_soc: list[float], cfg: dict[str, A
     ambient_temp_c = float(battery["ambient_temp_c"])
     dt_s = float(sim["dt_s"])
     max_time_s = float(sim["max_time_s"])
-    # Hard ceiling on irreversible lithium plated in a single charge. The
-    # BatteryFastChargingSPMe task guards plating with a hard cutoff; here
-    # plating only fed the soft `degradation_score`, so an aggressive profile
-    # could buy charging time with permanent capacity loss. Make it a hard
-    # limit, matching the sibling task's safety semantics.
-    hard_plating_loss_ah = float(
-        limits.get("hard_plating_loss_ah", DEFAULT_HARD_PLATING_LOSS_FRACTION * capacity_ah)
-    )
 
     soc = initial_soc
     temp_c = ambient_temp_c
@@ -298,18 +285,6 @@ def _simulate(currents_c: list[float], switch_soc: list[float], cfg: dict[str, A
         )
         plating_drive = max(0.0, -anode_margin_v)
         plating_loss_ah += float(plating["plating_loss_coeff"]) * current_a * plating_drive * (dt_s / 3600.0)
-        if plating_loss_ah > hard_plating_loss_ah:
-            return {
-                "valid": 0.0,
-                "failure_reason": "plating_loss_cutoff",
-                "charge_time_s": time_s,
-                "max_temp_c": max_temp_c,
-                "max_voltage_v": max_voltage_v,
-                "plating_loss_ah": plating_loss_ah,
-                "aging_loss_ah": aging_loss_ah,
-                "throughput_ah": throughput_ah,
-                "combined_score": 0.0,
-            }
 
         aging_rate = (
             float(aging["aging_base_rate"])

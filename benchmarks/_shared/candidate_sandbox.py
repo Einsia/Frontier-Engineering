@@ -11,7 +11,8 @@ This module is the shared version of the pattern already proven in
 (the only benchmark that got it right) with the three-layer result validation
 from ``benchmarks/Robotics/PIDTuning/frontier_eval/evaluator.py``.
 
-It is deliberately pure-stdlib and sits outside any benchmark directory so that
+The Python helper uses the standard library and bubblewrap for namespaces.
+It sits outside any benchmark directory so that
 a ``copy_files.txt`` of ``.`` never drags it into the sandbox where a candidate
 could rewrite it.
 
@@ -28,22 +29,16 @@ Invariants that any caller must preserve (each is a hole found in a real audit):
    not excuse a crash (one evaluator recorded the return code but kept scoring
    anyway).
 
-What this does NOT give you
----------------------------
-The child runs under the same uid as the scorer, so ``/proc/<ppid>/`` stays
-readable: a candidate can recover the scorer's cwd via ``/proc/<ppid>/cwd`` and
-read its command line and environment, and from there reach files this module
-deliberately keeps out of the sandbox (a reference solution, an oracle). Passing
-``env_allowlist`` and keeping the sandbox clean raise the cost of that but do not
-close it -- there is no point pretending otherwise, and a partial mitigation here
-would mostly buy the appearance of safety.
+Isolation modes
+---------------
+Every candidate has its own PID namespace, so descendants are terminated even
+if they detach with setsid. Pass readonly_paths to additionally hide the host
+filesystem and disable networking. Only the runtime, staged workdir and those
+explicit input paths are then visible. The compatibility mode without that
+argument still shares host files; it must not be used to protect secret data.
+An outer container containing both scorer and candidate does not replace this
+inner boundary. Linux user namespaces and bubblewrap are required.
 
-Closing it requires a real boundary the process model cannot provide: run the
-task under ``task.runtime.isolation_mode=docker`` (the harness already implements
-it, with ``--network none`` and a read-only rootfs), or a uid/mount namespace.
-What this module *does* guarantee is the property the scores depend on: the
-candidate cannot execute inside the scoring process, so it cannot rewrite the
-scoring functions or the number they produce.
 """
 
 from __future__ import annotations
@@ -70,6 +65,14 @@ __all__ = [
 
 # Matches the harness-wide sentinel for "the run is worthless".
 INVALID_COMBINED_SCORE = -1e18
+
+# Runtime controls only; API keys and scorer configuration are not candidate inputs.
+CANDIDATE_RUNTIME_ENV = (
+    "PATH", "LANG", "LC_ALL", "LD_LIBRARY_PATH", "OMP_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS",
+    "CUDA_VISIBLE_DEVICES", "CUDA_DEVICE_ORDER", "NVIDIA_VISIBLE_DEVICES",
+    "ROCR_VISIBLE_DEVICES", "HIP_VISIBLE_DEVICES", "PYTHONDONTWRITEBYTECODE",
+)
 
 
 class InvalidSubmissionError(ValueError):
@@ -139,6 +142,69 @@ def _set_rlimits(rlimits: dict[str, int]) -> None:
             continue
 
 
+def namespace_command(command: Sequence[str], workdir: Path,
+                      readonly_paths: Sequence[Path] | None = None,
+                      writable_paths: Sequence[Path] = (),
+                      gpu: bool = False) -> list[str]:
+    """Use a PID namespace for lifecycle control and optionally restrict files.
+
+    With readonly_paths, only the Python runtime, staged files and explicitly
+    supplied inputs are visible, and networking is disabled. Missing bubblewrap
+    fails closed; a shared outer container is not a candidate boundary.
+    """
+    executable = shutil.which(str(command[0]))
+    if executable is None:
+        raise InvalidSubmissionError(f"candidate interpreter not found: {command[0]}")
+    command = [str(Path(executable).absolute()), *command[1:]]
+    bwrap = shutil.which("bwrap")
+    if bwrap is None:
+        raise InvalidSubmissionError("candidate isolation requires bubblewrap (bwrap)")
+    args = [bwrap, "--unshare-user", "--unshare-pid", "--die-with-parent"]
+    if readonly_paths is None:
+        args += ["--bind", "/", "/"]
+    else:
+        args += ["--unshare-net", "--tmpfs", "/tmp"]
+        runtime = {Path("/usr"), Path("/bin"), Path("/sbin"), Path("/lib"), Path("/lib64"),
+                   Path(sys.prefix), Path(sys.base_prefix)}
+        exe = Path(command[0]).resolve()
+        runtime.add(exe.parent.parent)
+        # A caller may select a different venv from the scorer's interpreter.
+        invoked = Path(command[0]).absolute()
+        if invoked.is_symlink():
+            target = Path(os.readlink(invoked))
+            if not target.is_absolute():
+                target = invoked.parent / target
+            runtime.add(target.parent.parent)
+        if (invoked.parent.parent / "pyvenv.cfg").is_file():
+            runtime.add(invoked.parent.parent)
+        runtime.update(Path(p).absolute() for p in readonly_paths)
+        runtime.update(Path(p) for p in ("/etc/ld.so.cache", "/etc/localtime", "/etc/alternatives"))
+        for path in sorted(runtime, key=lambda p: (len(p.parts), str(p))):
+            if path == Path("/"):
+                raise InvalidSubmissionError("refusing to expose the host root to a restricted candidate")
+            if path.exists():
+                args += ["--ro-bind", str(path), str(path)]
+        args += ["--bind", str(workdir), str(workdir)]
+        for path in writable_paths:
+            args += ["--bind", str(path), str(path)]
+    args += ["--proc", "/proc"]
+    args += ["--dev-bind", "/dev", "/dev"] if readonly_paths is None else ["--dev", "/dev"]
+    if readonly_paths is not None:
+        args += ["--tmpfs", "/dev/shm"]
+    if gpu:
+        args += ["--ro-bind", "/sys", "/sys"]
+        devices = set(Path("/dev").glob("nvidia*"))
+        devices.update(p for p in (Path("/dev/kfd"), Path("/dev/dri")) if p.exists())
+        for path in sorted(devices):
+            args += ["--dev-bind", str(path), str(path)]
+        rocm = Path("/opt/rocm")
+        if rocm.exists():
+            for path in sorted({rocm, rocm.resolve()}):
+                args += ["--ro-bind", str(path), str(path)]
+    args += ["--chdir", str(workdir), "--", *command]
+    return args
+
+
 def run_candidate_isolated(
     candidate_path: Path,
     *,
@@ -150,6 +216,8 @@ def run_candidate_isolated(
     env_allowlist: Sequence[str] = (),
     rlimits: dict[str, int] | None = None,
     python: str = sys.executable,
+    readonly_paths: Sequence[Path] | None = None,
+    gpu: bool = False,
 ) -> IsolatedRun:
     """Run ``candidate_path`` in a fresh temporary directory.
 
@@ -188,6 +256,9 @@ def run_candidate_isolated(
         keys.
     python:
         Interpreter to run the candidate with.
+    readonly_paths:
+        Explicit readable inputs for a restricted filesystem and no network.
+        None retains filesystem compatibility while isolating process lifetime.
 
     Returns
     -------
@@ -226,8 +297,12 @@ def run_candidate_isolated(
                 raise TypeError(f"input '{rel}' must be bytes or Path, got {type(content)}")
 
         env = None
-        if env_allowlist:
-            env = {k: os.environ[k] for k in env_allowlist if k in os.environ}
+        if env_allowlist or readonly_paths is not None:
+            allowed = env_allowlist or CANDIDATE_RUNTIME_ENV
+            env = {k: os.environ[k] for k in allowed if k in os.environ}
+        if readonly_paths is not None:
+            env["HOME"] = str(workdir)
+            env["XDG_CACHE_HOME"] = str(workdir / ".cache")
 
         def _preexec() -> None:
             if rlimits:
@@ -253,7 +328,7 @@ def run_candidate_isolated(
         try:
             with out_path.open("wb") as f_out, err_path.open("wb") as f_err:
                 proc = subprocess.Popen(  # noqa: S603
-                    [python, *program_argv, *argv],
+                    namespace_command([python, *program_argv, *argv], workdir, readonly_paths, gpu=gpu),
                     cwd=str(workdir),
                     stdout=f_out,
                     stderr=f_err,
@@ -315,7 +390,7 @@ def run_candidate_isolated(
             path = workdir / rel
             if not path.is_file():
                 raise InvalidSubmissionError(
-                    f"expected output '{rel}' not produced (returncode={proc.returncode})"
+                    f"expected output '{rel}' not produced (returncode={proc.returncode}): {stderr_tail[-2000:]}"
                 )
             output_bytes[rel] = path.read_bytes()
 
@@ -345,3 +420,54 @@ def load_json_output(run: IsolatedRun, rel: str = "submission.json") -> dict[str
     if not isinstance(data, dict):
         raise InvalidSubmissionError(f"{rel} must contain a JSON object")
     return data
+
+
+def run_inventory_candidate(candidate_path: Path, task: str, **kwargs) -> IsolatedRun:
+    """Accept both the original solve() interface and submission.json programs."""
+    runner = r'''import json, runpy, sys
+from pathlib import Path
+sys.argv = ['candidate.py']
+scope = runpy.run_path('candidate.py', run_name='__main__')
+if not Path('submission.json').is_file():
+    solve = scope.get('solve')
+    if not callable(solve):
+        raise ValueError('candidate must define solve() or write submission.json')
+    task = json.loads(Path('_task.json').read_text())
+    if task == 'finite_horizon_dp':
+        cfg = json.loads(Path('config.json').read_text())
+        s, S = solve(cfg['demand_mean'], cfg['demand_sd'])
+        value = {'reorder_points': s, 'order_up_to_levels': S}
+    elif task == 'disruption_eoqd':
+        cfg = json.loads(Path('config.json').read_text())
+        _, q, _ = solve(cfg)
+        value = {'order_quantity': q}
+    elif task == 'general_meio':
+        value = {'base_stock': solve()}
+    elif task == 'tree_gsm_safety_stock':
+        value = {'cst': solve()}
+    elif task == 'joint_replenishment':
+        value = solve()
+    else:
+        raise ValueError('unsupported Inventory task')
+    def scalar(v):
+        if hasattr(v, 'tolist'):
+            return v.tolist()
+        raise TypeError(type(v).__name__)
+    Path('submission.json').write_text(json.dumps(value, default=scalar))
+'''
+    inputs = dict(kwargs.pop("inputs", {}) or {})
+    inputs.update({"candidate.py": Path(candidate_path).read_bytes(),
+                   "_task.json": json.dumps(task).encode()})
+    with tempfile.TemporaryDirectory(prefix="fe_inventory_runner_") as tmp:
+        wrapper = Path(tmp) / "runner.py"
+        wrapper.write_text(runner)
+        return run_candidate_isolated(wrapper, inputs=inputs, readonly_paths=(), **kwargs)
+
+
+def run_optics_candidate(candidate_path: Path, mode: str, **kwargs) -> IsolatedRun:
+    """Stage a data-only adapter for legacy Optics functions and current scripts."""
+    inputs = dict(kwargs.pop("inputs", {}) or {})
+    inputs["candidate.py"] = Path(candidate_path).read_bytes()
+    wrapper = Path(__file__).with_name("optics_candidate_runner.py")
+    return run_candidate_isolated(wrapper, inputs=inputs, argv=(mode,),
+                                  readonly_paths=(), gpu=True, **kwargs)

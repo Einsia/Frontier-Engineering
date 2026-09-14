@@ -230,8 +230,8 @@ class _Validation:
 def run_candidate(candidate_path: Path, cfg: dict) -> tuple[float | None, str]:
     """Run the candidate in a subprocess and return (order_quantity, error)."""
     try:
-        run = sandbox.run_candidate_isolated(
-            candidate_path,
+        run = sandbox.run_inventory_candidate(
+            candidate_path, 'disruption_eoqd',
             inputs={"config.json": json.dumps(cfg).encode("utf-8")},
             expected_outputs=("submission.json",),
             timeout_s=60,
@@ -289,6 +289,7 @@ def main() -> None:
             "gap_reference_minus_baseline": 0.0,
             "winner": "reference",
             "candidate_error": error_message,
+            "valid": False,
         }
         (output_dir / "comparison.json").write_text(
             json.dumps(comparison, indent=2), encoding="utf-8"

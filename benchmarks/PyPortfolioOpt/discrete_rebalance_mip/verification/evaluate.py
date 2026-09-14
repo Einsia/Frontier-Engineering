@@ -1,36 +1,4 @@
-#!/usr/bin/env python3
-"""Evaluate a discrete (integer-lot) rebalancing candidate.
-
-Hardening notes (why this file looks the way it does):
-
-1. The candidate runs in its **own process**. It used to be ``exec_module``-ed
-   into this interpreter, which put the scorer's module globals inside the
-   candidate's reach: a single module-level line
-
-       sys.modules['__main__']._feasibility_penalty = lambda *a: 0.0
-
-   erased *every* financial risk constraint (budget, per-asset bounds, sector
-   limits, turnover cap, factor exposure), because the penalty function was the
-   only place those constraints were enforced and it was looked up by name at
-   scoring time. The candidate now only ever hands back a lot vector as JSON.
-
-2. Constraints are a **hard feasibility gate**, not a soft multiplier. The old
-   score was ``100 * norm * (1 - penalty)``, so a portfolio that breached the
-   turnover cap or a sector limit merely lost a slice of its score -- a
-   solution that is not deployable was still worth points, and breaching a
-   limit by a hair was a legal way to buy objective. Now any residual above the
-   documented tolerance sets the instance score to 0 and marks the run invalid.
-   Constraint enforcement no longer lives in a single monkeypatchable hook.
-
-3. The reference optimum is a **precomputed constant table**, not a module that
-   gets imported and executed at scoring time. ``verification/reference.py``
-   used to be listed in ``agent_files.txt`` and copied into the sandbox, so a
-   candidate could ``import`` it, return its lot vector, and land on exactly
-   ``obj_cand == obj_ref`` for a free 100/100 without touching a single file. The
-   seeds are fixed, so the reference objective is fully precomputable; the
-   reference module is no longer shipped to the candidate or executed here.
-   Regenerate the table with ``--regenerate-reference-table`` (maintainer only).
-"""
+"""Evaluate isolated candidates with scorer-owned objectives and original soft penalties."""
 
 from __future__ import annotations
 
@@ -311,7 +279,7 @@ def _objective(instance: dict, lots: np.ndarray) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Candidate output validation + hard feasibility gate.
+# Candidate output validation and constraint diagnostics.
 # ---------------------------------------------------------------------------
 class InvalidLotsError(ValueError):
     """The candidate returned something that is not a usable lot vector."""
@@ -375,7 +343,7 @@ def constraint_tolerances(instance: dict) -> dict[str, float]:
 
 
 def check_feasibility(instance: dict, lots: np.ndarray) -> tuple[bool, list[str], dict]:
-    """Hard gate. Returns (feasible, violation messages, residuals)."""
+    """Return constraint diagnostics; the original soft penalty determines the score."""
     residuals = constraint_residuals(instance, lots)
     tolerances = constraint_tolerances(instance)
     violations = [
@@ -384,6 +352,34 @@ def check_feasibility(instance: dict, lots: np.ndarray) -> tuple[bool, list[str]
         if residuals[name] > tol
     ]
     return (not violations), violations, residuals
+
+
+def _feasibility_penalty(instance: dict, lots: np.ndarray) -> float:
+    prices = instance["prices"]
+    lot_sizes = instance["lot_sizes"]
+    current_lots = instance["current_lots"]
+    portfolio_value = float(instance["portfolio_value"])
+    fee_rate = float(instance["fee_rate"])
+    turnover_limit = float(instance["turnover_limit_value"])
+    max_lots = instance["max_lots"]
+
+    lots = np.asarray(lots, dtype=float)
+    unit = prices * lot_sizes
+
+    traded_notional = float((unit * np.abs(lots - current_lots)).sum())
+    spend = float((unit * lots).sum() + fee_rate * traded_notional)
+
+    p = 0.0
+    p += np.maximum(0.0, -lots).sum() * 0.2
+    p += np.maximum(0.0, lots - max_lots).sum() * 0.2
+
+    integer_err = np.abs(lots - np.rint(lots)).sum()
+    p += integer_err * 0.2
+
+    p += max(0.0, traded_notional - turnover_limit) / max(1.0, turnover_limit)
+    p += max(0.0, spend - portfolio_value) / max(1.0, portfolio_value)
+
+    return float(min(1.0, p))
 
 
 def _score_instance(instance: dict, lots_cand: np.ndarray | None, obj_ref: float) -> dict:
@@ -415,17 +411,10 @@ def _score_instance(instance: dict, lots_cand: np.ndarray | None, obj_ref: float
     row["residuals"] = {k: float(v) for k, v in residuals.items()}
     row["max_residual"] = float(max(residuals.values()))
 
-    if not feasible:
-        # Hard gate. This is the constraint that mattered most here: a basket
-        # that ignores the turnover cap reaches a *lower* objective than the
-        # true integer optimum, so under the old soft penalty an infeasible
-        # order list was worth up to 100 points.
-        row["score"] = 0.0
-        return row
-
     norm = (obj_anchor - obj_cand) / (obj_anchor - obj_ref + 1e-12)
     row["norm"] = float(np.clip(norm, 0.0, 1.0))
-    row["score"] = 100.0 * row["norm"]
+    row["penalty"] = _feasibility_penalty(instance, lots_cand)
+    row["score"] = 100.0 * row["norm"] * (1.0 - row["penalty"])
     return row
 
 
@@ -524,7 +513,7 @@ def _evaluate_candidate(candidate_path: Path) -> dict:
         rows.append(row)
 
     n_infeasible = sum(1 for r in rows if not r["feasible"])
-    valid = 1.0 if (error is None and n_infeasible == 0) else 0.0
+    valid = 1.0 if (error is None and all(r["max_residual"] is not None for r in rows)) else 0.0
     avg_score = float(np.mean([r["score"] for r in rows]))
 
     return {

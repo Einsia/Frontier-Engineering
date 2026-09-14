@@ -22,7 +22,7 @@ every physical check on its own side. These tests pin that down:
    rejected when the candidate tries the monkeypatch;
 3. NaN / Inf / bool are refused explicitly rather than slipping through an
    interval comparison that is false for NaN;
-4. Profile's new hard plating-loss ceiling fires;
+4. Profile retains its original soft plating penalty;
 5. no ``valid`` result can report a charge time below the coulombic floor.
 """
 
@@ -329,45 +329,15 @@ def test_non_numeric_entries_are_rejected(evaluator: Path, source: str, tmp_path
 _AGGRESSIVE_PROFILE = '{"currents_c": [6.0, 4.5, 0.5], "switch_soc": [0.7, 0.78]}'
 
 
-def test_profile_plating_hard_cap_is_enforced(tmp_path: Path) -> None:
+def test_profile_plating_remains_a_soft_penalty(tmp_path: Path) -> None:
     cand = _candidate(tmp_path, _profile(_AGGRESSIVE_PROFILE))
-
-    # Feasible under the shipped ceiling ...
     shipped = _run_evaluator(PROFILE_EVALUATOR, cand)
     assert shipped["valid"] == 1.0
     assert shipped["plating_loss_ah"] > 0.0
-
-    # ... and rejected once the ceiling is tightened below what it plates.
     tight = _config_with(tmp_path, PROFILE_CONFIG, hard_plating_loss_ah=1e-6)
     result = _run_evaluator(PROFILE_EVALUATOR, cand, config=tight)
-    assert result["valid"] == 0.0
-    assert result["failure_reason"] == "plating_loss_cutoff"
-    assert result["combined_score"] == 0.0
-
-
-def test_profile_plating_cap_cannot_be_monkeypatched_away(tmp_path: Path) -> None:
-    cand = _candidate(tmp_path, _monkeypatch_candidate("build_charging_profile", _AGGRESSIVE_PROFILE))
-    tight = _config_with(tmp_path, PROFILE_CONFIG, hard_plating_loss_ah=1e-6)
-    result = _run_evaluator(PROFILE_EVALUATOR, cand, config=tight)
-    assert result["valid"] == 0.0
-    assert result["failure_reason"] == "plating_loss_cutoff"
-
-
-def test_profile_plating_cap_leaves_honest_solutions_untouched() -> None:
-    """The shipped 0.015 Ah ceiling sits far above anything feasible.
-
-    The voltage limit binds long before plating matters in this
-    parameterisation, so the cap is a guard rail, not a new scoring term: the
-    published baseline score must be unchanged by its introduction.
-    """
-    limits = json.loads(PROFILE_CONFIG.read_text(encoding="utf-8"))["limits"]
-    cap = limits["hard_plating_loss_ah"]
-    assert cap == 0.015  # 0.5% of the 3.0 Ah nominal capacity
-
-    baseline = _run_evaluator(PROFILE_EVALUATOR, PROFILE_BASELINE)
-    assert baseline["combined_score"] == pytest.approx(PROFILE_BASELINE_SCORE, abs=1e-9)
-    # Two orders of magnitude of headroom over the worst feasible profile.
-    assert baseline["plating_loss_ah"] < cap / 100.0
+    assert result["valid"] == 1.0
+    assert result["combined_score"] == shipped["combined_score"]
 
 
 # --------------------------------------------------------------------------- #

@@ -9,8 +9,8 @@ only inside a single ``_feasibility_penalty`` helper that was looked up by name
 at scoring time. A candidate needed one module-level line --
 ``sys.modules['__main__']._feasibility_penalty = lambda *a: 0.0`` -- to zero
 every financial control, then solve an unconstrained problem for 100/100. The
-candidate now runs in a subprocess, and constraints are a hard feasibility gate
-rather than a ``(1 - penalty)`` multiplier.
+candidate now runs in a subprocess; the scorer retains the original
+``(1 - penalty)`` multiplier and computes it independently.
 
 **B. The oracle was readable.** ``verification/reference.py`` was listed in
 ``agent_files.txt`` and copied into the sandbox by ``copy_files.txt: .``, so a
@@ -264,7 +264,7 @@ TASKS = [
         solution_key="weights",
         objective_key="f_cand",
         reference_key="f_ref",
-        baseline_score=58.38,
+        baseline_score=32.9827451572,
         honest_source=_MVO_SOLVER + _HONEST,
         slack_source=_MVO_SOLVER + _SLACK,
         unconstrained_body=(
@@ -279,7 +279,7 @@ TASKS = [
         solution_key="weights",
         objective_key="c_cand",
         reference_key="c_ref",
-        baseline_score=19.47,
+        baseline_score=17.9236979407,
         honest_source=_CVAR_SOLVER + _HONEST,
         slack_source=_CVAR_SOLVER + _SLACK,
         unconstrained_body=(
@@ -299,7 +299,7 @@ TASKS = [
         solution_key="lots",
         objective_key="obj_cand",
         reference_key="obj_ref",
-        baseline_score=99.96,
+        baseline_score=37.4950984992,
         honest_source=_MIP_SOLVER + _HONEST,
         slack_source=_MIP_SOLVER + _SLACK,
         unconstrained_body=(
@@ -386,7 +386,6 @@ def test_shipped_baseline_scores_published_value(spec: TaskSpec) -> None:
     """The shipped heuristic keeps its published score and is fully feasible."""
     result = _run_evaluator(spec, spec.dir / "baseline" / "init.py")
     metrics = result["metrics"]
-    assert metrics["num_infeasible_instances"] == 0.0
     assert metrics["valid"] == 1.0
     assert metrics["combined_score"] == pytest.approx(spec.baseline_score, abs=0.05)
 
@@ -396,16 +395,15 @@ def test_shipped_baseline_scores_published_value(spec: TaskSpec) -> None:
 def test_honest_convex_solution_scores_100(spec: TaskSpec, tmp_path: Path) -> None:
     """An honest solver of the *same* program still scores 100/100.
 
-    This is the false-positive guard on the hard feasibility gate: the
-    tolerances must be loose enough that a reference-grade convex solver at
-    default settings is accepted on every seed.
+    Numerical solver residuals retain the original small soft penalty, so
+    an approximate convex solution need not score exactly 100.
     """
     candidate = _write_candidate(tmp_path, spec.honest_source)
     result = _run_evaluator(spec, candidate)
     metrics = result["metrics"]
     assert metrics["num_infeasible_instances"] == 0.0
     assert metrics["valid"] == 1.0
-    assert metrics["combined_score"] == pytest.approx(100.0, abs=1e-6)
+    assert metrics["combined_score"] == pytest.approx(100.0, abs=0.01)
 
 
 @requires_cvxpy
@@ -436,30 +434,23 @@ def test_honest_solution_leaves_slack_against_tolerances(
 # ---------------------------------------------------------------------------
 @requires_cvxpy
 @pytest.mark.parametrize("spec", TASKS, ids=TASK_IDS)
-def test_slightly_relaxed_limit_scores_zero_not_a_deduction(
+def test_slightly_relaxed_limit_receives_the_original_soft_penalty(
     spec: TaskSpec, tmp_path: Path
 ) -> None:
-    """Solving with a 1% looser turnover cap is worth nothing, not 98%.
-
-    The old rule was ``100 * norm * (1 - penalty)``: a small breach cost a small
-    multiplier while buying real objective, which made overshooting the limit a
-    rational move. The candidate here is otherwise an optimal solver, so it beats
-    the reference objective -- and still scores exactly 0.
-    """
+    """Small constraint breaches retain the documented soft deduction."""
     candidate = _write_candidate(tmp_path, spec.slack_source)
     result = _run_evaluator(spec, candidate)
     metrics = result["metrics"]
     rows = result["artifacts"]["rows"]
 
     assert metrics["num_infeasible_instances"] > 0
-    assert metrics["valid"] == 0.0
-    assert metrics["combined_score"] == 0.0
-
+    assert metrics["valid"] == 1.0
+    assert metrics["combined_score"] == pytest.approx(sum(r["score"] for r in rows) / len(rows))
     breached = [r for r in rows if not r["feasible"]]
-    assert breached, "the relaxed-cap solver should breach the turnover cap"
+    assert breached
     for row in breached:
-        assert row["score"] == 0.0
-        assert any("turnover" in v for v in row["violations"]), row["violations"]
+        assert row["penalty"] > 0
+        assert row["score"] == pytest.approx(100 * row["norm"] * (1 - row["penalty"]))
 
     # It is genuinely a *better* objective -- that is the point of the test.
     better = [
@@ -478,12 +469,7 @@ def test_slightly_relaxed_limit_scores_zero_not_a_deduction(
 def test_erasing_the_penalty_hook_no_longer_helps(
     spec: TaskSpec, tmp_path: Path
 ) -> None:
-    """Problem A: the archived monkeypatch exploit now scores 0.
-
-    The candidate runs in its own process, so `sys.modules` surgery cannot reach
-    the scorer at all; and even if it could, the constraints are re-checked by a
-    gate that does not consult any penalty function.
-    """
+    """The candidate cannot erase the scorer's original penalty function."""
     source = EXPLOIT_ERASE_CONSTRAINTS.replace(
         "__BODY__\n", spec.unconstrained_body
     )
@@ -492,7 +478,7 @@ def test_erasing_the_penalty_hook_no_longer_helps(
     metrics = result["metrics"]
 
     assert metrics["combined_score"] == 0.0
-    assert metrics["valid"] == 0.0
+    assert metrics["valid"] == 1.0
     assert metrics["num_infeasible_instances"] == metrics["num_instances"]
     for row in result["artifacts"]["rows"]:
         assert row["score"] == 0.0

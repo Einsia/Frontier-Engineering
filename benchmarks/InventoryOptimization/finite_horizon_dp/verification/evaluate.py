@@ -199,8 +199,8 @@ def run_candidate(candidate_path: Path, cfg: dict) -> tuple[tuple[list[float], l
         "demand_sd": cfg["demand_sd"],
     }
     try:
-        run = sandbox.run_candidate_isolated(
-            candidate_path,
+        run = sandbox.run_inventory_candidate(
+            candidate_path, 'finite_horizon_dp',
             inputs={"config.json": json.dumps(candidate_cfg).encode("utf-8")},
             expected_outputs=("submission.json",),
             timeout_s=60,
@@ -260,6 +260,7 @@ def main() -> None:
             "gap_reference_minus_baseline": 0.0,
             "winner": "reference",
             "candidate_error": error_message,
+            "valid": False,
         }
         (output_dir / "comparison.json").write_text(
             json.dumps(comparison, indent=2), encoding="utf-8"

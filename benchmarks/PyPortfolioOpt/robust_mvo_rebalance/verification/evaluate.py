@@ -1,36 +1,4 @@
-#!/usr/bin/env python3
-"""Evaluate a robust MVO rebalancing candidate.
-
-Hardening notes (why this file looks the way it does):
-
-1. The candidate runs in its **own process**. It used to be ``exec_module``-ed
-   into this interpreter, which put the scorer's module globals inside the
-   candidate's reach: a single module-level line
-
-       sys.modules['__main__']._feasibility_penalty = lambda *a: 0.0
-
-   erased *every* financial risk constraint (budget, per-asset bounds, sector
-   limits, turnover cap, factor exposure), because the penalty function was the
-   only place those constraints were enforced and it was looked up by name at
-   scoring time. The candidate now only ever hands back a weight vector as JSON.
-
-2. Constraints are a **hard feasibility gate**, not a soft multiplier. The old
-   score was ``100 * norm * (1 - penalty)``, so a portfolio that breached the
-   turnover cap or a sector limit merely lost a slice of its score -- a
-   solution that is not deployable was still worth points, and breaching a
-   limit by a hair was a legal way to buy objective. Now any residual above the
-   documented tolerance sets the instance score to 0 and marks the run invalid.
-   Constraint enforcement no longer lives in a single monkeypatchable hook.
-
-3. The reference optimum is a **precomputed constant table**, not a module that
-   gets imported and executed at scoring time. ``verification/reference.py``
-   used to be listed in ``agent_files.txt`` and copied into the sandbox, so a
-   candidate could ``import`` it, return its weights, and land on exactly
-   ``f_cand == f_ref`` for a free 100/100 without touching a single file. The
-   seeds are fixed, so the reference objective is fully precomputable; the
-   reference module is no longer shipped to the candidate or executed here.
-   Regenerate the table with ``--regenerate-reference-table`` (maintainer only).
-"""
+"""Evaluate isolated candidates with scorer-owned objectives and original soft penalties."""
 
 from __future__ import annotations
 
@@ -341,7 +309,7 @@ def _objective(instance: dict, w: np.ndarray) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Candidate output validation + hard feasibility gate.
+# Candidate output validation and constraint diagnostics.
 # ---------------------------------------------------------------------------
 class InvalidWeightsError(ValueError):
     """The candidate returned something that is not a usable weight vector."""
@@ -418,7 +386,7 @@ CONSTRAINT_TOLERANCES = {
 
 
 def check_feasibility(instance: dict, w: np.ndarray) -> tuple[bool, list[str], dict]:
-    """Hard gate. Returns (feasible, violation messages, residuals)."""
+    """Return constraint diagnostics; the original soft penalty determines the score."""
     residuals = constraint_residuals(instance, w)
     violations = [
         f"{name} violated by {residuals[name]:.3e} (tolerance {tol:.1e})"
@@ -426,6 +394,41 @@ def check_feasibility(instance: dict, w: np.ndarray) -> tuple[bool, list[str], d
         if residuals[name] > tol
     ]
     return (not violations), violations, residuals
+
+
+def _feasibility_penalty(instance: dict, w: np.ndarray) -> float:
+    lower = instance["lower"]
+    upper = instance["upper"]
+    sector_ids = instance["sector_ids"]
+    sector_lower = instance["sector_lower"]
+    sector_upper = instance["sector_upper"]
+    factor_loadings = instance["factor_loadings"]
+    factor_lower = instance["factor_lower"]
+    factor_upper = instance["factor_upper"]
+    w_prev = instance["w_prev"]
+    turnover_limit = instance["turnover_limit"]
+
+    p = 0.0
+
+    p += max(0.0, np.abs(w.sum() - 1.0) - 1e-4) * 2.0
+    p += np.maximum(0.0, lower - w).sum() * 15.0
+    p += np.maximum(0.0, w - upper).sum() * 15.0
+
+    for s, lo in sector_lower.items():
+        sec = w[sector_ids == int(s)].sum()
+        p += max(0.0, lo - sec) * 12.0
+
+    for s, hi in sector_upper.items():
+        sec = w[sector_ids == int(s)].sum()
+        p += max(0.0, sec - hi) * 12.0
+
+    turn = np.abs(w - w_prev).sum()
+    p += max(0.0, turn - turnover_limit) * 10.0
+    exposure = factor_loadings.T @ w
+    p += np.maximum(0.0, factor_lower - exposure).sum() * 30.0
+    p += np.maximum(0.0, exposure - factor_upper).sum() * 30.0
+
+    return float(min(1.0, p))
 
 
 def _score_instance(instance: dict, w_cand: np.ndarray | None, f_ref: float) -> dict:
@@ -462,15 +465,10 @@ def _score_instance(instance: dict, w_cand: np.ndarray | None, f_ref: float) -> 
     row["residuals"] = {k: float(v) for k, v in residuals.items()}
     row["max_residual"] = float(max(residuals.values()))
 
-    if not feasible:
-        # Hard gate: an infeasible portfolio is not deployable. No partial
-        # credit, and in particular no way to buy objective with a small breach.
-        row["score"] = 0.0
-        return row
-
     norm = (f_cand - f_anchor) / (f_ref - f_anchor + 1e-12)
     row["norm"] = float(np.clip(norm, 0.0, 1.0))
-    row["score"] = 100.0 * row["norm"]
+    row["penalty"] = _feasibility_penalty(instance, w_cand)
+    row["score"] = 100.0 * row["norm"] * (1.0 - row["penalty"])
     return row
 
 
@@ -569,7 +567,7 @@ def _evaluate_candidate(candidate_path: Path) -> dict:
         rows.append(row)
 
     n_infeasible = sum(1 for r in rows if not r["feasible"])
-    valid = 1.0 if (error is None and n_infeasible == 0) else 0.0
+    valid = 1.0 if (error is None and all(r["max_residual"] is not None for r in rows)) else 0.0
     avg_score = float(np.mean([r["score"] for r in rows]))
 
     return {

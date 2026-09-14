@@ -64,7 +64,10 @@ def apply_round(state: dict, alpha: float):
     """Build this round's input; mask and weights are copied so a kernel that
     writes through its arguments cannot poison a later round."""
     return (
-        state["input"] + alpha,
+        state["input"] + alpha * torch.sin(
+            torch.arange(state["input"].shape[-1], device=state["input"].device,
+                         dtype=torch.float32) + 1
+        ).to(state["input"].dtype),
         state["mask"].clone(),
         {name: tensor.clone() for name, tensor in state["weights"].items()},
         dict(state["config"]),

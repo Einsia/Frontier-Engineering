@@ -41,7 +41,8 @@ _ensure_domain_on_path()
 
 from dtlz2_pareto import task
 from dtlz2_pareto.verification.reference import solve as solve_reference
-from shared.cli import load_module, write_json
+from shared.cli import write_json
+from shared.isolated import run_candidate
 from shared.utils import dump_json, score_summary
 
 DEFAULT_CANDIDATE_PATH = Path(__file__).resolve().parents[1] / "baseline" / "solution.py"
@@ -351,10 +352,8 @@ def evaluate(candidate_path: Path, seeds: list[int], budget: int) -> dict:
     task.create_benchmark = _instrumented_create_benchmark
     try:
         with _instrument_summit_budget(tracker_ref):
-            candidate_module = load_module(candidate_path, f"{task.TASK_NAME}_candidate")
-            solve_candidate = getattr(candidate_module, "solve", None)
-            if not callable(solve_candidate):
-                raise AttributeError(f"{candidate_path} does not define a callable `solve`.")
+            def solve_candidate(seed, budget):
+                return run_candidate(task, candidate_path, seed, budget)
 
             baseline_runs = []
             reference_runs = []

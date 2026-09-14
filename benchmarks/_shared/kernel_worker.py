@@ -28,8 +28,8 @@ into it cannot produce a line the parent will accept.
 
 The timed region covers exactly ``custom_kernel(...)`` plus the device sync.
 Input preparation, output retention and output serialization all happen outside
-it, and the parent separately measures the wall-clock time of the whole batch so
-a fabricated duration can be caught.
+it, and the parent scores its own wall-clock measurement through output delivery.
+The kernel-only duration from this process is diagnostic, never authoritative.
 """
 
 from __future__ import annotations
@@ -115,6 +115,18 @@ class _Timer:
         self.sync()
         t1 = time.perf_counter_ns()
         return out, float(t1 - t0)
+
+
+def _snapshot(out):
+    if isinstance(out, torch.Tensor):
+        return out.detach().clone()
+    if isinstance(out, tuple):
+        return tuple(_snapshot(v) for v in out)
+    if isinstance(out, list):
+        return [_snapshot(v) for v in out]
+    if isinstance(out, dict):
+        return {k: _snapshot(v) for k, v in out.items()}
+    return out
 
 
 class Worker:
@@ -204,7 +216,7 @@ class Worker:
                 data = adapter.apply_round(state, alpha)
                 out, ns = self.timer.time_call(self.kernel, data)
                 durations.append(ns)
-                outs.append(out)
+                outs.append(_snapshot(out))
         self.pending = outs
         return {"ok": True, "durations_ns": durations}
 

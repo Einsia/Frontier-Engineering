@@ -135,8 +135,8 @@ def run_candidate(
     """
     sandbox = load_sandbox()
     try:
-        run = sandbox.run_candidate_isolated(
-            Path(candidate_path),
+        run = sandbox.run_optics_candidate(
+            Path(candidate_path), 'phase',
             inputs=dict(inputs),
             expected_outputs=("submission.json",),
             timeout_s=float(timeout_s),

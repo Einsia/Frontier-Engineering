@@ -355,8 +355,8 @@ def run_candidate_controller(
         inputs[rel] = blob
 
     try:
-        run = sandbox.run_candidate_isolated(
-            Path(candidate_path),
+        run = sandbox.run_optics_candidate(
+            Path(candidate_path), 'adaptive',
             inputs=inputs,
             expected_outputs=(SUBMISSION_NAME,),
             timeout_s=timeout_s,

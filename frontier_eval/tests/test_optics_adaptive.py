@@ -28,13 +28,14 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OPTICS = REPO_ROOT / "benchmarks" / "Optics"
-PY = "/usr/bin/python3.12"
+PY = sys.executable
 
 # Pre-conversion published scores, captured by running the original in-process
 # evaluators at their default settings. The conversion must not move them.

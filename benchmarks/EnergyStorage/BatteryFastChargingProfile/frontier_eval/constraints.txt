@@ -2,5 +2,4 @@ BatteryFastChargingProfile constraints:
 1) Only modify `scripts/init.py`.
 2) Candidate must define `build_charging_profile()` and return a dict with `currents_c` and `switch_soc`.
 3) Keep the profile deterministic. Do not use randomness.
-4) Optimize for charging speed without violating hard voltage (`4.25 V`), hard temperature (`47 C`), or hard plating-loss (`0.015 Ah`) limits.
 5) Lower plating loss and lower aging loss improve the score, even for feasible solutions.

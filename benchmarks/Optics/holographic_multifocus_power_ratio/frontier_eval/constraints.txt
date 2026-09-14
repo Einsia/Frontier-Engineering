@@ -1,33 +1,14 @@
 Optics holographic_* unified constraints:
-
-1) Edit only `baseline/init.py`.
-
-2) The candidate runs as its OWN PROCESS in a throwaway directory that contains
-   exactly two files: a copy of `baseline/init.py` and `problem.json`. Nothing
-   from the task tree is importable there.
-   - Read the problem from `problem.json` in the current directory.
-   - Write the decision variables to `submission.npz` in the current directory.
-   - Keep the `if __name__ == "__main__":` block at the bottom of the file.
-     Without a valid `submission.npz` the run scores as invalid.
-
-3) Submit DECISION VARIABLES ONLY -- the real-valued phase (or thickness) maps of
-   the modulator stack, as plain float arrays. `problem.json` states the exact
-   array names, shapes and bounds under its `submission` key.
-   `verification/evaluate.py` builds the optical system from those arrays, runs
-   the propagation, builds the targets and computes every metric itself.
-   Returning a `system`, an `input_field`, a `target_field` or a self-reported
-   score/metric is not part of the contract and has no effect on the score.
-   `submission.npz` is loaded with `allow_pickle=False`: only arrays survive.
-
-4) The problem definition (grid, wavelength(s), layer positions, focus
-   coordinates, target power ratios, ROI radius and all scoring constants) is
-   owned by `verification/problem_spec.py`. It is read-only and is loaded by the
-   evaluator before your process starts.
-
-5) Do not modify anything under `verification/` or `frontier_eval/`.
-
-6) Submitted arrays are validated for shape, dtype, finiteness and range. A
-   crash, a timeout, a missing `submission.npz` or an out-of-range array is a
-   hard rejection (`combined_score = -1e18`).
-
-7) Candidate output must be deterministic and finite (no NaN/Inf).
+1) Edit only `baseline/init.py`; do not modify verification or evaluator files.
+2) The scorer supplies the fixed optical geometry and targets in `problem.json`.
+   Either write physical design arrays to `submission.npz`, or retain the original
+   `solve(spec, device=None, seed=0)` function. Both run in a separate candidate process.
+3) For an original system return value, the adapter extracts only its phase or
+   thickness parameters (or polarization phase arrays). Custom propagation methods,
+   input fields, target fields and reported metrics never enter the scorer.
+4) `problem.json` specifies array names, shapes and bounds. Arrays must be real,
+   finite and within the task's physical limits. Pickled objects are not accepted.
+5) The evaluator constructs the optical system and computes every score from the
+   submitted parameters using its own model and targets.
+6) Candidate output must be deterministic. Crashes, timeouts, missing design
+   parameters and invalid arrays fail evaluation.

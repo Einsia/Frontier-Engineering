@@ -149,8 +149,8 @@ class _Validation:
 def run_candidate(candidate_path: Path) -> tuple[dict[int, int] | None, str]:
     """Run the candidate in a subprocess and return (cst, error_message)."""
     try:
-        run = sandbox.run_candidate_isolated(
-            candidate_path,
+        run = sandbox.run_inventory_candidate(
+            candidate_path, 'tree_gsm_safety_stock',
             expected_outputs=("submission.json",),
             timeout_s=60,
             # Copy the candidate into the sandbox and run it from there, so
@@ -201,6 +201,7 @@ def main() -> None:
             "gap_reference_minus_baseline": 0.0,
             "winner": "reference",
             "candidate_error": error_message,
+            "valid": False,
         }
         (output_dir / "comparison.json").write_text(
             json.dumps(comparison, indent=2), encoding="utf-8"

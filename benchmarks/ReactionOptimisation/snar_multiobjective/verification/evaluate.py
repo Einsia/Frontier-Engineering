@@ -36,7 +36,8 @@ def _ensure_domain_on_path() -> None:
 
 _ensure_domain_on_path()
 
-from shared.cli import load_module, write_json
+from shared.cli import write_json
+from shared.isolated import run_candidate
 from shared.utils import dump_json, score_summary
 from snar_multiobjective import task
 from snar_multiobjective.verification.reference import solve as solve_reference
@@ -45,16 +46,11 @@ DEFAULT_CANDIDATE_PATH = Path(__file__).resolve().parents[1] / "baseline" / "sol
 
 
 def evaluate(candidate_path: Path, seeds: list[int], budget: int) -> dict:
-    candidate_module = load_module(candidate_path, f"{task.TASK_NAME}_candidate")
-    solve_candidate = getattr(candidate_module, "solve", None)
-    if not callable(solve_candidate):
-        raise AttributeError(f"{candidate_path} does not define a callable `solve`.")
-
     baseline_runs = []
     reference_runs = []
 
     for seed in seeds:
-        baseline = solve_candidate(seed=seed, budget=budget)
+        baseline = run_candidate(task, candidate_path, seed, budget)
         reference = solve_reference(seed=seed, budget=budget)
         baseline_runs.append(baseline)
         reference_runs.append(reference)

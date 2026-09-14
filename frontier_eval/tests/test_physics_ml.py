@@ -86,7 +86,7 @@ def _stage_repo(tmp_path: Path, *benchmark_dirs: Path) -> Path:
     shutil.copy2(BENCHMARKS / "_shared" / "candidate_sandbox.py", shared / "candidate_sandbox.py")
     for src in benchmark_dirs:
         dst = root / src.relative_to(REPO_ROOT)
-        shutil.copytree(src, dst, ignore=shutil.ignore_patterns("__pycache__", "*.pdf", "*.pyc"))
+        shutil.copytree(src, dst, ignore=shutil.ignore_patterns("__pycache__", "*.pdf", "*.pyc", "resources_cache", "resources_truth"))
     return root
 
 
@@ -331,7 +331,11 @@ def test_pm_ground_truth_is_quarantined_and_honest_score_survives(tmp_path):
 
 @pytest_pm
 @pytest.mark.slow
-def test_pm_candidate_cannot_read_the_ground_truth(tmp_path):
+@pytest.mark.parametrize("truth_expression", [
+    "a.dataset_dir / 'test_mod2.h5ad'",
+    "a.dataset_dir.parents[1] / 'resources_truth' / a.dataset_dir.name / 'test_mod2.h5ad'",
+])
+def test_pm_candidate_cannot_read_the_ground_truth(tmp_path, truth_expression):
     """The exploit in baseline_archive/experiment1/openevolve/gpt-5.4: read
     test_mod2.h5ad out of --dataset-dir and submit it verbatim (measured pre-fix:
     combined_score 0.9958 with rmse 0.0, against an honest 0.6079)."""
@@ -352,14 +356,14 @@ def test_pm_candidate_cannot_read_the_ground_truth(tmp_path):
 
         test_mod1 = ad.read_h5ad(str(a.dataset_dir / "test_mod1.h5ad"))
         train_mod2 = ad.read_h5ad(str(a.dataset_dir / "train_mod2.h5ad"))
-        truth = ad.read_h5ad(str(a.dataset_dir / "test_mod2.h5ad"))
+        truth = ad.read_h5ad(str(__TRUTH_EXPRESSION__))
         y = truth.layers["normalized"]
         y = y.tocsc() if issparse(y) else csc_matrix(np.asarray(y, dtype=np.float32))
         ad.AnnData(layers={"normalized": y}, shape=y.shape, obs=test_mod1.obs,
                    var=train_mod2.var,
                    uns={"dataset_id": test_mod1.uns.get("dataset_id"),
                         "method_id": "cached_test_mod2"}).write_h5ad(str(a.output))
-        ''',
+        '''.replace('__TRUTH_EXPRESSION__', truth_expression),
     )
     module = _load_evaluator(bench / "frontier_eval" / "evaluator.py", "pm_eval_truth")
     metrics = _metrics(module.evaluate(str(candidate), repo_root=root))

@@ -15,9 +15,8 @@ The behavioural tests below drive the *real* harness
 *real* FlashAttention task adapter against a CPU stand-in benchmark: a
 reference implementation with the same structure and the same tolerances as
 ``FlashAttention/baseline/reference.py``, but on CPU float32 tensors and tiny
-shapes. This box has no CUDA build of torch, so the real kernels cannot run
-here; the stand-in exercises every part of the harness that decides a score
-(input staging, per-rep perturbation, output verification, the wall-clock gate)
+shapes. The stand-in exercises the harness on small inputs regardless of GPU availability
+(input staging, per-rep perturbation, output verification, parent timing)
 and none of the CUDA-specific timing. The end-to-end tests against the actual
 benchmarks are marked ``gpu`` and skip without CUDA rather than passing quietly.
 """
@@ -387,9 +386,11 @@ def test_standin_patched_check_is_worthless(standin: Path, tmp_path: Path) -> No
 def test_standin_fake_timer_is_caught_by_the_wall_clock(standin: Path, tmp_path: Path) -> None:
     """An honest kernel with a patched clock must not out-score an honest one."""
     metrics, artifacts = _run_standin(standin, tmp_path, "timer", _ATTACK_FAKE_TIMER)
-    assert metrics["timing_forged"] == 1.0, metrics
-    assert metrics["valid"] == 0.0
-    assert metrics["combined_score"] <= 0.0
+    assert metrics["valid"] == 1.0, artifacts
+    assert metrics["geom_mean_ns"] == metrics["wall_geom_mean_ns"]
+    assert metrics["combined_score"] == pytest.approx(1e9 / metrics["wall_geom_mean_ns"])
+    assert metrics["geom_mean_ns"] > metrics["reported_geom_mean_ns"]
+
 
 
 @pytest.mark.slow

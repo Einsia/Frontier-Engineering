@@ -118,18 +118,20 @@ bash scripts/batch/validate_v1_task_envs.sh
 
 详细榜单（含 average rank）见 [lab.einsia.ai/frontier-eng/leaderboard](https://lab.einsia.ai/frontier-eng/leaderboard)。发布的分数表与每题金银铜 podium 见 [`leaderboard/`](leaderboard/README.md)。
 
-**Medal Score**（金银铜 podium，越高越好，归一化到 `[0,1]`，即每题领奖台得分的均值）。每题取 **v1 snapshot (2026-04-14)** 的前三名分数冻结为金/银/铜 baseline，模型达到金/银/铜分别得 1.00 / 0.67 / 0.33。同时汇报 **v1**（47 题）与 **v1-lite**（10 题）两个集合；金银铜次数为 v1（`gpt-5.4` 采用其 47 题全量重测结果）：
+**Medal Score**（金银铜 podium，越高越好，归一化到 `[0,1]`，即每题领奖台得分的均值）。每题取 **修正版 v1 snapshot (2026-09-14)** 的前三个有效模型分数冻结为金/银/铜 baseline，模型达到金/银/铜分别得 1.00 / 0.67 / 0.33。同时汇报 **v1**（47 题）与 **v1-lite**（10 题）两个集合；金银铜次数为 v1：
+
+当前快照汇总归档重评、固定设计计分及已有替换 best 程序，补跑预算不同。无效结果不获得奖牌积分。具体计分约定见 [`leaderboard/`](leaderboard/README.md)。
 
 | 排名 | Model | Medal (v1) | Medal (v1-lite) | 🥇 | 🥈 | 🥉 |
 | :--: | :--- | --: | --: | --: | --: | --: |
-| 1 | GPT-5.4 | 0.596 | 0.667 | 24 | 5 | 2 |
-| 2 | Claude Opus 4.6 | 0.490 | 0.501 | 9 | 18 | 6 |
-| 3 | GLM-5 | 0.312 | 0.233 | 4 | 10 | 12 |
-| 4 | DeepSeek V3.2 | 0.248 | 0.166 | 3 | 9 | 8 |
-| 5 | Gemini 3.1 Pro Preview | 0.213 | 0.200 | 3 | 6 | 9 |
-| 6 | Seed 2.0 Pro | 0.185 | 0.100 | 3 | 7 | 3 |
-| 7 | Grok 4.20 | 0.184 | 0.133 | 3 | 6 | 5 |
-| 8 | Qwen3 Coder Next | 0.121 | 0.000 | 3 | 3 | 2 |
+| 1 | Claude Opus 4.6 | 0.533 | 0.501 | 14 | 15 | 3 |
+| 2 | GPT-5.4 | 0.454 | 0.267 | 18 | 4 | 2 |
+| 3 | GLM-5 | 0.347 | 0.300 | 7 | 8 | 12 |
+| 4 | Gemini 3.1 Pro Preview | 0.277 | 0.267 | 7 | 7 | 4 |
+| 5 | DeepSeek V3.2 | 0.269 | 0.299 | 6 | 6 | 8 |
+| 6 | Grok 4.20 | 0.227 | 0.200 | 6 | 5 | 4 |
+| 7 | Seed 2.0 Pro | 0.206 | 0.100 | 6 | 4 | 3 |
+| 8 | Qwen3 Coder Next | 0.170 | 0.066 | 5 | 3 | 3 |
 
 ## 贡献
 

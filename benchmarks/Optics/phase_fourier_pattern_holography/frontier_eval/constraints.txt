@@ -1,17 +1,12 @@
 Optics phase_* unified constraints:
-1) Edit only `baseline/init.py`.
-2) `baseline/init.py` is executed as a standalone program in a throwaway working
-   directory that already contains `problem.json` and `problem.npz`. It must
-   write `submission.json` in its current directory and exit 0.
-3) `submission.json` must contain exactly one decision variable, named in
-   `problem.json` under `decision_variable.key` (`phase` for the 2D Fourier
-   tasks, `transitions` for the Dammann task). Any other key -- metrics,
-   scores, diagnostics -- is discarded before scoring.
-4) Do not report metrics. The problem definition, the forward model and every
-   metric live in `verification/problem.py` and `verification/metrics.py`; the
-   scorer recomputes all of them from your decision variable. Nothing you
-   report can influence the score.
-5) Do not modify anything under `verification/` or `frontier_eval/`; those paths
-   are locked read-only and fingerprinted during evaluation.
-6) The candidate must be deterministic and finite (no NaN/Inf) and must finish
-   inside the candidate timeout (120 s by default).
+1) Edit only `baseline/init.py`; do not modify verification or evaluator files.
+2) The scorer supplies `problem.json` and `problem.npz` with fixed problem data.
+3) Either write `submission.json`, or retain the original `solve_baseline(problem)`
+   function returning a dict with the decision variable. Both run in a separate
+   candidate process. The candidate's `build_problem()` is not used.
+4) The decision key is specified by `problem.json`: `phase` for Fourier tasks,
+   `transitions` for the Dammann task. Shape, finiteness and bounds are validated.
+5) The scorer recomputes propagation and metrics from the decision alone.
+   Candidate-provided targets, forward models and scores are not used.
+6) The candidate must be deterministic, exit successfully and finish within
+   the candidate timeout (120 s by default).

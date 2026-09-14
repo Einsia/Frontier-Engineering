@@ -46,30 +46,7 @@ Run with `frontier_eval` unified task:
   algorithm.iterations=0
 ```
 
-Runtime note: the evaluator no longer solves the reference programs at scoring time (they are a frozen constant table), so a full run is dominated by the candidate itself and typically completes in a few seconds. The candidate gets a wall-clock budget of 240s across all 10 instances, overridable via `PYPFOPT_CANDIDATE_TIMEOUT_S`.
-
-## Evaluation integrity
-
-Two things this benchmark deliberately does:
-
-- **The candidate runs in its own process.** `solve_instance(instance)` is
-  invoked by a scorer-owned runner in a subprocess; only the solution vector
-  crosses back. The evaluator recomputes the objective *and every constraint*
-  itself, so nothing the candidate reports about its own score, penalty or
-  validity is read, and the scorer's module globals are out of reach.
-- **Feasibility is a hard gate, not a penalty.** Any constraint residual above
-  the documented tolerance scores the instance 0 and marks the run invalid.
-  There is no `(1 - penalty)` multiplier, so a portfolio that breaches a risk
-  limit to buy objective is worth nothing rather than a few points less.
-
-`verification/reference.py` is maintainer-only: it is not shown to the agent, not
-copied into the sandbox, and never executed at scoring time. The reference
-objective it produced is frozen into `verification/evaluate.py` as a constant
-table (the evaluation seeds are fixed). Regenerate it with:
-
-```bash
-python verification/evaluate.py --regenerate-reference-table
-```
+Runtime note: this evaluator solves multiple convex programs per run and is slower than smoke tasks. A single `algorithm.iterations=0` run is typically around 8-15 seconds, and total time grows roughly linearly with iterations.
 
 ## Directory Structure
 

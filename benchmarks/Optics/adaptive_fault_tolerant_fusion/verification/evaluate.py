@@ -1,26 +1,51 @@
-import math
-import argparse
-import importlib.util
-import json
-from pathlib import Path
-import sys
+"""Task A4 (fault-tolerant WFS fusion): score a candidate that runs in its own process.
 
-import matplotlib.pyplot as plt
+The candidate is launched as a standalone script and gets the multi-sensor slope
+stream (shape ``(n_cases, n_wfs, 2*n_subap)`` -- observations only, never the
+ground-truth phase or which sensors were corrupted). It returns a
+``(n_cases, n_act)`` command matrix; this process recomputes every metric from
+that matrix. The IsolationForest anomaly detector is part of the *reference*
+oracle only -- the candidate never sees it, matching the original contract
+where the candidate's ``control_model`` did not include an anomaly model.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+
 import numpy as np
 from sklearn.ensemble import IsolationForest
 
-# aotools expects numpy.math, which is absent in newer NumPy releases.
-if not hasattr(np, "math"):
-    np.math = math
+VERIFICATION_DIR = Path(__file__).resolve().parent
+TASK_DIR = VERIFICATION_DIR.parent
+if str(VERIFICATION_DIR) not in sys.path:
+    sys.path.insert(0, str(VERIFICATION_DIR))
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
-import aotools
-from aotools import fouriertransform
+def _find_repo_root() -> Path:
+    env_root = (os.environ.get("FRONTIER_ENGINEERING_ROOT") or "").strip()
+    if env_root:
+        return Path(env_root).expanduser().resolve()
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "benchmarks").is_dir() and (parent / "frontier_eval").is_dir():
+            return parent
+    raise RuntimeError("could not locate repo root for adaptive_fault_tolerant_fusion")
 
-from reference_controller import fuse_and_compute_dm_commands as reference_controller
+
+_REPO = _find_repo_root()
+if str(_REPO / "benchmarks" / "_shared") not in sys.path:
+    sys.path.insert(0, str(_REPO / "benchmarks" / "_shared"))
+
+# Invariant 1: every scoring dependency is resident before the candidate runs.
+import optics_adaptive as shared  # noqa: E402
+
+from reference_controller import fuse_and_compute_dm_commands as reference_controller  # noqa: E402
+
+TASK_NAME = "task4_fault_tolerant_fusion"
 
 P95_WEIGHT = 0.4
 STREHL_WEIGHT = 1.0
@@ -40,92 +65,23 @@ SCORE_WEIGHTS = {
 }
 
 
-def load_callable(module_path: Path, func_name: str):
-    spec = importlib.util.spec_from_file_location("candidate_module", module_path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Cannot import module from {module_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    if not hasattr(module, func_name):
-        raise AttributeError(f"{module_path} missing function: {func_name}")
-    return getattr(module, func_name)
-
-
-def _clip01(value: float) -> float:
-    return float(np.clip(value, 0.0, 1.0))
-
-
-def _utility_lower_better(value: float, good: float, bad: float) -> float:
-    return _clip01((bad - value) / (bad - good + 1e-12))
-
-
-def _utility_higher_better(value: float, good: float, bad: float) -> float:
-    return _clip01((value - bad) / (good - bad + 1e-12))
-
-
 def make_system(seed: int = 53):
     rng = np.random.default_rng(seed)
+    # No plant_gain draw here (plant_gain_sigma=None), matching the original
+    # make_system for this task, which never modeled DM gain mismatch.
+    sys_cfg = shared.build_optics_system(rng, plant_gain_sigma=None)
 
-    n_pix = 96
-    pupil = aotools.circle(40, n_pix).astype(np.float64)
-    valid_mask = pupil > 0
-
-    n_sub = 12
-    sub_w = n_pix // n_sub
-    active = []
-    for i in range(n_sub):
-        for j in range(n_sub):
-            x1, x2 = i * sub_w, (i + 1) * sub_w
-            y1, y2 = j * sub_w, (j + 1) * sub_w
-            if pupil[x1:x2, y1:y2].mean() > 0.45:
-                active.append((i, j))
-    active = np.array(active)
-    n_sub_active = len(active)
-
-    def slopes_from_phase(phase):
-        gx = np.gradient(phase, axis=0)
-        gy = np.gradient(phase, axis=1)
-        s = np.zeros((2, n_sub_active), dtype=np.float64)
-        for idx, (i, j) in enumerate(active):
-            x1, x2 = i * sub_w, (i + 1) * sub_w
-            y1, y2 = j * sub_w, (j + 1) * sub_w
-            w = pupil[x1:x2, y1:y2]
-            denom = w.sum() + 1e-12
-            s[0, idx] = (gx[x1:x2, y1:y2] * w).sum() / denom
-            s[1, idx] = (gy[x1:x2, y1:y2] * w).sum() / denom
-        return s.reshape(-1)
-
-    coords = np.linspace(8, n_pix - 8, 9)
-    actuators = [(x, y) for x in coords for y in coords if pupil[int(round(x)), int(round(y))] > 0]
-    actuators = np.array(actuators)
-    n_act = len(actuators)
-
-    xg, yg = np.meshgrid(np.arange(n_pix), np.arange(n_pix), indexing="ij")
-    influence = np.zeros((n_act, n_pix, n_pix), dtype=np.float64)
-    for k, (x0, y0) in enumerate(actuators):
-        influence[k] = np.exp(-((xg - x0) ** 2 + (yg - y0) ** 2) / (2 * 3.5**2)) * pupil
-
-    def dm_surface(commands):
-        return np.tensordot(commands, influence, axes=(0, 0))
-
-    h = np.zeros((2 * n_sub_active, n_act), dtype=np.float64)
-    for k in range(n_act):
-        h[:, k] = slopes_from_phase(influence[k])
-
-    reg_lambda = 1e-3
-    normal_matrix = h.T @ h + reg_lambda * np.eye(n_act)
-    reconstructor = np.linalg.solve(normal_matrix, h.T)
-
-    n_modes = 25
-    zern = aotools.zernikeArray(list(range(2, n_modes + 2)), n_pix, norm="rms") * pupil
+    zern = sys_cfg["zern"]
+    slopes_from_phase = sys_cfg["slopes_from_phase"]
+    n_slopes = sys_cfg["reconstructor"].shape[1]
 
     # Train anomaly detector on clean single-sensor slope vectors.
     n_train = 900
-    train_samples = np.zeros((n_train, 2 * n_sub_active), dtype=np.float64)
+    train_samples = np.zeros((n_train, n_slopes), dtype=np.float64)
     for i in range(n_train):
         coeff = rng.normal(0.0, 0.35, size=zern.shape[0])
         phase = np.tensordot(coeff, zern, axes=(0, 0))
-        clean_slopes = slopes_from_phase(phase) + rng.normal(0.0, 0.01, size=2 * n_sub_active)
+        clean_slopes = slopes_from_phase(phase) + rng.normal(0.0, 0.01, size=n_slopes)
         train_samples[i] = clean_slopes
 
     anomaly_model = IsolationForest(
@@ -135,26 +91,12 @@ def make_system(seed: int = 53):
     )
     anomaly_model.fit(train_samples)
 
-    i0 = np.abs(fouriertransform.ft2(pupil.astype(np.complex128), 1.0)) ** 2
-    strehl_ref = float(i0.max())
-
-    return {
-        "rng": rng,
-        "n_pix": n_pix,
-        "pupil": pupil,
-        "valid_mask": valid_mask,
-        "zern": zern,
-        "slopes_from_phase": slopes_from_phase,
-        "dm_surface": dm_surface,
-        "reconstructor": reconstructor,
-        "strehl_ref": strehl_ref,
-        "n_act": n_act,
-        "control_model": {
-            "anomaly_model": anomaly_model,
-            "inlier_fraction": 0.4,
-            "score_temperature": 0.08,
-        },
+    sys_cfg["control_model"] = {
+        "anomaly_model": anomaly_model,
+        "inlier_fraction": 0.4,
+        "score_temperature": 0.08,
     }
+    return sys_cfg
 
 
 def make_multi_wfs_observation(rng, true_slopes):
@@ -182,21 +124,16 @@ def make_multi_wfs_observation(rng, true_slopes):
     return slopes_multi
 
 
-def run_eval(controller_fn, sys_cfg, max_voltage=0.50, n_cases=320):
+def make_scenario(sys_cfg, n_cases: int) -> dict:
+    """Draw the whole disturbance + fault stream up front (rng order unchanged)."""
     rng = sys_cfg["rng"]
-    pupil = sys_cfg["pupil"]
-    valid_mask = sys_cfg["valid_mask"]
     zern = sys_cfg["zern"]
+    n_pix = sys_cfg["n_pix"]
+    n_slopes = sys_cfg["reconstructor"].shape[1]
     slopes_from_phase = sys_cfg["slopes_from_phase"]
-    dm_surface = sys_cfg["dm_surface"]
-    reconstructor = sys_cfg["reconstructor"]
-    control_model = sys_cfg["control_model"]
-    strehl_ref = sys_cfg["strehl_ref"]
-    n_act = sys_cfg["n_act"]
 
-    rms_list = []
-    strehl_list = []
-    example = None
+    phases = np.zeros((n_cases, n_pix, n_pix), dtype=np.float64)
+    slopes_multi_stream = np.zeros((n_cases, 5, n_slopes), dtype=np.float64)
 
     for i in range(n_cases):
         coeff = rng.normal(0.0, 0.35, size=zern.shape[0])
@@ -205,8 +142,29 @@ def run_eval(controller_fn, sys_cfg, max_voltage=0.50, n_cases=320):
         true_slopes = slopes_from_phase(phase)
         slopes_multi = make_multi_wfs_observation(rng, true_slopes)
 
-        cmd = controller_fn(slopes_multi, reconstructor, control_model, None, max_voltage=max_voltage)
-        cmd = np.asarray(cmd, dtype=np.float64)
+        phases[i] = phase
+        slopes_multi_stream[i] = slopes_multi
+
+    return {"phases": phases, "slopes_multi": slopes_multi_stream}
+
+
+def score_commands(sys_cfg, scenario, get_command, max_voltage: float) -> dict:
+    pupil = sys_cfg["pupil"]
+    valid_mask = sys_cfg["valid_mask"]
+    dm_surface = sys_cfg["dm_surface"]
+    strehl_ref = sys_cfg["strehl_ref"]
+    n_act = sys_cfg["n_act"]
+
+    phases = scenario["phases"]
+    slopes_multi_stream = scenario["slopes_multi"]
+    n_cases = len(phases)
+
+    rms_list = []
+    strehl_list = []
+    example = None
+
+    for i in range(n_cases):
+        cmd = np.asarray(get_command(i, slopes_multi_stream[i]), dtype=np.float64)
 
         if cmd.shape != (n_act,):
             raise ValueError(f"Invalid output shape: {cmd.shape}, expected {(n_act,)}")
@@ -215,17 +173,16 @@ def run_eval(controller_fn, sys_cfg, max_voltage=0.50, n_cases=320):
         if np.any(np.abs(cmd) > max_voltage + 1e-8):
             raise ValueError("Controller output violates voltage bounds")
 
-        residual = (phase - dm_surface(cmd)) * pupil
+        residual = (phases[i] - dm_surface(cmd)) * pupil
         rms = float(np.sqrt(np.mean(residual[valid_mask] ** 2)))
-        i_psf = np.abs(fouriertransform.ft2((pupil * np.exp(1j * residual)).astype(np.complex128), 1.0)) ** 2
-        strehl = float(i_psf.max() / strehl_ref)
+        strehl, i_psf = shared.strehl_from_residual(residual, pupil, strehl_ref)
 
         rms_list.append(rms)
         strehl_list.append(strehl)
 
         if i == 0:
             example = {
-                "phase": phase,
+                "phase": phases[i],
                 "residual": residual,
                 "psf": i_psf / (i_psf.sum() + 1e-12),
             }
@@ -235,14 +192,19 @@ def run_eval(controller_fn, sys_cfg, max_voltage=0.50, n_cases=320):
     worst_rms = float(np.max(rms_list))
     mean_strehl = float(np.mean(strehl_list))
     raw_cost = float(mean_rms + P95_WEIGHT * p95_rms - STREHL_WEIGHT * mean_strehl)
-    u_mean_rms = _utility_lower_better(mean_rms, SCORE_ANCHORS["mean_rms_good"], SCORE_ANCHORS["mean_rms_bad"])
-    u_p95_rms = _utility_lower_better(p95_rms, SCORE_ANCHORS["p95_rms_good"], SCORE_ANCHORS["p95_rms_bad"])
-    u_strehl = _utility_higher_better(mean_strehl, SCORE_ANCHORS["strehl_good"], SCORE_ANCHORS["strehl_bad"])
-    score_01 = float(
-        SCORE_WEIGHTS["mean_rms"] * u_mean_rms
-        + SCORE_WEIGHTS["p95_rms"] * u_p95_rms
-        + SCORE_WEIGHTS["strehl"] * u_strehl
-    )
+
+    utilities = {
+        "mean_rms": shared.utility_lower_better(
+            mean_rms, SCORE_ANCHORS["mean_rms_good"], SCORE_ANCHORS["mean_rms_bad"]
+        ),
+        "p95_rms": shared.utility_lower_better(
+            p95_rms, SCORE_ANCHORS["p95_rms_good"], SCORE_ANCHORS["p95_rms_bad"]
+        ),
+        "strehl": shared.utility_higher_better(
+            mean_strehl, SCORE_ANCHORS["strehl_good"], SCORE_ANCHORS["strehl_bad"]
+        ),
+    }
+    score_01 = shared.weighted_score(utilities, SCORE_WEIGHTS)
 
     return {
         "mean_rms": mean_rms,
@@ -256,67 +218,77 @@ def run_eval(controller_fn, sys_cfg, max_voltage=0.50, n_cases=320):
     }
 
 
-def save_plots(out_dir: Path, baseline_metrics: dict, reference_metrics: dict):
-    out_dir.mkdir(parents=True, exist_ok=True)
+def build_problem(sys_cfg, scenario, max_voltage: float) -> dict:
+    """Exactly what the candidate subprocess is allowed to see.
 
-    labels = ["score_0_to_1_higher_is_better", "mean_rms", "p95_rms", "mean_strehl"]
-    bvals = [baseline_metrics[k] for k in labels]
-    rvals = [reference_metrics[k] for k in labels]
-
-    plt.figure(figsize=(10, 4))
-    x = np.arange(len(labels))
-    w = 0.38
-    plt.bar(x - w / 2, bvals, width=w, label="baseline")
-    plt.bar(x + w / 2, rvals, width=w, label="reference")
-    plt.xticks(x, labels, rotation=20)
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(out_dir / "metrics_comparison.png", dpi=140)
-    plt.close()
-
-    fig, ax = plt.subplots(2, 3, figsize=(11, 6))
-    for row, data, title in [
-        (0, baseline_metrics["example"], "baseline"),
-        (1, reference_metrics["example"], "reference"),
-    ]:
-        ax[row, 0].imshow(data["phase"], cmap="coolwarm")
-        ax[row, 0].set_title(f"{title} phase")
-        ax[row, 1].imshow(data["residual"], cmap="coolwarm")
-        ax[row, 1].set_title(f"{title} residual")
-        ax[row, 2].imshow(np.log10(data["psf"] + 1e-12), cmap="magma")
-        ax[row, 2].set_title(f"{title} log10 PSF")
-    for a in ax.ravel():
-        a.axis("off")
-    fig.tight_layout()
-    fig.savefig(out_dir / "example_visualization.png", dpi=140)
-    plt.close(fig)
+    No anomaly model: the baseline candidate never had one either (the
+    reference's IsolationForest was oracle-only). ``uses_prev_commands`` is 0
+    since the original loop always called with ``prev_commands=None``.
+    """
+    problem = {
+        "slopes_multi": scenario["slopes_multi"],
+        "reconstructor": sys_cfg["reconstructor"],
+        "max_voltage": np.float64(max_voltage),
+        "n_act": np.int64(sys_cfg["n_act"]),
+        "uses_prev_commands": np.int64(0),
+    }
+    return problem
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--candidate",
-        type=str,
-        default=str(Path(__file__).resolve().parents[1] / "baseline" / "init.py"),
-        help="Path to candidate controller module.",
+    shared.add_common_cli_args(
+        parser,
+        default_candidate=TASK_DIR / "baseline" / "init.py",
+        default_max_voltage=0.50,
     )
-    parser.add_argument("--max_voltage", type=float, default=0.50)
     parser.add_argument("--cases", type=int, default=320)
     args = parser.parse_args()
 
-    out_dir = Path(__file__).resolve().parent / "outputs"
+    out_dir = Path(args.output_dir) if args.output_dir else VERIFICATION_DIR / "outputs"
+    candidate_path = Path(args.candidate)
 
-    candidate_fn = load_callable(Path(args.candidate), "fuse_and_compute_dm_commands")
     sys_cfg = make_system(seed=53)
-    baseline_metrics = run_eval(candidate_fn, sys_cfg, max_voltage=args.max_voltage, n_cases=args.cases)
+    scenario = make_scenario(sys_cfg, args.cases)
+
+    try:
+        commands = shared.run_candidate_controller(
+            candidate_path,
+            problem=build_problem(sys_cfg, scenario, args.max_voltage),
+            n_steps=args.cases,
+            n_act=sys_cfg["n_act"],
+            max_voltage=args.max_voltage,
+            timeout_s=args.candidate_timeout,
+        )
+    except shared.CandidateRejected as exc:
+        shared.write_rejection(out_dir, TASK_NAME, candidate_path, str(exc))
+        print(f"Candidate rejected: {exc}", file=sys.stderr)
+        return 3
+
+    baseline_metrics = score_commands(
+        sys_cfg, scenario, lambda i, sm: commands[i], args.max_voltage
+    )
 
     sys_cfg_ref = make_system(seed=53)
-    reference_metrics = run_eval(reference_controller, sys_cfg_ref, max_voltage=args.max_voltage, n_cases=args.cases)
+    scenario_ref = make_scenario(sys_cfg_ref, args.cases)
+    reference_metrics = score_commands(
+        sys_cfg_ref,
+        scenario_ref,
+        lambda i, sm: reference_controller(
+            sm,
+            sys_cfg_ref["reconstructor"],
+            sys_cfg_ref["control_model"],
+            None,
+            max_voltage=args.max_voltage,
+        ),
+        args.max_voltage,
+    )
 
     payload = {
-        "task": "task4_fault_tolerant_fusion",
+        "task": TASK_NAME,
         "benchmark_profile": "v3_fault_stress",
-        "candidate_module": str(Path(args.candidate).resolve()),
+        "candidate_module": str(candidate_path.resolve()),
+        "candidate_execution": "isolated_subprocess",
         "oracle_backend": "IsolationForest weighted inlier fusion",
         "fault_scenario": "5 WFS channels with 3 severe random corruptions per case",
         "p95_weight": P95_WEIGHT,
@@ -328,13 +300,20 @@ def main():
         "reference": {k: v for k, v in reference_metrics.items() if k != "example"},
     }
 
-    save_plots(out_dir, baseline_metrics, reference_metrics)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    shared.save_comparison_plots(
+        out_dir,
+        baseline_metrics,
+        reference_metrics,
+        ["score_0_to_1_higher_is_better", "mean_rms", "p95_rms", "mean_strehl"],
+    )
     with open(out_dir / "metrics.json", "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
 
     print(json.dumps(payload, indent=2))
     print(f"Saved figures/metrics to: {out_dir}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

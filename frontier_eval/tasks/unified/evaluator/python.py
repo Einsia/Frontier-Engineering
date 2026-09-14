@@ -7,6 +7,7 @@ import os
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import tempfile
 import time
@@ -176,19 +177,19 @@ def _hash_file(path: Path) -> str:
 
 
 def _should_ignore_fingerprint_entry(root: Path, path: Path) -> bool:
-    if path.name == "__pycache__":
-        return True
-    if path.suffix in {".pyc", ".pyo"}:
-        return True
-    rel_parts = path.relative_to(root).parts
-    return "__pycache__" in rel_parts
+    # Nothing is exempt. Bytecode caches used to be skipped here so that the
+    # __pycache__ directories created during a run would not be reported as
+    # readonly violations, but a stale .pyc shadows its .py at import time, so
+    # skipping them left a place to hide a rewritten scorer. Evaluation runs now
+    # set PYTHONDONTWRITEBYTECODE=1 (see _build_eval_env) and therefore produce
+    # no caches of their own; any that appear were put there by the candidate.
+    del root, path
+    return False
 
 
 def _fingerprint_path(path: Path) -> str:
     if not path.exists():
         return "__MISSING__"
-    if path.name == "__pycache__" or path.suffix in {".pyc", ".pyo"}:
-        return "__IGNORED__"
     if path.is_file():
         return f"file:{_hash_file(path)}"
 
@@ -210,22 +211,77 @@ def _fingerprint_path(path: Path) -> str:
     return "__UNKNOWN__"
 
 
+_OUT_OF_BOUNDS = "__OUT_OF_BOUNDS__"
+
+
+def _resolve_readonly_target(root: Path, rel: str) -> Path | None:
+    """Resolve a readonly_files entry, or None when it points outside the sandbox.
+
+    readonly_files.txt is task-supplied data, so an entry such as ``../x`` or an
+    absolute path would otherwise make the harness hash -- and compare -- files
+    that do not belong to the run.
+    """
+    if rel == ".":
+        return root
+    target = (root / rel).resolve()
+    return target if _is_within(target, root) else None
+
+
 def _snapshot_readonly(root: Path, rel_paths: tuple[str, ...]) -> dict[str, str]:
     snapshot: dict[str, str] = {}
     for rel in rel_paths:
-        target = root if rel == "." else (root / rel).resolve()
-        snapshot[rel] = _fingerprint_path(target)
+        target = _resolve_readonly_target(root, rel)
+        snapshot[rel] = _OUT_OF_BOUNDS if target is None else _fingerprint_path(target)
     return snapshot
 
 
 def _check_readonly_violations(root: Path, before: dict[str, str]) -> list[str]:
     violations: list[str] = []
     for rel, old_fp in before.items():
-        target = root if rel == "." else (root / rel).resolve()
-        new_fp = _fingerprint_path(target)
+        target = _resolve_readonly_target(root, rel)
+        new_fp = _OUT_OF_BOUNDS if target is None else _fingerprint_path(target)
         if old_fp != new_fp:
             violations.append(rel)
     return violations
+
+
+def _enforce_readonly(root: Path, rel_paths: tuple[str, ...]) -> list[tuple[Path, int]]:
+    """Drop write permission on the readonly paths for the duration of the run.
+
+    Fingerprinting alone only tells us afterwards that the scorer was rewritten,
+    by which point the tampered code has already produced a score. Taking the
+    write bit away first means the common case fails at the write instead.
+
+    Returns the original modes so the caller can restore them; the sandbox is a
+    temporary tree, but rmtree cannot remove entries from a directory it may not
+    write to. Best effort: a path we cannot chmod is left to the fingerprint
+    check, which still runs afterwards.
+    """
+    saved: list[tuple[Path, int]] = []
+    write_bits = stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH
+    for rel in rel_paths:
+        target = _resolve_readonly_target(root, rel)
+        if target is None or not target.exists():
+            continue
+        # Deepest first, so a directory stays writable while its children change.
+        entries = sorted(target.rglob("*"), reverse=True) if target.is_dir() else []
+        for path in [*entries, target]:
+            try:
+                mode = path.stat().st_mode
+                saved.append((path, stat.S_IMODE(mode)))
+                path.chmod(stat.S_IMODE(mode) & ~write_bits)
+            except OSError:
+                continue
+    return saved
+
+
+def _restore_modes(saved: list[tuple[Path, int]]) -> None:
+    # Shallowest first, so each directory is writable before its children.
+    for path, mode in sorted(saved):
+        try:
+            path.chmod(mode)
+        except OSError:
+            continue
 
 
 def _copy_selected_entries(
@@ -463,6 +519,7 @@ def evaluate(program_path: str, *, spec: UnifiedTaskSpec) -> Any:
     metrics["timeout_budget_s"] = float(timeout_budget_s)
 
     work_dir = Path(tempfile.mkdtemp(prefix=f"fe_unified_{_safe_slug(spec.benchmark_id)}_")).resolve()
+    readonly_saved_modes: list[tuple[Path, int]] = []
     try:
         sandbox_benchmark = (work_dir / "benchmark").resolve()
         if spec.copy_files:
@@ -490,6 +547,22 @@ def evaluate(program_path: str, *, spec: UnifiedTaskSpec) -> Any:
         readonly_snapshot = _snapshot_readonly(sandbox_benchmark, spec.readonly_files)
         if spec.readonly_files:
             artifacts["readonly_files"] = "\n".join(spec.readonly_files)
+        readonly_saved_modes = _enforce_readonly(sandbox_benchmark, spec.readonly_files)
+
+        # The sandbox is a *copy*. FRONTIER_ENGINEERING_ROOT (set below) points
+        # at the real repo, and the candidate runs under our own uid, so it can
+        # write to the source tree the sandbox was copied from -- which the
+        # snapshot above does not cover. A candidate that rewrote a scoring
+        # module there would score honestly this run and poison every run after
+        # it, silently.
+        #
+        # We cannot prevent that write from inside this process (chmod is
+        # reversible by the owner, and stripping the env var is not possible:
+        # the scorer-side scripts depend on it). We can refuse to believe a run
+        # that did it, and say so loudly enough that a human restores the tree.
+        source_readonly_snapshot = _snapshot_readonly(
+            spec.benchmark_dir.resolve(), spec.readonly_files
+        )
 
         eval_cwd = (sandbox_benchmark / spec.eval_cwd_rel).resolve()
         if not _is_within(eval_cwd, sandbox_benchmark):
@@ -513,6 +586,10 @@ def evaluate(program_path: str, *, spec: UnifiedTaskSpec) -> Any:
 
         env = os.environ.copy()
         env.update(spec.runtime_env)
+        # Keep the run from writing bytecode caches. Those caches are now part of
+        # the readonly fingerprint (see _should_ignore_fingerprint_entry), so a
+        # run that generated its own would report a violation against itself.
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
         env.setdefault("FRONTIER_ENGINEERING_ROOT", str(spec.repo_root))
         env["FRONTIER_EVAL_UNIFIED_SOURCE_BENCHMARK_DIR"] = str(spec.benchmark_dir)
         env["FRONTIER_EVAL_UNIFIED_BENCHMARK_DIR"] = str(sandbox_benchmark)
@@ -613,7 +690,8 @@ def evaluate(program_path: str, *, spec: UnifiedTaskSpec) -> Any:
                 "--entrypoint",
                 spec.runtime_shell,
                 spec.runtime_docker_image,
-                "-lc",
+                # Not a login shell: profile scripts are attacker-writable state.
+                "-c",
                 rendered_cmd,
             ]
             artifacts["runtime_mode"] = "docker"
@@ -641,7 +719,9 @@ def evaluate(program_path: str, *, spec: UnifiedTaskSpec) -> Any:
                 spec=spec,
                 runtime_python_path=runtime_python_path,
             )
-            run_cmd = [spec.runtime_shell, "-lc", rendered_cmd]
+            # Not a login shell: a candidate that runs earlier in the same
+            # evaluation can write ~/.bash_profile and have it sourced here.
+            run_cmd = [spec.runtime_shell, "-c", rendered_cmd]
             artifacts["runtime_mode"] = "shell"
 
         artifacts["benchmark_cmd"] = rendered_cmd
@@ -763,9 +843,30 @@ def evaluate(program_path: str, *, spec: UnifiedTaskSpec) -> Any:
                 if "error_message" not in artifacts:
                     artifacts["error_message"] = "readonly files modified by evaluation run"
 
+        if source_readonly_snapshot:
+            source_violations = _check_readonly_violations(
+                spec.benchmark_dir.resolve(), source_readonly_snapshot
+            )
+            if source_violations:
+                # Strictly worse than a sandbox violation: the sandbox is thrown
+                # away, the source tree is not. Every later evaluation of this
+                # task is now suspect until the tree is restored.
+                metrics["readonly_violation"] = 1.0
+                metrics["source_tree_violation"] = 1.0
+                metrics["valid"] = 0.0
+                metrics["combined_score"] = INVALID_COMBINED_SCORE
+                artifacts["source_tree_violations"] = "\n".join(source_violations[:200])
+                artifacts["error_message"] = (
+                    "evaluation run modified the SOURCE benchmark tree at "
+                    f"{spec.benchmark_dir} -- this persists across runs; restore "
+                    "the tree (e.g. git checkout) before trusting any later score "
+                    "for this task"
+                )
+
         metrics["runtime_s"] = float(time.time() - start)
         return _wrap(metrics, artifacts)
     finally:
+        _restore_modes(readonly_saved_modes)
         shutil.rmtree(work_dir, ignore_errors=True)
 
 

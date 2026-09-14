@@ -1,9 +1,14 @@
-"""Third-party oracle solver for Task 4.
+"""Third-party oracle solver for Holographic H4.
 
 Pipeline:
 1) Solve two scalar holograms with slmsuite (x-pattern and y-pattern).
 2) Initialize diagonal Jones phases from these holograms.
 3) Fine-tune with polarization crosstalk-aware objective.
+
+Held to the same contract as the candidate: ``solve`` returns only the decision
+variables (``phase_x`` / ``phase_y``), never output fields or target maps.
+``verification/evaluate.py`` owns the propagation and every metric, so the oracle
+and the candidate are measured by the same physics.
 """
 
 from __future__ import annotations
@@ -233,19 +238,9 @@ def solve(spec: dict[str, Any], device: str | None = None, seed: int = 0) -> dic
 
         losses.append(float(loss.item()))
 
-    out_x = _forward(field_x, spec, phase_x_layers, phase_y_layers)
-    out_y = _forward(field_y, spec, phase_x_layers, phase_y_layers)
-
     return {
-        "spec": spec,
-        "input_field_x": field_x,
-        "input_field_y": field_y,
-        "target_map_x": target_x.detach().cpu(),
-        "target_map_y": target_y.detach().cpu(),
-        "output_field_x": out_x,
-        "output_field_y": out_y,
-        "phase_x_layers": [p.detach().cpu() for p in phase_x_layers],
-        "phase_y_layers": [p.detach().cpu() for p in phase_y_layers],
+        "phase_x": np.stack([p.detach().cpu().numpy().astype(np.float64) for p in phase_x_layers]),
+        "phase_y": np.stack([p.detach().cpu().numpy().astype(np.float64) for p in phase_y_layers]),
         "loss_history": losses,
         "oracle_backend": "slmsuite_dual_seed+torchoptics_finetune",
     }

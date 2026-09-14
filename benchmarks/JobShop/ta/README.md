@@ -48,6 +48,8 @@ Large and diverse industrial-style benchmark suite; standard stress-test family 
 ## Quick start
 
 ```bash
-python JobShop/ta/baseline/init.py --max-instances 2
+# The baseline is driven by the evaluator, which runs it in a subprocess.
+# To run the baseline directly, pass one instance:
+#   python JobShop/ta/baseline/init.py --instance-json /path/to/instance.json
 python JobShop/ta/verification/evaluate.py --max-instances 2 --reference-time-limit 5
 ```

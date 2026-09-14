@@ -1,6 +1,23 @@
 # EVOLVE-BLOCK-START
 """Simple greedy baseline for ORB (Applegate & Cook, 1991).
 
+Contract (enforced by `verification/evaluate.py`):
+
+- The evaluator runs this file in an isolated subprocess and calls
+  `solve_instance(instance)` once per benchmark instance. This module is never
+  imported into the scoring process, and never supplies instance data.
+- `instance` is a dict with exactly three keys: `name`, `duration_matrix`,
+  `machines_matrix`. There is no `metadata`: the optimum and the bounds are the
+  scoring denominator and stay with the scorer.
+- Return `{"machine_schedules": [...]}`, indexed by machine id, where each
+  entry is `{"job_id", "operation_index", "start_time", "end_time"}`
+  (`"duration"` optional). A `"makespan"` you report is only cross-checked
+  against the value the scorer recomputes from the schedule; it never becomes
+  the score.
+- Every operation must appear exactly once, on the machine the instance
+  assigns it, for exactly its stated duration, without overlapping another
+  operation on the same machine or breaking the job's operation order.
+
 Baseline constraints:
 - Pure Python implementation.
 - Standard library only.
@@ -10,67 +27,13 @@ Baseline constraints:
 from __future__ import annotations
 
 import argparse
-import os
 import json
-import re
 import time
 from pathlib import Path
 from typing import Any
 
 FAMILY_PREFIX = "orb"
 FAMILY_NAME = "ORB (Applegate & Cook, 1991)"
-
-
-def _natural_key(name: str) -> list[object]:
-    parts = re.split(r"(\d+)", name)
-    return [int(p) if p.isdigit() else p for p in parts]
-
-
-def _benchmark_json_path() -> Path:
-    env_path = str(os.environ.get("JOBSHOP_BENCHMARK_JSON", "")).strip()
-    if env_path:
-        candidate = Path(env_path).expanduser().resolve()
-        if candidate.is_file():
-            return candidate
-        raise FileNotFoundError(
-            f"JOBSHOP_BENCHMARK_JSON points to a missing file: {candidate}"
-        )
-
-    candidates = [
-        Path(__file__).resolve().parents[2] / "data" / "benchmark_instances.json",
-        Path(__file__).resolve().parents[1] / "data" / "benchmark_instances.json",
-    ]
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
-
-    raise FileNotFoundError(
-        "benchmark_instances.json not found under JobShop/data. "
-        "Expected one of: "
-        + ", ".join(str(path) for path in candidates)
-    )
-
-
-def load_benchmark_json() -> dict[str, dict[str, Any]]:
-    with _benchmark_json_path().open("r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def load_family_instances() -> list[dict[str, Any]]:
-    data = load_benchmark_json()
-    selected = [
-        value
-        for name, value in data.items()
-        if name.startswith(FAMILY_PREFIX)
-    ]
-    return sorted(selected, key=lambda x: _natural_key(x["name"]))
-
-
-def load_instance_by_name(name: str) -> dict[str, Any]:
-    data = load_benchmark_json()
-    if name not in data:
-        raise KeyError(f"Unknown instance: {name}")
-    return data[name]
 
 
 def solve_instance(instance: dict[str, Any]) -> dict[str, Any]:
@@ -81,12 +44,9 @@ def solve_instance(instance: dict[str, Any]) -> dict[str, Any]:
         - name
         - duration_matrix
         - machines_matrix
-        - metadata
 
     Output:
         dict with at least:
-        - name
-        - makespan
         - machine_schedules
     """
     durations: list[list[int]] = instance["duration_matrix"]
@@ -144,45 +104,44 @@ def solve_instance(instance: dict[str, Any]) -> dict[str, Any]:
 
     makespan = max(job_ready) if job_ready else 0
     return {
-        "name": instance["name"],
         "makespan": makespan,
         "machine_schedules": machine_schedules,
-        "solved_by": "GreedyESTSPTBaseline",
-        "family": FAMILY_PREFIX,
     }
 
 
 def _cli() -> None:
     parser = argparse.ArgumentParser(
-        description=f"Run pure-python baseline on {FAMILY_NAME}."
+        description=(
+            f"Run the pure-python baseline on one {FAMILY_NAME} instance. "
+            "The instance JSON is supplied by the evaluator; this CLI is a "
+            "convenience for local debugging only."
+        )
     )
     parser.add_argument(
-        "--instance",
-        type=str,
-        default=None,
-        help="Instance name. If omitted, run the first N family instances.",
+        "--instance-json",
+        required=True,
+        help="Path to a JSON file with name/duration_matrix/machines_matrix.",
     )
     parser.add_argument(
-        "--max-instances",
-        type=int,
-        default=3,
-        help="How many family instances to run when --instance is omitted.",
+        "--output",
+        default="",
+        help="Optional path to write the resulting schedule to.",
     )
     args = parser.parse_args()
 
-    if args.instance:
-        instances = [load_instance_by_name(args.instance)]
-    else:
-        instances = load_family_instances()[: max(args.max_instances, 1)]
+    instance = json.loads(Path(args.instance_json).read_text(encoding="utf-8"))
 
-    for instance in instances:
-        start = time.perf_counter()
-        result = solve_instance(instance)
-        elapsed = time.perf_counter() - start
-        print(
-            f"[{FAMILY_PREFIX}] {instance['name']}: "
-            f"makespan={result['makespan']} elapsed={elapsed:.4f}s"
-        )
+    start = time.perf_counter()
+    result = solve_instance(instance)
+    elapsed = time.perf_counter() - start
+
+    if args.output:
+        Path(args.output).write_text(json.dumps(result), encoding="utf-8")
+
+    print(
+        f"[{FAMILY_PREFIX}] {instance.get('name', '<unnamed>')}: "
+        f"makespan={result['makespan']} elapsed={elapsed:.4f}s"
+    )
 
 
 if __name__ == "__main__":

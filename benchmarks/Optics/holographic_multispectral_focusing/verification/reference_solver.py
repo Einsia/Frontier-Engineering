@@ -1,11 +1,17 @@
-"""Third-party oracle solver for Task 3.
+"""Third-party oracle solver for Holographic H3.
 
 Uses two stronger-than-baseline oracle candidates and returns the better one:
 - Candidate A: wavelength-specific slmsuite WGS upper bound.
 - Candidate B: wavelength-specific phase maps with slmsuite seeds + torchoptics joint fine-tuning.
 
-Both candidates are unconstrained by a single shared phase mask, so they are practical
-upper bounds against the baseline's shared-hardware setting.
+Both are unconstrained by a single shared dispersive stack, so they are practical
+*upper bounds* against the candidate's shared-hardware setting. That relaxation is
+deliberate and is recorded in ``summary.json`` as ``reference.design_space``.
+
+Held to an arrays-only contract like the candidate: ``solve`` returns
+``phase_per_wavelength`` of shape ``(n_wavelengths, shape, shape)`` and never a
+``system`` or a field. ``verification/evaluate.py`` owns the forward model that
+turns those phases into output fields, and owns every metric.
 """
 
 from __future__ import annotations
@@ -67,6 +73,12 @@ def _build_seed_phases(spec: dict[str, Any], seed: int) -> dict[float, torch.Ten
 
 
 class _WavelengthPhaseSystem:
+    """Local helper used *inside* this trusted module to score restarts.
+
+    It never leaves the module: ``solve`` returns plain arrays. The evaluator
+    rebuilds the identical forward path itself from those arrays.
+    """
+
     def __init__(self, phases_by_wavelength: dict[float, torch.Tensor], output_z: float) -> None:
         self.phases_by_wavelength = phases_by_wavelength
         self.output_z = output_z
@@ -97,8 +109,8 @@ def _all_designated_powers(field: Field, centers: list[tuple[float, float]], rad
 
 def _score_solution(system, input_fields: list[Field], spec: dict[str, Any]) -> float:
     roi_radius = float(spec["roi_radius_m"])
-    score_eff_target = float(spec.get("score_eff_target", 0.06))
-    score_spectral_scale = float(spec.get("score_spectral_scale", 0.10))
+    score_eff_target = float(spec["score_eff_target"])
+    score_spectral_scale = float(spec["score_spectral_scale"])
 
     per_wavelength_eff = []
     per_wavelength_xt = []
@@ -232,7 +244,7 @@ def solve(spec: dict[str, Any], device: str | None = None, seed: int = 0) -> dic
 
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     torchoptics.set_default_spacing(spec["spacing"])
-    torchoptics.set_default_wavelength(spec["wavelengths"][1])
+    torchoptics.set_default_wavelength(spec["reference_wavelength"])
 
     input_fields = _make_input_fields(spec, device)
 
@@ -242,10 +254,15 @@ def solve(spec: dict[str, Any], device: str | None = None, seed: int = 0) -> dic
 
     best = cand_upper if cand_upper["score"] >= cand_indep["score"] else cand_indep
 
+    system = best["system"]
+    phase_per_wavelength = np.stack(
+        [
+            system.phases_by_wavelength[float(wl)].detach().cpu().numpy().astype(np.float64)
+            for wl in spec["wavelengths"]
+        ]
+    )
     return {
-        "spec": spec,
-        "system": best["system"],
-        "input_fields": input_fields,
+        "phase_per_wavelength": phase_per_wavelength,
         "loss_history": best["loss_history"],
         "oracle_backend": best["oracle_backend"],
     }

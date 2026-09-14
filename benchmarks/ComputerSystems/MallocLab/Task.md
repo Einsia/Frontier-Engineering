@@ -113,6 +113,8 @@ The `memlib.c` package simulates a memory system for the dynamic memory allocato
 
 * Interface functions in `mm.c` must not be modified.
 
+* `mm.c` must not read standard input.
+
 * System library functions must not be called.
 
 * Global or static composite data structures, such as arrays, structures, trees, or lists, must not be defined in the `mm.c` program. However, global scalar variables, such as integers, floating-point numbers, and pointers, can be declared in `mm.c`.
@@ -120,6 +122,9 @@ The `memlib.c` package simulates a memory system for the dynamic memory allocato
 * Returned memory blocks should be 16-byte aligned.
 
 ## Scoring Criteria
+
+The evaluator reads the result file written by `mdriver`. The allocator and
+driver execute in the same process and share an address space.
 
 * Space Utilization: The ratio between the maximum amount of memory used by the program and the maximum heap size used by the allocator; the optimal ratio is 1.
 

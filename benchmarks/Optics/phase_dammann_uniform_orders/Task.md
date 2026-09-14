@@ -13,35 +13,48 @@ Think of it as:
 Improve how baseline chooses transition positions.
 
 Primary optimization target:
-- `baseline_transitions(problem)`
+- `solve(problem)` in `baseline/init.py`
 
-In practice, `solve_baseline(problem)` calls it, builds optical field, propagates, and evaluates order metrics.
+`main()` writes the returned vector to `submission.json`. The verifier builds the
+optical field, propagates it and evaluates the order metrics.
 
 ## Editable Boundary
 - Editable: `baseline/init.py`
-- Read-only: `verification/validate.py`
+- Read-only (write-locked and fingerprinted during evaluation): `verification/validate.py`, `verification/problem.py`, `verification/metrics.py`, `frontier_eval/`
 
-Required API:
-- `build_problem(config: dict | None) -> dict`
-- `solve_baseline(problem: dict) -> dict`
-- `build_incident_field(problem: dict, transitions: np.ndarray)`
-- `evaluate_orders(problem: dict, intensity_x: np.ndarray, x: np.ndarray) -> dict`
+## Scoring Contract
+`baseline/init.py` is **never imported** by the verifier. It is executed as a
+standalone program in its own subprocess, inside a throwaway working directory that
+already holds the scorer-authored problem definition:
 
+- `problem.json` -- the config (`cfg`) plus a `decision_variable` block stating exactly what to return
+- `problem.npz` -- `x_period`
 
-### Input
-`problem` contains:
-- grating period, wavelength, focal distance, sampling settings
-- target order range (`order_min` to `order_max`)
+Your program must write `submission.json` into its current directory and exit 0:
 
-### Output of `solve_baseline(problem)`
-A dict with:
-- `transitions`: optimized transition vector
-- `x_focus`: focus-plane x-grid
-- `intensity_focus`: propagated intensity on focus line
-- `metrics`: order statistics
+```json
+{"transitions": [t0, t1, ..., t13]}   // micrometres
+```
+
+Constraints the verifier enforces on `transitions`:
+- exactly `cfg["num_transitions"]` (14) numbers
+- **strictly increasing**
+- every entry finite and inside `[-period_size/2, +period_size/2]`
+
+**Return the decision variable and nothing else.** Any other key -- `metrics`,
+`score`, `score_pct`, `cv_orders`, ... -- is dropped before scoring and merely recorded
+under `contract.ignored_submission_keys` in the metrics file. The problem definition,
+the forward model and every metric live in `verification/problem.py` and
+`verification/metrics.py`: the verifier rebuilds the problem, runs the forward model on
+your decision variable, and computes all metrics. The oracle uses the same scoring
+functions.
+
+A rejected submission (wrong shape/length, non-finite or out-of-range values, non-zero
+exit code, timeout, or no `submission.json`) scores as invalid.
 
 ## Baseline Implementation (current)
-Baseline uses naive evenly-spaced transitions inside fixed margins, then:
+Baseline picks naive evenly-spaced transitions inside fixed margins. Steps 1-5 below are
+the verifier's forward model (`verification/metrics.py`), not yours:
 1. build one-period binary phase mask
 2. repeat period to build full grating
 3. multiply lens phase

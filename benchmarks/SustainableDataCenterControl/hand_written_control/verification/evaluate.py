@@ -1,8 +1,18 @@
+"""Evaluate a hand-written SustainDC control policy.
+
+The candidate is never imported into this process. `run_benchmark_isolated`
+runs it in a throw-away subprocess and keeps the SustainDC environments, the
+NoOp reference and the scoring here, out of its reach -- see the isolation
+contract at the top of `benchmark_core.py` for why that matters for a
+*relative* score.
+"""
+
 from __future__ import annotations
 
 import argparse
 import json
 import sys
+import traceback
 from pathlib import Path
 from typing import Any
 
@@ -11,11 +21,14 @@ BENCHMARK_DIR = Path(__file__).resolve().parents[1]
 if str(BENCHMARK_DIR) not in sys.path:
     sys.path.insert(0, str(BENCHMARK_DIR))
 
+# Imported by value into __main__ -- but that no longer matters, because no
+# candidate code ever runs in this process to rebind anything.
 from benchmark_core import (
+    CandidateRejected,
     format_report,
-    load_policy_module,
     resolve_sustaindc_root,
-    run_benchmark,
+    run_benchmark_isolated,
+    write_noop_reference,
 )
 
 
@@ -105,18 +118,54 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional path to write unified-task artifacts as JSON.",
     )
+    parser.add_argument(
+        "--refresh-noop-reference",
+        action="store_true",
+        help=(
+            "Recompute and persist verification/noop_reference.json, then exit. "
+            "Run this only from a trusted checkout with no candidate present."
+        ),
+    )
     return parser.parse_args()
+
+
+def _rejected_metrics(message: str) -> dict[str, Any]:
+    return {
+        "valid": 0.0,
+        "combined_score": 0.0,
+        "average_score": 0.0,
+        "score_fraction": 0.0,
+        "score_ceiling": 100.0,
+        "candidate_error": message,
+    }
 
 
 def main() -> int:
     args = parse_args()
+    sustaindc_root = resolve_sustaindc_root(args.sustaindc_root)
+
+    if args.refresh_noop_reference:
+        path = write_noop_reference(sustaindc_root)
+        print(f"NoOp reference table written to: {path}")
+        return 0
+
     solution_path = args.solution.resolve()
     if not solution_path.exists():
         raise FileNotFoundError(f"Solution file not found: {solution_path}")
 
-    policy_module = load_policy_module(solution_path)
-    sustaindc_root = resolve_sustaindc_root(args.sustaindc_root)
-    report = run_benchmark(policy_module, sustaindc_root=sustaindc_root)
+    try:
+        report = run_benchmark_isolated(solution_path, sustaindc_root=sustaindc_root)
+    except CandidateRejected as exc:
+        message = str(exc)
+        print(f"Candidate rejected: {message}")
+        _write_json(args.metrics_out, _rejected_metrics(message))
+        _write_json(
+            args.artifacts_out,
+            {"candidate_error": message, "traceback": traceback.format_exc()},
+        )
+        _write_json(args.save_json, {"candidate_error": message})
+        return 0
+
     report["solution_path"] = _display_path(solution_path)
     report["sustaindc_root"] = _display_path(sustaindc_root)
 

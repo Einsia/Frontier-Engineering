@@ -1,3 +1,6 @@
+// Local verification utility; the scoring entrypoint uses
+// benchmarks/_shared/crypto_eval.py to generate inputs, check outputs against
+// trusted references and measure throughput. This file is not used for scoring.
 #include <iostream>
 #include <vector>
 #include <string>
@@ -117,5 +120,7 @@ int main() {
     
     std::remove(TEST_FILE.c_str());
 
-    return 0;
+    // Was `return 0;` unconditionally: valid.sh reported success even when
+    // every vector failed. The exit status now reflects the result.
+    return (passed == TEST_COUNT) ? 0 : 1;
 }

@@ -45,6 +45,33 @@ def fuse_and_compute_dm_commands(slopes_multi, reconstructor, control_model, pre
 - `dm_commands: np.ndarray`，形状 `(n_act,)`
   - 必须有限且满足 `[-max_voltage, max_voltage]`。
 
+## 执行契约（候选在独立进程中运行）
+
+`verification/evaluate.py` 在独立子进程的临时工作目录中运行 `baseline/init.py`。
+
+评测器放进该目录的输入（`problem.npz`，用
+`np.load("problem.npz", allow_pickle=False)` 读取）：
+
+- `slopes_multi`：`(n_cases, 5, 2 * n_subap)`，5 路传感器斜率流，每个 case 一块
+- `reconstructor`：`(n_act, 2 * n_subap)`
+- `max_voltage`、`n_act`
+- 本题 `uses_prev_commands` 为 `0`：融合是逐 case 单次的，`prev_commands` 始终传
+  `None`（与改造前一致）
+
+候选退出前必须在工作目录写出：
+
+- `submission.npz`，含唯一浮点数组 `commands`，形状 `(n_cases, n_act)`
+  - 第 `i` 行是控制器针对第 `i` 个观测发出的命令
+  - 所有元素必须有限，且落在 `[-max_voltage, max_voltage]` 内
+
+`baseline/init.py` 底部的 `if __name__ == "__main__":` 运行器已经实现了这套流程：
+遍历观测流、调用你的函数、传入 `prev_commands=None`，并保存结果。**请保留它。**
+崩溃、超时或没有产出合法 `submission.npz` 的运行一律判为无效
+（`combined_score = -1e18`），而不是只扣分。
+
+评测器只根据 `commands` 重新计算一切——DM 面形、
+残差、RMS 与 Strehl。写进 `submission.npz` 的任何 score/cost/metric 字段都会被忽略。
+
 ## Verification 场景
 
 `verification/evaluate.py` 构造故障主导的压力测试：

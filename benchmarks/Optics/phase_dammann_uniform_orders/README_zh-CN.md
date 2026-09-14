@@ -8,9 +8,11 @@
 ```text
 task03_dammann_uniform_orders/
   baseline/
-    init.py
-  verification/
-    validate.py
+    init.py           # 候选：读 problem.npz/json，写 submission.json
+  verification/       # 评分侧所有，评测期间只读
+    problem.py        # 权威题目定义（配置、孔径/目标/焦点）
+    metrics.py        # 权威前向模型 + 指标 + 分数
+    validate.py       # 隔离运行候选，自己重算全部数字
     outputs/
   README.md
   README_zh-CN.md
@@ -36,8 +38,12 @@ python -m pip install -r benchmarks/Optics/requirements.txt
 ## 运行
 
 ```bash
-PYTHONPATH=. python benchmarks/Optics/phase_dammann_uniform_orders/baseline/init.py
 PYTHONPATH=. python benchmarks/Optics/phase_dammann_uniform_orders/verification/validate.py
 ```
 
 oracle 为 `SciPy-DE` 与文献跃迁表取更优。
+
+公共评分工具位于 `benchmarks/Optics/_shared/phase_common.py`。
+
+`validate.py` 在子进程的临时工作目录中运行 `baseline/init.py`，并读取 `submission.json`。
+手动运行需要在工作目录中准备 `problem.json` 和 `problem.npz`；运行 validator 会准备这些输入。

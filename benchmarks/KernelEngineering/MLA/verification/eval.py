@@ -1,3 +1,11 @@
+"""Local kernel-checking tool; official scoring uses ``frontier_eval/evaluator.py``.
+
+This utility loads candidate and reference code in the same process, so its
+correctness and timing diagnostics are intended for local development. The
+scoring entrypoint uses separate candidate and trusted workers and a scorer-owned
+clock.
+"""
+
 import dataclasses
 import re
 import time
@@ -19,7 +27,6 @@ try:
 except ImportError:
     TestSpec = dict
 
-from baseline.submission import custom_kernel
 from baseline.reference import check_implementation, generate_input
 
 WARMUP_RUNS = 10
@@ -106,6 +113,7 @@ def get_test_cases(file_name: str) -> list[TestCase]:
 
 
 def warm_up(test: TestCase):
+    from baseline.submission import custom_kernel
     config, data, kv_cache = generate_input(**test.args)
     config_copy = copy_config_weights(config)
     start = time.perf_counter()
@@ -166,6 +174,7 @@ def run_testing(logger: PopcornOutput, tests: list[TestCase]):
     @param tests: A list of TestCase objects representing the test cases to be executed.
     @return: An integer representing the exit status: 0 if all tests pass, otherwise 112.
     """
+    from baseline.submission import custom_kernel
     passed = True
     logger.log("test-count", len(tests))
     for idx, test in enumerate(tests):
@@ -203,6 +212,7 @@ def benchmark(test: TestCase, recheck: bool, max_repeats: int, max_time_ns: floa
     @param max_time_ns: Timeout time in nanoseconds.
     @return: A Stats object for this particular benchmark case or an error if the test fails.
     """
+    from baseline.submission import custom_kernel
     durations = []
     # generate input data once
     config, data, kv_cache = generate_input(**test.args)

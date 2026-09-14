@@ -9,8 +9,8 @@ This domain contains algorithm-acceleration tasks for:
 Each task provides:
 
 - baseline C++ implementation (`baseline/*.cpp`)
-- correctness verification (`verification/validate.cpp`)
-- throughput benchmark (`verification/evaluate.cpp`)
+- correctness verification (the scorer's own FIPS/NIST references; `verification/validate.cpp` is a standalone developer check)
+- throughput benchmark (measured by the scorer, which re-checks the output of every timed iteration; `verification/evaluate.cpp` is a standalone developer check)
 - reference PDF (`references/*.pdf`)
 
 ## Run with frontier_eval (unified)

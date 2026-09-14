@@ -35,6 +35,31 @@ def optimize_circuit(input_circuit, target, case):
 输出：
 - `optimized_circuit`：Qiskit `QuantumCircuit`。
 
+## 正确性门禁（在计算任何指标之前执行）
+
+评测器会在统计深度与门数**之前**，先校验你的电路与输入电路是否功能等价。
+未通过的电路不会被打分：整次运行判为 invalid，而不是给一个低分。
+
+- 方法：态矢抽样。用 `|0...0>` 加 4 个 Haar 随机输入态分别通过两个电路演化并比对，
+  逐态保真度的最小值必须大于 `1 - 1e-9`。
+- 忽略全局相位；也允许路由引入的比特置换——前提是你的电路声明了它（见下）。
+- 会被拒绝：空电路、未达到保真度阈值的电路、`reset`、中途测量、经典条件门，
+  以及作用比特数超过 22 的电路。
+
+## 比特布局（layout）
+
+ALG 层的 QAOA 电路不含测量，评测器无法从电路本身还原路由置换。若你返回的电路比
+输入更宽，它必须携带 transpiler 的 layout。直接返回 `transpile()` 的结果即可；
+若要再做后处理，请保留 `circuit._layout`
+（`baseline/structural_optimizer.py` 已经这样做了）。与输入等宽且无 layout 的电路
+按恒等映射处理。声明的 layout 只是提示而非权威：声明了却没有真正实现的置换一样
+过不了校验。
+
+## 执行模型
+
+`baseline/solve.py` 在独立解释器中运行。输入电路以 OpenQASM 3 传入，你返回的电路
+也会被导出为 OpenQASM 3，并由评测器重新解析和计算指标。
+
 ## 成本函数与归一化分数
 成本函数：
 - `cost = two_qubit_count + 0.2 * depth`

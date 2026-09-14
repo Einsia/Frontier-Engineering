@@ -4,3 +4,9 @@ Task.md
 Task_zh-CN.md
 verification
 frontier_eval
+# The reference implementation, the tolerances and the type/utility modules the
+# scorer depends on. Only baseline/submission.py is the candidate's to write.
+baseline/reference.py
+baseline/task.py
+baseline/utils.py
+baseline/task.yml

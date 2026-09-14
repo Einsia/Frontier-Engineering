@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import inspect
 import json
 import os
@@ -10,7 +11,42 @@ from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from typing import Any
 
+# Never leave a __pycache__ next to the scorer. The harness fingerprints the
+# readonly paths (verification/, frontier_eval/, references/) before and after
+# the run, and a .pyc dropped into one of them both trips that check and, worse,
+# gives a candidate a place to shadow a .py at import time. The harness exports
+# PYTHONDONTWRITEBYTECODE=1 for its own runs; this covers the direct-CLI path
+# too.
+sys.dont_write_bytecode = True
+
 INVALID_COMBINED_SCORE = -1e18
+
+
+def _sha256(path: Path) -> str:
+    """Digest of a scorer file, recorded so a tampered scorer is visible."""
+    try:
+        h = hashlib.sha256()
+        with path.open("rb") as f:
+            for block in iter(lambda: f.read(1024 * 1024), b""):
+                h.update(block)
+        return h.hexdigest()
+    except OSError as exc:
+        return f"__unreadable__ ({exc})"
+
+
+def _scorer_digests(base: Path) -> dict[str, str]:
+    digests: dict[str, str] = {}
+    for rel in (
+        base / "frontier_eval" / "evaluator.py",
+        base / "frontier_eval" / "run_eval.py",
+    ):
+        if rel.is_file():
+            digests[rel.name] = _sha256(rel)
+    verification = base / "verification"
+    if verification.is_dir():
+        for path in sorted(verification.rglob("*.py")):
+            digests[f"verification/{path.relative_to(verification).as_posix()}"] = _sha256(path)
+    return digests
 
 
 def _write_json(path: Path, obj: Any) -> None:
@@ -104,14 +140,32 @@ def main(argv: list[str]) -> int:
         "candidate_path": str(candidate_path),
     }
 
+    benchmark_dir = Path(__file__).resolve().parents[1]
+    try:
+        artifacts["scorer_sha256"] = json.dumps(_scorer_digests(benchmark_dir), indent=2)
+    except Exception as exc:  # never let provenance bookkeeping fail a run
+        artifacts["scorer_sha256_error"] = str(exc)
+
     try:
         evaluate_fn = _load_local_evaluator()
         result = evaluate_fn(str(candidate_path), **_build_kwargs(evaluate_fn))
         metrics, evaluator_artifacts = _normalize_result(result)
         artifacts.update(evaluator_artifacts)
     except Exception as exc:
+        # Fail closed: an evaluator that raised produced no trustworthy score,
+        # so the defaults above (INVALID / valid=0) are what gets written.
+        metrics = {"combined_score": INVALID_COMBINED_SCORE, "valid": 0.0}
         artifacts["error_message"] = str(exc)
         artifacts["traceback"] = traceback.format_exc()
+
+    # Backstop: a metrics dict that does not positively assert validity scores
+    # as invalid. This cannot change an honest run (valid=1.0, combined_score
+    # set by the evaluator); it only closes the gap where a partially-populated
+    # dict would otherwise inherit the harness's optimistic defaults.
+    valid = metrics.get("valid")
+    if "combined_score" not in metrics or (valid is not None and float(valid) <= 0.0):
+        metrics["combined_score"] = INVALID_COMBINED_SCORE
+        metrics.setdefault("valid", 0.0)
 
     _write_json(metrics_out, metrics)
     _write_json(artifacts_out, artifacts)

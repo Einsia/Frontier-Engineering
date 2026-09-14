@@ -10,6 +10,15 @@ from pathlib import Path
 from typing import Any
 
 
+# Wall-clock cap for the evaluator stage. Without one, a candidate that never
+# terminates hangs the whole evaluation instead of failing it. The inner
+# verification/evaluate.py already bounds the candidate itself; this is the
+# outer belt so a hang anywhere in the stage is still a scored failure.
+_EVAL_TIMEOUT_S = float(
+    os.environ.get("FRONTIER_EVAL_EVALUATOR_TIMEOUT_S", "1800") or "1800"
+)
+
+
 def _as_float(value: Any) -> float | None:
     if isinstance(value, bool):
         return float(value)
@@ -80,6 +89,7 @@ def main() -> int:
             cwd=str(benchmark_dir),
             capture_output=True,
             text=True,
+            timeout=_EVAL_TIMEOUT_S,
         )
     except Exception as exc:
         runtime_s = float(time.time() - start_s)
@@ -136,7 +146,11 @@ def main() -> int:
         if candidate_score is None:
             error_message = "baseline_final_score is missing in output/comparison.json"
 
-    valid = 1.0 if proc.returncode == 0 and candidate_score is not None else 0.0
+    valid = 1.0 if (proc.returncode == 0 and candidate_score is not None
+                    and not comparison.get("candidate_error")
+                    and comparison.get("valid", True)) else 0.0
+    if comparison and comparison.get("candidate_error"):
+        error_message = str(comparison["candidate_error"])
     combined_score = float(candidate_score) if valid > 0 else 0.0
 
     metrics: dict[str, float] = {

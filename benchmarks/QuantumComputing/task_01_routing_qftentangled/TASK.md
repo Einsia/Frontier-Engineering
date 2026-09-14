@@ -33,6 +33,39 @@ Input:
 Output:
 - `optimized_circuit`: Qiskit `QuantumCircuit`.
 
+## Correctness Gate (checked before any metric)
+
+Your circuit is verified against the input circuit *before* depth and gate
+counts are computed. A circuit that fails is not scored at all: the run is
+marked invalid, not merely given a low score.
+
+- Method: statevector sampling. `|0...0>` plus 4 Haar-random input states are
+  evolved through both circuits and compared; the worst per-state fidelity must
+  exceed `1 - 1e-9`. (9/11/13-qubit inputs on a 27-qubit device are too large
+  for an exact unitary comparison.)
+- Global phase is ignored. So is the qubit permutation a routing pass
+  introduces -- as long as your circuit declares it (see below).
+- Your circuit must measure the same classical bits the input circuit measures;
+  those measurements are what pin down where each input qubit ends up.
+- Rejected: the empty circuit, a measurement-only circuit, a lossy
+  `approximation_degree`, `reset`, mid-circuit measurement, classically
+  conditioned operations, and any circuit touching more than 22 qubits.
+
+## Qubit Layout
+
+If you return a circuit wider than the input (i.e. mapped onto the 27-qubit
+device), it must carry the transpiler's layout so the scorer knows which
+physical qubit holds which input qubit. Returning what `transpile()` produced
+is enough; if you post-process it, preserve `circuit._layout`
+(`baseline/structural_optimizer.py` already does). A same-width circuit with no
+layout is read as the identity mapping.
+
+## Execution Model
+
+`baseline/solve.py` runs in its own interpreter. The input circuit reaches you
+as OpenQASM 3, and your returned circuit is exported to OpenQASM 3 and
+re-parsed by the scorer, which computes the circuit metrics.
+
 ## Cost and Score
 Cost function:
 - `cost = two_qubit_count + 0.2 * depth`

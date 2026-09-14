@@ -33,6 +33,22 @@ def optimize_circuit(input_circuit, target, case):
 输出：
 - `optimized_circuit`：Qiskit `QuantumCircuit`。
 
+## 正确性门禁（在计算任何指标之前执行）
+
+评测器会在统计 T 数、双比特门数与深度**之前**，先校验你的电路与输入电路是否功能
+等价。未通过的电路不会被打分：整次运行判为 invalid，而不是给一个低分。
+
+- 方法：精确比对。本题为 3/4/5 比特，可直接构造候选电路的完整有效酉矩阵
+  （最大 32x32），用 process fidelity 比对，必须大于 `1 - 1e-9`。
+- 忽略全局相位；也允许输出比特的重新标号：把 QFT 末尾的 swap 消去并记入 layout
+  的优化器仍可通过，无论该 layout 记录是否在后处理中丢失。
+- 会被拒绝：空电路、只做近似的电路、`reset`、中途测量、经典条件门。
+
+## 执行模型
+
+`baseline/solve.py` 在独立解释器中运行。输入电路以 OpenQASM 3 传入，你返回的电路
+也会被导出为 OpenQASM 3，并由评测器重新解析和计算指标。
+
 ## 成本函数与归一化分数
 成本函数：
 - `cost = (T + Tdg) + 0.2 * two_qubit_count + 0.05 * depth`

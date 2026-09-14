@@ -33,6 +33,27 @@ Input:
 Output:
 - `optimized_circuit`: Qiskit `QuantumCircuit`.
 
+## Correctness Gate (checked before any metric)
+
+Your circuit is verified against the input circuit *before* T-count, two-qubit
+count and depth are computed. A circuit that fails is not scored at all: the run
+is marked invalid, not merely given a low score.
+
+- Method: exact. These cases are 3, 4 and 5 qubits, so the candidate's full
+  effective unitary is built (at most 32x32) and compared by process fidelity,
+  which must exceed `1 - 1e-9`.
+- Global phase is ignored, and so is a relabelling of the output qubits: an
+  optimizer that elides the QFT's trailing swaps still passes, whether or not
+  the layout record survived.
+- Rejected: the empty circuit, any circuit that only approximates the input,
+  `reset`, mid-circuit measurement, and classically conditioned operations.
+
+## Execution Model
+
+`baseline/solve.py` runs in its own interpreter. The input circuit reaches you
+as OpenQASM 3, and your returned circuit is exported to OpenQASM 3 and
+re-parsed by the scorer, which computes the circuit metrics.
+
 ## Cost and Score
 Cost function:
 - `cost = (T + Tdg) + 0.2 * two_qubit_count + 0.05 * depth`

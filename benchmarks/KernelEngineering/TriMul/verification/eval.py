@@ -1,3 +1,11 @@
+"""Local kernel-checking tool; official scoring uses ``frontier_eval/evaluator.py``.
+
+This utility loads candidate and reference code in the same process, so its
+correctness and timing diagnostics are intended for local development. The
+scoring entrypoint uses separate candidate and trusted workers and a scorer-owned
+clock.
+"""
+
 import base64
 import dataclasses
 import multiprocessing

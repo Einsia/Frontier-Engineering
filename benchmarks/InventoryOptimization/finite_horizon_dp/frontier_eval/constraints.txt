@@ -4,3 +4,5 @@ InventoryOptimization unified-task constraints:
 3) Keep task contracts in `Task.md` / `Task_zh-CN.md` unchanged.
 4) Ensure the candidate remains deterministic and executable under conda env `stock`.
 5) Evaluation score is read from `output/comparison.json` (`baseline_final_score`).
+
+The original solve() callable interface is also accepted. It is invoked in the candidate subprocess and its returned policy is validated by the scorer.

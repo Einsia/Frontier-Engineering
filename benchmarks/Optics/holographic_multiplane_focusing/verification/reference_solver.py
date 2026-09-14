@@ -1,9 +1,14 @@
-"""Third-party oracle solver for Task 2.
+"""Third-party oracle solver for Holographic H2.
 
 Pipeline:
 1) Use slmsuite WGS per target plane to generate phase seeds.
 2) Fuse seeds into multi-layer initialization.
 3) Fine-tune with multi-plane ratio/leakage-aware objective.
+
+Held to the same contract as the candidate: ``solve`` returns only the decision
+variables (``phases``), never a ``system``/``input_field``/``target_fields``.
+``verification/evaluate.py`` scores the oracle with exactly the same scorer-owned
+forward model it applies to the candidate.
 """
 
 from __future__ import annotations
@@ -155,11 +160,11 @@ def solve(spec: dict[str, Any], device: str | None = None, seed: int = 0) -> dic
 
         losses.append(float(loss.item()))
 
+    phases = np.stack(
+        [layer.phase.detach().cpu().numpy().astype(np.float64) for layer in system]
+    )
     return {
-        "spec": spec,
-        "system": system,
-        "input_field": input_field,
-        "target_fields": target_fields,
+        "phases": phases,
         "loss_history": losses,
         "oracle_backend": "slmsuite_wgs_per_plane+torchoptics_finetune",
     }

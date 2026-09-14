@@ -43,6 +43,13 @@ def _in_collision(robot_id: int, obs_id: int) -> bool:
 
 
 def _validate_format(waypoints: np.ndarray, timestamps: np.ndarray) -> bool:
+    # Must come first: every check below is a `>` / `<` comparison, and every
+    # comparison against NaN is False, so an all-NaN `waypoints` would otherwise
+    # pass the start/goal tolerance, the joint limits, the velocity and
+    # acceleration limits and the collision query alike.
+    if not np.all(np.isfinite(waypoints)) or not np.all(np.isfinite(timestamps)):
+        print("ERROR: 'waypoints' and 'timestamps' must contain only finite values.")
+        return False
     if waypoints.ndim != 2 or waypoints.shape[1] != 7:
         print("ERROR: 'waypoints' must have shape (N, 7).")
         return False
@@ -115,6 +122,17 @@ def evaluate(submission_path: Path) -> float:
             q_batch = cs(t_samp)
             v_batch = cs_vel(t_samp)
             a_batch = cs_acc(t_samp)
+
+            # Defence in depth behind the finite gate in _validate_format: the
+            # limit tests below are `>` comparisons and would admit any NaN the
+            # interpolation produced.
+            if not (
+                np.all(np.isfinite(q_batch))
+                and np.all(np.isfinite(v_batch))
+                and np.all(np.isfinite(a_batch))
+            ):
+                print(f"ERROR: non-finite spline sample at seg={seg}.")
+                return np.inf
 
             for k, t in enumerate(t_samp):
                 q = q_batch[k]

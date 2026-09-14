@@ -12,41 +12,43 @@ In optics terms, this is phase-only Fourier holography. In ML/optimization terms
 Improve the baseline in `baseline/init.py` so that the generated phase map achieves better weighted spot distribution.
 
 Recommended modification point:
-- `solve_baseline(problem)`
+- `solve(problem)` in `baseline/init.py`
 
-You can also add helper functions in the same file, but keep the public API unchanged.
+You can add helper functions in the same file; the only fixed contract is the
+`submission.json` schema below.
 
 ## Editable Boundary
 - Editable: `baseline/init.py`
-- Read-only (evaluation logic): `verification/validate.py`
+- Read-only (write-locked and fingerprinted during evaluation): `verification/validate.py`, `verification/problem.py`, `verification/metrics.py`, `frontier_eval/`
 
-Required API that verifier imports:
-- `build_problem(config: dict | None) -> dict`
-- `solve_baseline(problem: dict) -> np.ndarray`
-- `forward_intensity(problem: dict, phase: np.ndarray) -> np.ndarray`
+## Scoring Contract
+`baseline/init.py` is **never imported** by the verifier. It is executed as a
+standalone program in its own subprocess, inside a throwaway working directory that
+already holds the scorer-authored problem definition:
 
+- `problem.json` -- the config (`cfg`) plus a `decision_variable` block stating exactly what to return
+- `problem.npz` -- `x`, `y`, `spots`, `weights`, `aperture_amp`
 
-### Input to `solve_baseline(problem)`
-`problem` is a dict built by `build_problem`, with key fields:
-- `x`, `y`: 1D pixel coordinates (`np.arange(N)`)
-- `aperture_amp`: aperture mask, shape `(N, N)`
-- `spots`: target spot coordinates, shape `(K, 2)`
-- `weights`: normalized target ratios, shape `(K,)`
-- `cfg`: config dict (`slm_pixels`, grid sizes, etc.)
+Your program must write `submission.json` into its current directory and exit 0:
 
-### Output from `solve_baseline(problem)`
-- `phase`: float array of shape `(N, N)`
-- Interpreted as phase in radians for each SLM pixel
+```json
+{"phase": [[...128 floats...], ...]}   // 128 rows, radians
+```
 
-## Core Function to Modify
-Primary function:
-- `solve_baseline(problem)`
+Constraints the verifier enforces on `phase`:
+- shape exactly `(128, 128)`
+- every entry finite and `|phase| <= 1e4`
 
-Verifier flow:
-1. call your `solve_baseline`
-2. call `forward_intensity(problem, phase)`
-3. compute metrics and score
-4. compare with oracle
+**Return the decision variable and nothing else.** Any other key -- `metrics`,
+`score`, `score_pct`, `cv_orders`, ... -- is dropped before scoring and merely recorded
+under `contract.ignored_submission_keys` in the metrics file. The problem definition,
+the forward model and every metric live in `verification/problem.py` and
+`verification/metrics.py`: the verifier rebuilds the problem, runs the forward model on
+your decision variable, and computes all metrics. The oracle uses the same scoring
+functions.
+
+A rejected submission (wrong shape/length, non-finite or out-of-range values, non-zero
+exit code, timeout, or no `submission.json`) scores as invalid.
 
 ## Baseline Implementation (current)
 Baseline is intentionally simple:

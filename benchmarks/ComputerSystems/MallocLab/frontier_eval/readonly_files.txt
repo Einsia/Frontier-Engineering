@@ -1,4 +1,24 @@
+# The driver, its support code and the traces belong to the grader. Only
+# malloclab-handout/mm.c is the candidate's (see candidate_destination.txt).
+#
+# Listed file by file rather than as `malloclab-handout`: the framework's
+# _enforce_readonly recurses, and `make` has to be able to write *.o and the
+# mdriver binary into that same directory.
 malloclab-handout/traces
+malloclab-handout/Makefile
+malloclab-handout/mdriver.c
+malloclab-handout/memlib.c
+malloclab-handout/memlib.h
+malloclab-handout/fsecs.c
+malloclab-handout/fsecs.h
+malloclab-handout/fcyc.c
+malloclab-handout/fcyc.h
+malloclab-handout/clock.c
+malloclab-handout/clock.h
+malloclab-handout/ftimer.c
+malloclab-handout/ftimer.h
+malloclab-handout/config.h
+malloclab-handout/mm.h
 Task_zh-CN.md
 Task.md
 README_zh-CN.md

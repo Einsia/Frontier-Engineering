@@ -1,5 +1,11 @@
-Optics unified constraints:
-1) Edit only `baseline/init.py`.
-2) Keep the required public function signatures used by verification scripts.
-3) Do not modify files under `verification/`.
-4) Candidate outputs must be deterministic and finite (no NaN/Inf).
+Optics adaptive_* unified constraints:
+1) Edit only `baseline/init.py`; preserve the original public controller signature.
+2) Either retain the original controller function, or write `submission.npz`
+   containing a finite `commands` array with shape `(n_steps, n_act)`.
+3) The candidate runs in its own process with scorer-supplied observations in
+   `problem.npz`. The callable adapter preserves actuator lag and rate limiting
+   when reconstructing the previous applied command.
+4) The evaluator validates command bounds and recomputes plant behavior and scores.
+   Candidate-provided scores and metrics are ignored.
+5) Do not modify verification or evaluator files. Candidate output must be
+   deterministic; crashes, timeouts and invalid arrays fail evaluation.

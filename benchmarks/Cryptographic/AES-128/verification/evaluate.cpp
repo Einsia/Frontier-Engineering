@@ -1,3 +1,6 @@
+// Local verification utility; the scoring entrypoint uses
+// benchmarks/_shared/crypto_eval.py to generate inputs, check outputs against
+// trusted references and measure throughput. This file is not used for scoring.
 #include <chrono>
 #include <cstdlib>
 #include <ctime>

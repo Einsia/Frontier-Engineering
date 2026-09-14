@@ -41,40 +41,73 @@ Read-only references:
 
 ## Core file/function to modify
 
-Primary function:
+- `baseline/init.py`
+- Core function: `solve(spec, device=None, seed=0)`
 
-- `solve(spec, device=None, seed=0)` in `baseline/init.py`
+You may add or change helpers in the same file. Keep the
+`if __name__ == "__main__":` block at the bottom: it is the evaluation entry
+point.
 
-Keep return contract compatible.
+## How your program is run
 
-## Input contract (`spec`)
+Your file is executed as **its own process**, in a throwaway directory that
+contains exactly two files:
 
-Main fields:
+- `problem.json` -- the problem, as data (written by the evaluator),
+- a copy of `baseline/init.py` -- your program.
 
-- optical setup:
-  - `shape`, `spacing`, `wavelength`, `layer_z`, `output_z`, `waist_radius`
-- channel-X target:
-  - `pattern_x_centers`, `pattern_x_ratios`
-- channel-Y target:
-  - `pattern_y_centers`, `pattern_y_ratios`
-- `roi_radius_m`
+The task tree, `verification/`, the oracle and the evaluator are not available
+to the candidate process. Read `problem.json` from the current directory and
+write `submission.npz` to the current directory.
 
-Evaluator adds:
+## Input contract (`problem.json`)
 
-- scoring constants (`score_eff_target`, `score_ratio_scale`),
-- validity thresholds,
-- better-than-baseline margins.
+The problem definition is owned by `verification/problem_spec.py` and is
+identical for every submission. It is read-only and is loaded by the evaluator
+*before* your process starts.
 
-## Output contract (`solve`)
+Fields you receive:
 
-Required return keys:
+- `shape`, `spacing`, `wavelength`, `waist_radius`, `layer_z`, `output_z`.
+- `pattern_x_centers` / `pattern_x_ratios` -- the pattern the x-polarised input
+  must produce.
+- `pattern_y_centers` / `pattern_y_ratios` -- likewise for the y-polarised input.
+- `roi_radius_m` -- ROI radius for power measurement.
+- `steps`, `lr` -- the optimisation budget the evaluator advertises.
+- scoring constants: `score_eff_target`, `score_ratio_scale`, `valid_*`.
 
-- `output_field_x`, `output_field_y`
-- `target_map_x`, `target_map_y`
-- `loss_history`
-- plus input/spec fields used by evaluator (`input_field_x`, `input_field_y`, `spec` recommended)
+`problem.json["submission"]` restates the exact array names, shapes and bounds
+your submission must satisfy.
 
-Evaluator reads these fields directly to compute channel metrics.
+## Output contract (`submission.npz`)
+
+Write **decision variables only** -- plain real-valued arrays:
+
+- `phase_x`: `float64`, shape `(n_layers, shape, shape)` -- the Jones `[0,0]`
+  phase of each layer, in the order of `layer_z`.
+- `phase_y`: `float64`, same shape -- the Jones `[1,1]` phase of each layer.
+
+Both in radians, `|phase| <= 1e4`.
+
+Optional, diagnostics only (never scored): `loss_history`, a 1-D float array.
+
+`verification/evaluate.py` then does all of the following itself:
+
+1. builds both polarised Gaussian input fields,
+2. for each layer: `propagate_to_z(layer_z[i])` then `polarized_modulate` with
+   `diag(exp(1j*phase_x[i]), exp(1j*phase_y[i]), 1)`,
+3. propagates to `output_z`,
+4. builds both target maps from the `pattern_*` fields,
+5. computes match, separation, own-efficiency, ratio error and the final score.
+
+Consequences you should design for:
+
+- Returning a `system`, an `input_field`, a `target_field` or a self-reported
+  score/metric has **no effect** -- nothing but the named arrays is read.
+- `submission.npz` is loaded with `allow_pickle=False`, so only arrays survive.
+- Arrays are validated for shape, dtype, finiteness and range. A crash, a
+  timeout, a missing `submission.npz` or an out-of-range array is a hard
+  rejection (`combined_score = -1e18`), not a low score.
 
 ## Baseline implementation (current)
 

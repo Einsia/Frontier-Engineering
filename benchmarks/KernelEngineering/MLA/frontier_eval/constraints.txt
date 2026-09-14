@@ -4,3 +4,5 @@ UnifiedTask constraints:
 3) Do not modify benchmark assets, documentation, references, verification code, runtime helpers, tests, or `frontier_eval/` metadata.
 4) If the task produces named outputs such as `submission.json`, `results.txt`, `solution.json`, or `prediction.h5ad`, keep the expected filename and schema unchanged.
 5) Prioritize validity and correctness before optimization.
+
+Timing: the score uses evaluator-measured wall time through completed output delivery, including preparation, snapshots, serialization and IPC. Candidate-reported kernel timings are diagnostic only. This timing boundary differs from the legacy kernel-only benchmark.

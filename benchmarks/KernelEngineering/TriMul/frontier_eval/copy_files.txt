@@ -1,1 +1,12 @@
-.
+# Copy only the task files needed by evaluation.
+frontier_eval
+verification
+baseline/task.py
+baseline/utils.py
+baseline/reference.py
+baseline/submission.py
+baseline/task.yml
+README.md
+README_zh-CN.md
+Task.md
+Task_zh-CN.md

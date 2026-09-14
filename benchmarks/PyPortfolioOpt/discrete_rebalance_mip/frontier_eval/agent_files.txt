@@ -4,5 +4,4 @@ Task.md
 Task_zh-CN.md
 baseline/init.py
 verification/evaluate.py
-verification/reference.py
 frontier_eval/constraints.txt

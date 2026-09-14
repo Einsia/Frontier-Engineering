@@ -38,26 +38,29 @@ _ensure_domain_on_path()
 
 from reizman_suzuki_pareto import task
 from reizman_suzuki_pareto.verification.reference import solve as solve_reference
-from shared.cli import load_module, write_json
+from shared.cli import write_json
+from shared.isolated import run_candidate
 from shared.utils import dump_json, score_summary
 
 DEFAULT_CANDIDATE_PATH = Path(__file__).resolve().parents[1] / "baseline" / "solution.py"
 
 
 def evaluate(candidate_path: Path, seeds: list[int], budget: int) -> dict:
-    candidate_module = load_module(candidate_path, f"{task.TASK_NAME}_candidate")
-    solve_candidate = getattr(candidate_module, "solve", None)
-    if not callable(solve_candidate):
-        raise AttributeError(f"{candidate_path} does not define a callable `solve`.")
-
     baseline_runs = []
     reference_runs = []
     for seed in seeds:
-        baseline_runs.append(solve_candidate(seed=seed, budget=budget))
+        baseline_runs.append(run_candidate(task, candidate_path, seed, budget))
         reference_runs.append(solve_reference(seed=seed, budget=budget))
 
-    baseline_scores = [run["summary"]["score"] for run in baseline_runs]
-    reference_scores = [run["summary"]["score"] for run in reference_runs]
+    baseline_scores = []
+    reference_scores = []
+    for run in baseline_runs:
+        # Do not trust run["summary"]["score"] -- it is candidate-authored. The
+        # score is a pure function of the experiment history, so recompute it
+        # here and use that. (Same pattern already used by dtlz2_pareto.)
+        baseline_scores.append(task.summarize(run["history"])["score"])
+    for run in reference_runs:
+        reference_scores.append(task.summarize(run["history"])["score"])
     result = {
         "task_name": task.TASK_NAME,
         "candidate_path": str(candidate_path),

@@ -30,6 +30,8 @@ bash scripts/env/setup_v1_task_envs.sh
 
 注意：这一步只准备框架和仓库内维护的 runtime。很多 benchmark 仍然需要 benchmark-local 依赖、外部数据、Docker 或 `third_party/` 仓库。
 
+候选子进程隔离需要 Linux 用户命名空间和 `bubblewrap`（`bwrap`；Debian/Ubuntu 可运行 `sudo apt-get install bubblewrap` 安装）。受限候选只能访问声明的输入且无法联网；隔离不可用时评测报错，不会降级为无隔离运行。
+
 运行具体 benchmark 前，请始终先看：
 
 1. `benchmarks/<Domain>/README*.md`

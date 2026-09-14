@@ -14,11 +14,32 @@ TASK_DIR = Path(__file__).resolve().parents[1]
 if str(TASK_DIR) not in sys.path:
     sys.path.insert(0, str(TASK_DIR))
 
-from baseline.init import solve as solve_baseline  # noqa: E402
+# The candidate now runs in its own subprocess and writes submission.json, so
+# we never exec_module/import it into this process. Bring in the isolation
+# helper from the shared location; it sits outside any benchmark dir so a
+# copy_files.txt of "." cannot drag it into the sandbox. The repo root is
+# located via the env var the harness sets, falling back to walking up.
+def _find_repo_root() -> Path:
+    env_root = (__import__("os").environ.get("FRONTIER_ENGINEERING_ROOT") or "").strip()
+    if env_root:
+        return Path(env_root).expanduser().resolve()
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "benchmarks").is_dir() and (parent / "frontier_eval").is_dir():
+            return parent
+    raise RuntimeError("could not locate repo root for general_meio evaluator")
+
+
+_REPO = _find_repo_root()
+if str(_REPO / "benchmarks" / "_shared") not in sys.path:
+    sys.path.insert(0, str(_REPO / "benchmarks" / "_shared"))
+import candidate_sandbox as sandbox  # noqa: E402
+
 from verification.reference import solve as solve_reference  # noqa: E402
 
 SINK_NODES = [40, 50]
 STOCKOUT_COST = {10: 0.0, 20: 0.0, 30: 0.0, 40: 10.0, 50: 9.0}
+NODE_IDS = (10, 20, 30, 40, 50)
+MAX_BASE_STOCK = 100_000
 
 
 def clip(x: float) -> float:
@@ -130,11 +151,107 @@ def score_solution(solution_s: dict[int, int]):
     }
 
 
+class _Validation:
+    """Strict, scorer-owned checks on the candidate's reported base-stock policy."""
+
+    def __init__(self) -> None:
+        self.errors: list[str] = []
+
+    def fail(self, message: str) -> None:
+        self.errors.append(message)
+
+    def validate_and_normalize(self, submission: dict) -> dict[int, int] | None:
+        if not isinstance(submission, dict):
+            self.fail("submission must be a JSON object")
+            return None
+
+        raw = submission.get("base_stock")
+        if not isinstance(raw, dict):
+            self.fail("submission['base_stock'] must be a JSON object")
+            return None
+
+        normalized: dict[int, int] = {}
+        for key, value in raw.items():
+            try:
+                node_id = int(key)
+            except (TypeError, ValueError):
+                self.fail(f"base_stock key {key!r} is not an integer node id")
+                continue
+            if isinstance(value, bool) or not isinstance(value, int):
+                self.fail(f"base_stock[{key!r}] must be an integer, got {value!r}")
+                continue
+            if value < 0 or value > MAX_BASE_STOCK:
+                self.fail(f"base_stock[{key!r}]={value} out of range [0, {MAX_BASE_STOCK}]")
+                continue
+            normalized[node_id] = int(value)
+
+        if self.errors:
+            return None
+
+        if set(normalized) != set(NODE_IDS):
+            self.fail(f"base_stock must have exactly keys {sorted(NODE_IDS)}, got {sorted(normalized)}")
+            return None
+
+        return normalized
+
+
+def run_candidate(candidate_path: Path) -> tuple[dict[int, int] | None, str]:
+    """Run the candidate in a subprocess and return (base_stock, error_message)."""
+    try:
+        run = sandbox.run_inventory_candidate(
+            candidate_path, 'general_meio',
+            expected_outputs=("submission.json",),
+            timeout_s=60,
+            # Copy the candidate into the sandbox and run it from there, so
+            # sys.path[0] and __file__ both stay inside the throwaway workdir.
+            # Running in place would leave __file__ pointing at
+            # <task>/baseline/init.py, from which an archived candidate walked
+            # up to read ../verification/reference.py.
+            copy_into_workdir=True,
+        )
+    except sandbox.InvalidSubmissionError as exc:
+        return None, str(exc)
+    if run.timed_out:
+        return None, "candidate timed out"
+    if run.returncode != 0:
+        return None, f"candidate exited non-zero ({run.returncode})"
+
+    try:
+        submission = sandbox.load_json_output(run)
+    except sandbox.InvalidSubmissionError as exc:
+        return None, str(exc)
+
+    validator = _Validation()
+    base_stock = validator.validate_and_normalize(submission)
+    if base_stock is None:
+        return None, "; ".join(validator.errors)
+
+    return base_stock, None
+
+
 def main() -> None:
     output_dir = TASK_DIR / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    baseline_solution = solve_baseline()
+    candidate_path = TASK_DIR / "baseline" / "init.py"
+    baseline_solution, error_message = run_candidate(candidate_path)
+
+    if baseline_solution is None:
+        comparison = {
+            "task": "general_meio",
+            "baseline_final_score": 0.0,
+            "reference_final_score": 0.0,
+            "gap_reference_minus_baseline": 0.0,
+            "winner": "reference",
+            "candidate_error": error_message,
+            "valid": False,
+        }
+        (output_dir / "comparison.json").write_text(
+            json.dumps(comparison, indent=2), encoding="utf-8"
+        )
+        print(f"Candidate rejected: {error_message}")
+        return
+
     reference_solution = solve_reference()
 
     baseline_result = {

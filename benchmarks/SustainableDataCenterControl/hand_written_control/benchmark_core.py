@@ -1,3 +1,13 @@
+"""Core of the SustainDC hand-written-control benchmark.
+
+The scorer owns the environments, NoOp reference, action validation and scoring.
+``IsolatedPolicy`` executes candidate policy code in a subprocess and exchanges
+one ``decide_actions`` request per environment step. Scores are calculated from
+the resulting episode relative to the NoOp reference, using
+``100 * sqrt(improvement_fraction)``. ``_assert_scoring_integrity`` checks the
+scorer's function bindings before evaluation.
+"""
+
 from __future__ import annotations
 
 import importlib
@@ -5,7 +15,11 @@ import importlib.util
 import json
 import os
 import random
+import selectors
+import subprocess
 import sys
+import tempfile
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, Mapping
@@ -15,6 +29,16 @@ import numpy as np
 BENCHMARK_ROOT = Path(__file__).resolve().parent
 DEFAULT_SUSTAINDC_ROOT = BENCHMARK_ROOT / "sustaindc"
 SUSTAINDC_ROOT_ENV = "SUSTAINDC_ROOT"
+POLICY_RUNNER = BENCHMARK_ROOT / "verification" / "policy_runner.py"
+NOOP_REFERENCE_PATH = BENCHMARK_ROOT / "verification" / "noop_reference.json"
+
+# Wall-clock budget for one candidate subprocess over one full episode.
+EPISODE_WALL_CLOCK_S = 600.0
+
+# Scoring tolerance: improvements at or below this are treated as noise.
+# Defined next to the other scoring constants (it used to sit at the very bottom
+# of the file, far from everything that reads it).
+NOISE_TOLERANCE = 0.002
 
 
 TIMESTEPS_PER_DAY = 96
@@ -129,7 +153,7 @@ class EpisodeMetrics:
         return data
 
 
-SCENARIOS = [
+SCENARIOS = (
     Scenario(
         name="az_july",
         location="az",
@@ -162,7 +186,7 @@ SCENARIOS = [
         seed=29,
         description="Texas late summer: high thermal pressure and volatile carbon intensity.",
     ),
-]
+)
 
 
 BENCHMARK_ENV_CONFIG = {
@@ -234,6 +258,15 @@ def _load_sustaindc_modules(sustaindc_root: str | Path | None = None):
 
 
 def load_policy_module(solution_path: Path):
+    """Import a policy module into *this* process.
+
+    DANGER: never call this on a candidate solution. This benchmark scores
+    relative to a NoOp reference computed in this process, so candidate code
+    that lands here can rebind ``NoOpPolicy``/``run_episode``/``score_episode``
+    and fabricate its own improvement. Candidates go through
+    :class:`IsolatedPolicy`. This helper survives only for trusted, in-repo
+    policies (and for tooling that regenerates the frozen NoOp reference).
+    """
     spec = importlib.util.spec_from_file_location("benchmark_solution", solution_path)
     if spec is None or spec.loader is None:
         raise ImportError(f"Could not load solution module from {solution_path}")
@@ -244,6 +277,175 @@ def load_policy_module(solution_path: Path):
             f"{solution_path} must define a decide_actions(observations) function."
         )
     return module
+
+
+class CandidateRejected(Exception):
+    """The candidate ran but produced something the scorer will not score."""
+
+
+class IsolatedPolicy:
+    """A ``decide_actions``-compatible stand-in backed by a subprocess.
+
+    Quacks like a policy module (``reset_policy`` / ``decide_actions``) so
+    :func:`run_episode` needs no special-casing, but every call is answered by
+    ``verification/policy_runner.py`` in a separate process. Candidate code
+    therefore never shares a namespace with the environments, the NoOp
+    reference, or the scoring functions.
+    """
+
+    def __init__(self, solution_path: Path, timeout_s: float = EPISODE_WALL_CLOCK_S):
+        self._path = Path(solution_path).resolve()
+        self._timeout_s = timeout_s
+        self._proc: subprocess.Popen | None = None
+
+    def __enter__(self) -> "IsolatedPolicy":
+        request_r, self._request_w = os.pipe()
+        self._response_r, response_w = os.pipe()
+        env = dict(os.environ)
+        env["SUSTAINDC_REQUEST_FD"] = str(request_r)
+        env["SUSTAINDC_RESPONSE_FD"] = str(response_w)
+        # Child stdio goes to a temp file, never to pipes: nothing in the step
+        # loop drains them, so a chatty candidate would fill a 64K pipe buffer
+        # and deadlock until the wall-clock budget expired.
+        self._log = tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace")
+        self._proc = subprocess.Popen(
+            [sys.executable, str(POLICY_RUNNER), str(self._path)],
+            stdin=subprocess.DEVNULL,
+            stdout=self._log,
+            stderr=self._log,
+            close_fds=True,
+            pass_fds=(request_r, response_w),
+            env=env,
+        )
+        os.close(request_r)
+        os.close(response_w)
+        self._request_stream = os.fdopen(self._request_w, "w", encoding="utf-8")
+        self._response_stream = os.fdopen(self._response_r, "r", encoding="utf-8")
+        self._deadline = time.time() + self._timeout_s
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self.close()
+
+    def _exchange(self, request: Dict[str, Any]) -> Any:
+        if self._proc is None:
+            raise CandidateRejected("policy subprocess is not running")
+        if time.time() > self._deadline:
+            raise CandidateRejected(
+                f"candidate exceeded the {self._timeout_s:.0f}s per-episode budget"
+            )
+        self._request_stream.write(json.dumps(request, ensure_ascii=False) + "\n")
+        self._request_stream.flush()
+
+        selector = selectors.DefaultSelector()
+        selector.register(self._response_stream, selectors.EVENT_READ)
+        events = selector.select(timeout=max(1e-3, self._deadline - time.time()))
+        selector.close()
+        if not events:
+            if self._proc.poll() is not None:
+                raise CandidateRejected(
+                    f"policy subprocess died with code {self._proc.returncode}. "
+                    f"{self.log_tail()}"
+                )
+            raise CandidateRejected(
+                f"candidate exceeded the {self._timeout_s:.0f}s per-episode budget"
+            )
+
+        line = self._response_stream.readline()
+        if not line:
+            raise CandidateRejected(
+                "policy subprocess closed its response stream unexpectedly. "
+                f"{self.log_tail()}"
+            )
+        payload = json.loads(line)
+        if "error" in payload:
+            raise CandidateRejected(f"candidate policy failed: {payload['error']}")
+        return payload.get("actions")
+
+    def log_tail(self, limit: int = 2000) -> str:
+        """Child stdout/stderr, for diagnostics only -- never parsed as data."""
+        try:
+            self._log.seek(0)
+            return self._log.read()[-limit:]
+        except (OSError, ValueError):
+            return ""
+
+    def reset_policy(self) -> None:
+        self._exchange({"op": "reset"})
+
+    def decide_actions(self, observations: Mapping[str, np.ndarray]) -> Dict[str, Any]:
+        payload = {
+            "op": "act",
+            "observations": {
+                str(agent): np.asarray(values, dtype=float).reshape(-1).tolist()
+                for agent, values in observations.items()
+            },
+        }
+        actions = self._exchange(payload)
+        if not isinstance(actions, dict):
+            raise CandidateRejected("decide_actions must return a mapping of agent -> action")
+        return actions
+
+    def close(self) -> None:
+        if self._proc is None:
+            return
+        try:
+            self._request_stream.close()
+        except OSError:
+            pass
+        try:
+            self._proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            self._proc.kill()
+        try:
+            self._log.close()
+        except OSError:
+            pass
+        self._proc = None
+
+
+# --- Scoring-input integrity ------------------------------------------------
+#
+# The process boundary above is the real defence. These frozen literals are the
+# second line: they pin every module global that feeds the *relative* score, so
+# any future in-process regression (or an accidental edit) fails loudly instead
+# of silently changing what a candidate is compared against.
+
+_EXPECTED_SCENARIOS = (
+    ("az_july", "az", 6, 2, 11),
+    ("ca_april", "ca", 3, 2, 17),
+    ("ny_january", "ny", 0, 2, 23),
+    ("tx_august", "tx", 7, 2, 29),
+)
+_EXPECTED_NOISE_TOLERANCE = 0.002
+_EXPECTED_NOOP_ACTIONS = {"agent_ls": 1, "agent_dc": 1, "agent_bat": 2}
+_EXPECTED_ENV_CONFIG = {
+    "agents": ["agent_ls", "agent_dc", "agent_bat"],
+    "workload_file": "Alibaba_CPU_Data_Hourly_1.csv",
+    "max_bat_cap_Mw": 1.0,
+    "individual_reward_weight": 0.8,
+    "flexible_load": 0.6,
+    "dc_config_file": "dc_config.json",
+    "evaluation": False,
+}
+
+
+def _assert_scoring_integrity() -> None:
+    """Fail loudly if any scoring input has drifted from its frozen value."""
+    observed = tuple(
+        (s.name, s.location, s.month, s.days_per_episode, s.seed) for s in SCENARIOS
+    )
+    if observed != _EXPECTED_SCENARIOS:
+        raise RuntimeError(f"SCENARIOS have been modified: {observed!r}")
+    if NOISE_TOLERANCE != _EXPECTED_NOISE_TOLERANCE:
+        raise RuntimeError(f"NOISE_TOLERANCE has been modified: {NOISE_TOLERANCE!r}")
+    if BENCHMARK_ENV_CONFIG != _EXPECTED_ENV_CONFIG:
+        raise RuntimeError(f"BENCHMARK_ENV_CONFIG has been modified: {BENCHMARK_ENV_CONFIG!r}")
+    noop_actions = NoOpPolicy.decide_actions({})
+    if dict(noop_actions) != _EXPECTED_NOOP_ACTIONS:
+        raise RuntimeError(f"NoOpPolicy no longer produces the no-op action: {noop_actions!r}")
+    if getattr(NoOpPolicy, "__module__", None) != __name__:
+        raise RuntimeError("NoOpPolicy has been replaced by a foreign class")
 
 
 def _build_env(scenario: Scenario, sustaindc_root: str | Path | None = None):
@@ -387,11 +589,20 @@ def aggregate_metrics(metrics: list[EpisodeMetrics]) -> Dict[str, float]:
 def run_benchmark(
     policy_module: Any,
     sustaindc_root: str | Path | None = None,
+    noop_reference: Dict[str, EpisodeMetrics] | None = None,
 ) -> Dict[str, Any]:
+    """Score a policy object against the NoOp reference.
+
+    ``policy_module`` must be something this process can safely call --
+    :class:`IsolatedPolicy` for a candidate, or a trusted in-repo module. Use
+    :func:`run_benchmark_isolated` for anything candidate-authored.
+    """
+    _assert_scoring_integrity()
     candidate_results: list[EpisodeMetrics] = []
     noop_results: list[EpisodeMetrics] = []
     scenario_reports: list[Dict[str, Any]] = []
     resolved_root = resolve_sustaindc_root(sustaindc_root)
+    reference_source = "frozen_table" if noop_reference else "recomputed_in_process"
 
     for scenario in SCENARIOS:
         candidate_metrics = run_episode(
@@ -399,11 +610,18 @@ def run_benchmark(
             scenario,
             sustaindc_root=resolved_root,
         )
-        noop_metrics = run_episode(
-            NoOpPolicy,
-            scenario,
-            sustaindc_root=resolved_root,
-        )
+        if noop_reference is not None:
+            noop_metrics = noop_reference[scenario.name]
+        else:
+            # NoOpPolicy is this module's own class and this process has never
+            # imported candidate code, so the reference cannot be tampered with.
+            noop_metrics = run_episode(
+                NoOpPolicy,
+                scenario,
+                sustaindc_root=resolved_root,
+            )
+        # Re-check right before the reference is consumed.
+        _assert_scoring_integrity()
         score_breakdown = score_episode(candidate_metrics, noop_metrics)
 
         candidate_results.append(candidate_metrics)
@@ -425,6 +643,157 @@ def run_benchmark(
         "average_score": round(average_score, 4),
         "score_ceiling": 100.0,
         "sustaindc_root": str(resolved_root),
+        "noop_reference_source": reference_source,
+        "scenario_reports": scenario_reports,
+        "candidate_aggregate": aggregate_metrics(candidate_results),
+        "noop_aggregate": aggregate_metrics(noop_results),
+        "feature_reference": {
+            "agent_ls": LS_FEATURES,
+            "agent_dc": DC_FEATURES,
+            "agent_bat": BAT_FEATURES,
+        },
+    }
+
+
+def scenario_fingerprint(sustaindc_root: Path) -> str:
+    """Identify what a frozen NoOp reference was measured against.
+
+    Covers the scenario definitions, the env config, the NoOp actions, and the
+    contents of the vendored SustainDC sources that drive the simulation, so a
+    stale table is detected rather than silently trusted.
+    """
+    import hashlib
+
+    digest = hashlib.sha256()
+    digest.update(json.dumps(_EXPECTED_SCENARIOS, sort_keys=True).encode("utf-8"))
+    digest.update(json.dumps(_EXPECTED_ENV_CONFIG, sort_keys=True).encode("utf-8"))
+    digest.update(json.dumps(_EXPECTED_NOOP_ACTIONS, sort_keys=True).encode("utf-8"))
+    root = Path(sustaindc_root)
+    for relative in sorted(
+        p.relative_to(root).as_posix()
+        for p in root.rglob("*.py")
+        if p.is_file() and "__pycache__" not in p.parts
+    ):
+        digest.update(relative.encode("utf-8"))
+        digest.update(hashlib.sha256((root / relative).read_bytes()).digest())
+    return digest.hexdigest()
+
+
+def load_noop_reference(sustaindc_root: Path) -> Dict[str, EpisodeMetrics] | None:
+    """Return the frozen NoOp reference, or None if absent or stale.
+
+    The NoOp baseline is deterministic for the fixed SCENARIOS, so it can be
+    precomputed once and reused -- which both removes the reference simulation
+    from the scored run entirely and halves the runtime. Falling back to None
+    (recompute in this process) is always safe, so a missing or mismatched
+    table degrades to "slower", never to "wrong".
+    """
+    if not NOOP_REFERENCE_PATH.is_file():
+        return None
+    try:
+        payload = json.loads(NOOP_REFERENCE_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if payload.get("fingerprint") != scenario_fingerprint(sustaindc_root):
+        return None
+    try:
+        episodes = payload["episodes"]
+        reference = {
+            name: EpisodeMetrics(**values) for name, values in episodes.items()
+        }
+    except (KeyError, TypeError):
+        return None
+    if {s.name for s in SCENARIOS} - set(reference):
+        return None
+    return reference
+
+
+def write_noop_reference(sustaindc_root: Path) -> Path:
+    """Recompute and persist the frozen NoOp reference table."""
+    _assert_scoring_integrity()
+    resolved_root = resolve_sustaindc_root(sustaindc_root)
+    episodes = {
+        scenario.name: run_episode(
+            NoOpPolicy, scenario, sustaindc_root=resolved_root
+        ).as_dict()
+        for scenario in SCENARIOS
+    }
+    payload = {
+        "_comment": (
+            "Precomputed NoOp reference metrics. The relative score is measured "
+            "against these, so they are deliberately NOT recomputed alongside a "
+            "candidate. Regenerate with: python verification/evaluate.py "
+            "--refresh-noop-reference"
+        ),
+        "fingerprint": scenario_fingerprint(resolved_root),
+        "episodes": episodes,
+    }
+    NOOP_REFERENCE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    NOOP_REFERENCE_PATH.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return NOOP_REFERENCE_PATH
+
+
+def run_benchmark_isolated(
+    solution_path: str | Path,
+    sustaindc_root: str | Path | None = None,
+) -> Dict[str, Any]:
+    """Score a *candidate* solution without ever importing it here.
+
+    This is the only entrypoint an evaluator should use on candidate code.
+    """
+    _assert_scoring_integrity()
+    resolved_root = resolve_sustaindc_root(sustaindc_root)
+    solution_path = Path(solution_path).resolve()
+    noop_reference = load_noop_reference(resolved_root)
+
+    candidate_results: list[EpisodeMetrics] = []
+    noop_results: list[EpisodeMetrics] = []
+    scenario_reports: list[Dict[str, Any]] = []
+
+    for scenario in SCENARIOS:
+        # A fresh subprocess per scenario: no state leaks between episodes and a
+        # crash in one scenario cannot corrupt another.
+        try:
+            with IsolatedPolicy(solution_path) as policy:
+                candidate_metrics = run_episode(policy, scenario, sustaindc_root=resolved_root)
+        except CandidateRejected:
+            raise
+        except (ValueError, KeyError, TypeError) as exc:
+            # Raised by _coerce_actions for a malformed/illegal action, or by
+            # the env when fed one. Anything thrown while driving the candidate
+            # is the candidate's fault, not an evaluator crash.
+            raise CandidateRejected(
+                f"scenario {scenario.name}: {type(exc).__name__}: {exc}"
+            ) from exc
+
+        if noop_reference is not None:
+            noop_metrics = noop_reference[scenario.name]
+        else:
+            noop_metrics = run_episode(NoOpPolicy, scenario, sustaindc_root=resolved_root)
+
+        _assert_scoring_integrity()
+        score_breakdown = score_episode(candidate_metrics, noop_metrics)
+
+        candidate_results.append(candidate_metrics)
+        noop_results.append(noop_metrics)
+        scenario_reports.append(
+            {
+                "scenario": asdict(scenario),
+                "candidate": candidate_metrics.as_dict(),
+                "noop_reference": noop_metrics.as_dict(),
+                "score_breakdown": score_breakdown,
+            }
+        )
+
+    average_score = float(
+        np.mean([report["score_breakdown"]["score"] for report in scenario_reports])
+    )
+
+    return {
+        "average_score": round(average_score, 4),
+        "score_ceiling": 100.0,
+        "sustaindc_root": str(resolved_root),
+        "noop_reference_source": "frozen_table" if noop_reference else "recomputed_in_process",
         "scenario_reports": scenario_reports,
         "candidate_aggregate": aggregate_metrics(candidate_results),
         "noop_aggregate": aggregate_metrics(noop_results),
@@ -481,4 +850,3 @@ def format_report(report: Dict[str, Any]) -> str:
         ]
     )
     return "\n".join(lines)
-NOISE_TOLERANCE = 0.002

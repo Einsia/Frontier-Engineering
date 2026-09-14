@@ -13,8 +13,13 @@ Typical applications include:
 
 ## What the agent should modify
 
-- Target file: `baseline/init.py`
-- Other files should be considered read-only in challenge setup.
+- Target file: `baseline/init.py` -- and only that file.
+- It is run as its own process with `problem.json` as its only input and
+  `submission.npz` as its only output. See `Task.md` for the full contract.
+- Everything under `verification/` is read-only. In particular
+  `verification/problem_spec.py` owns the problem definition (grid, wavelengths,
+  target coordinates, power ratios, ROI radius and all scoring constants), and
+  `verification/evaluate.py` owns the forward physics and the metrics.
 
 ## File structure
 
@@ -24,6 +29,7 @@ task1_multifocus_power_ratio/
     init.py
   verification/
     evaluate.py
+    problem_spec.py
     reference_solver.py
   README.md
   README_zh-CN.md

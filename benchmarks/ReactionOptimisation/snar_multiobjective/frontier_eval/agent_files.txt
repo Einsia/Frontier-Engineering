@@ -1,9 +1,15 @@
+# verification/reference.py is deliberately NOT listed here. The harness reads
+# every agent_files entry and puts its full source into the solver's context,
+# so listing the reference implementation hands over a working answer: on
+# joint_replenishment it is worth 0.8244 against the baseline's 0.3034, for a
+# one-line import. combined_score is the candidate's own score and never uses
+# the reference number, so nothing about scoring depends on shipping it.
+# The evaluator still reads the file from disk; only the prompt loses it.
 README.md
 README_zh-CN.md
 Task.md
 Task_zh-CN.md
 task.py
 baseline/solution.py
-verification/reference.py
 verification/evaluate.py
 frontier_eval/constraints.txt

@@ -29,6 +29,19 @@ if [[ "${TASK_NAME}" == "benchmark" && -n "${FRONTIER_EVAL_UNIFIED_SOURCE_BENCHM
 fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
+# The phase_* validators load their shared scoring library from
+# `<repo>/benchmarks/Optics/_shared/`, which deliberately lives outside every
+# benchmark directory so no copy_files entry can drag it into the sandbox. The
+# unified harness normally exports FRONTIER_ENGINEERING_ROOT; derive it from
+# this script's own location when it does not (direct/manual invocation).
+if [[ -z "${FRONTIER_ENGINEERING_ROOT:-}" ]]; then
+  _CANDIDATE_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd -P)"
+  if [[ -d "${_CANDIDATE_ROOT}/benchmarks" && -d "${_CANDIDATE_ROOT}/frontier_eval" ]]; then
+    export FRONTIER_ENGINEERING_ROOT="${_CANDIDATE_ROOT}"
+  fi
+  unset _CANDIDATE_ROOT
+fi
+
 METRICS_JSON="${BENCHMARK_DIR}/metrics.json"
 ARTIFACTS_JSON="${BENCHMARK_DIR}/artifacts.json"
 EVAL_STDOUT="${BENCHMARK_DIR}/eval.stdout.txt"

@@ -13,35 +13,42 @@
 改进 baseline 的跃迁位置生成策略。
 
 主要优化点：
-- `baseline_transitions(problem)`
+- `solve(problem)` in `baseline/init.py`
 
-`solve_baseline(problem)` 会调用它，然后构场、传播、评估指标。
+`main()` 把返回的向量写入 `submission.json`。评测器负责构场、传播和指标计算。
 
 ## 可修改边界
 - 可修改：`baseline/init.py`
-- 只读：`verification/validate.py`
+- 只读（评测期间去写权限并做指纹校验）：`verification/validate.py`、`verification/problem.py`、`verification/metrics.py`、`frontier_eval/`
 
-评测依赖接口：
-- `build_problem(config: dict | None) -> dict`
-- `solve_baseline(problem: dict) -> dict`
-- `build_incident_field(problem: dict, transitions: np.ndarray)`
-- `evaluate_orders(problem: dict, intensity_x: np.ndarray, x: np.ndarray) -> dict`
+## 评分契约
+评测器**不会 import** `baseline/init.py`。它会作为独立程序在单独子进程中运行，工作目录是一个
+一次性临时目录，其中已经放好由评分侧生成的题目定义：
 
+- `problem.json`——配置（`cfg`）以及 `decision_variable` 块，明确说明要返回什么
+- `problem.npz`——`x_period`
 
-### 输入
-`problem` 包含：
-- 周期、波长、焦距、采样参数
-- 目标衍射级次范围（`order_min` 到 `order_max`）
+你的程序必须在当前目录写出 `submission.json` 并以 0 退出：
 
-### `solve_baseline(problem)` 输出
-返回字典：
-- `transitions`：跃迁向量
-- `x_focus`：焦平面 x 轴网格
-- `intensity_focus`：焦线上强度
-- `metrics`：级次统计指标
+```json
+{"transitions": [t0, t1, ..., t13]}   // micrometres
+```
+
+评测器对 `transitions` 的强制校验：
+- 恰好 `cfg["num_transitions"]`（14）个数
+- **严格单调递增**
+- 每个元素有限，且落在 `[-period_size/2, +period_size/2]` 内
+
+**只返回决策变量，不要返回别的。** 其它任何键——`metrics`、`score`、`score_pct`、
+`cv_orders` ……——都会在评分前被丢弃，仅记录在指标文件的 `contract.ignored_submission_keys` 里。
+题目定义、前向模型与全部指标位于 `verification/problem.py` 与 `verification/metrics.py`：
+评测器根据提交的决策变量运行前向模型并计算指标；oracle 使用相同的计分函数。
+
+提交被拒（形状/长度错误、非有限值或越界、非零退出码、超时、没有 `submission.json`）即判为 invalid。
 
 ## Baseline 当前实现
-当前 baseline 用固定边界内均匀间隔跃迁，然后：
+当前 baseline 在固定边界内取均匀间隔跃迁。下面 1-5 步由评测器的前向模型
+（`verification/metrics.py`）执行：
 1. 生成单周期二值相位掩膜
 2. 重复周期构造完整光栅
 3. 叠加透镜相位

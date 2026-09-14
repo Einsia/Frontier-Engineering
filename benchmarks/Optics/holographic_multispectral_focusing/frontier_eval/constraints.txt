@@ -1,5 +1,14 @@
-Optics unified constraints:
-1) Edit only `baseline/init.py`.
-2) Keep the required public function signatures used by verification scripts.
-3) Do not modify files under `verification/`.
-4) Candidate outputs must be deterministic and finite (no NaN/Inf).
+Optics holographic_* unified constraints:
+1) Edit only `baseline/init.py`; do not modify verification or evaluator files.
+2) The scorer supplies the fixed optical geometry and targets in `problem.json`.
+   Either write physical design arrays to `submission.npz`, or retain the original
+   `solve(spec, device=None, seed=0)` function. Both run in a separate candidate process.
+3) For an original system return value, the adapter extracts only its phase or
+   thickness parameters (or polarization phase arrays). Custom propagation methods,
+   input fields, target fields and reported metrics never enter the scorer.
+4) `problem.json` specifies array names, shapes and bounds. Arrays must be real,
+   finite and within the task's physical limits. Pickled objects are not accepted.
+5) The evaluator constructs the optical system and computes every score from the
+   submitted parameters using its own model and targets.
+6) Candidate output must be deterministic. Crashes, timeouts, missing design
+   parameters and invalid arrays fail evaluation.

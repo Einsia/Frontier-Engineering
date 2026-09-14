@@ -6,5 +6,11 @@ MallocLab UnifiedTask constraints:
    - mm_free
    - mm_realloc
 3) Do not modify benchmark runner files (`mdriver.c`, trace files, build scripts).
+   These are enforced read-only and fingerprinted; changing one invalidates the run.
 4) Candidate should target correctness first, then optimize throughput/utilization.
-5) Evaluator compiles with `make` and runs `./mdriver -V`.
+5) Evaluator compiles with `make` and runs `./mdriver -V -o <result file>`.
+6) The score is read from the result file mdriver writes, NOT from its stdout.
+   The record only counts if it carries the per-run token the grader hands
+   mdriver on stdin. Printing a `Score = ... = N/100` line yourself does
+   nothing; consuming stdin before mdriver's main() reads it aborts the run
+   with a zero. mm.c must not read stdin.

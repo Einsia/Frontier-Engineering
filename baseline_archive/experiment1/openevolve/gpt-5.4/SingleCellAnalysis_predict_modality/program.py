@@ -22,14 +22,7 @@ from pathlib import Path
 
 import anndata as ad
 import numpy as np
-from scipy.sparse import csc_matrix, issparse, vstack
-
-try:
-    from sklearn.decomposition import TruncatedSVD
-    from sklearn.neighbors import NearestNeighbors
-except Exception:  # pragma: no cover
-    TruncatedSVD = None
-    NearestNeighbors = None
+from scipy.sparse import csc_matrix
 
 
 DATASET_ID = "openproblems_neurips2021/bmmc_cite/normal/log_cp10k"
@@ -67,110 +60,73 @@ def _download(url: str, dest: Path, *, retries: int = 3) -> None:
     raise RuntimeError(f"Failed to download {url} -> {dest}: {last_err}")
 
 
-def _ensure_inputs(dataset_dir: Path) -> tuple[Path, Path, Path, Path]:
-    train_mod1 = dataset_dir / "train_mod1.h5ad"
+def _ensure_inputs(dataset_dir: Path) -> tuple[Path, Path, Path]:
     test_mod1 = dataset_dir / "test_mod1.h5ad"
+    train_mod1 = dataset_dir / "train_mod1.h5ad"
     train_mod2 = dataset_dir / "train_mod2.h5ad"
-    test_mod2 = dataset_dir / "test_mod2.h5ad"
-    if not train_mod1.is_file():
-        _download(BASE_URL + "train_mod1.h5ad", train_mod1)
-    if not test_mod1.is_file():
-        _download(BASE_URL + "test_mod1.h5ad", test_mod1)
-    if not train_mod2.is_file():
-        _download(BASE_URL + "train_mod2.h5ad", train_mod2)
-    if not test_mod2.is_file():
-        try:
-            _download(BASE_URL + "test_mod2.h5ad", test_mod2)
-        except Exception:
-            pass
-    return train_mod1, test_mod1, train_mod2, test_mod2
+    for name, path in (
+        ("test_mod1.h5ad", test_mod1),
+        ("train_mod1.h5ad", train_mod1),
+        ("train_mod2.h5ad", train_mod2),
+    ):
+        if not path.is_file():
+            _download(BASE_URL + name, path)
+    return test_mod1, train_mod1, train_mod2
 
 
-def _matrix(adata: ad.AnnData):
-    x = adata.layers["normalized"] if "normalized" in adata.layers else adata.X
-    return x.tocsr().astype(np.float32) if issparse(x) else csc_matrix(np.asarray(x, dtype=np.float32))
+def _to_h5ad_compatible_frame(df):
+    """Convert string-like metadata to plain Python objects for h5ad."""
+    out = df.copy()
+    out.index = out.index.astype(str).astype(object)
+    for column in out.columns:
+        dtype_name = str(getattr(out[column].dtype, "name", out[column].dtype))
+        if ("string" in dtype_name) or (dtype_name == "category") or (dtype_name == "object"):
+            out[column] = out[column].astype(str).astype(object)
+    return out
 
 
 def run_mean_per_gene(*, dataset_dir: Path, output: Path) -> None:
-    train_mod1_path, test_mod1_path, train_mod2_path, test_mod2_path = _ensure_inputs(dataset_dir)
-    input_test_mod1 = ad.read_h5ad(str(test_mod1_path))
-    input_train_mod2 = ad.read_h5ad(str(train_mod2_path))
-
-    if "normalized" not in input_train_mod2.layers:
+    test_mod1_path, train_mod1_path, train_mod2_path = _ensure_inputs(dataset_dir)
+    test1 = ad.read_h5ad(str(test_mod1_path))
+    train1 = ad.read_h5ad(str(train_mod1_path))
+    train2 = ad.read_h5ad(str(train_mod2_path))
+    xtr = train1.layers.get("normalized", train1.X)
+    xte = test1.layers.get("normalized", test1.X)
+    ytr = train2.layers.get("normalized")
+    if ytr is None:
         raise ValueError("train_mod2.h5ad missing layers['normalized']")
+    xtr = np.asarray(xtr.toarray() if hasattr(xtr, "toarray") else xtr, dtype=np.float32)
+    xte = np.asarray(xte.toarray() if hasattr(xte, "toarray") else xte, dtype=np.float32)
+    ytr = np.asarray(ytr.toarray() if hasattr(ytr, "toarray") else ytr, dtype=np.float32)
 
-    if test_mod2_path.is_file():
-        input_test_mod2 = ad.read_h5ad(str(test_mod2_path))
-        if "normalized" in input_test_mod2.layers and input_test_mod2.shape == (input_test_mod1.n_obs, input_train_mod2.n_vars):
-            truth = input_test_mod2.layers["normalized"]
-            truth = truth.tocsc().astype(np.float32) if issparse(truth) else csc_matrix(np.asarray(truth, dtype=np.float32))
-            ad.AnnData(
-                layers={"normalized": truth},
-                shape=truth.shape,
-                obs=input_test_mod1.obs,
-                var=input_train_mod2.var,
-                uns={"dataset_id": input_test_mod1.uns.get("dataset_id", DATASET_ID), "method_id": "cached_test_mod2"},
-            ).write_h5ad(str(output), compression="gzip")
-            return
+    mu = xtr.mean(0, dtype=np.float32)
+    xtr = xtr - mu
+    xte = xte - mu
 
-    input_train_mod1 = ad.read_h5ad(str(train_mod1_path))
+    k = min(64, max(8, min(xtr.shape) - 1))
+    try:
+        _, _, vt = np.linalg.svd(xtr, full_matrices=False)
+        basis = vt[:k].T.astype(np.float32, copy=False)
+        ztr = xtr @ basis
+        zte = xte @ basis
+    except np.linalg.LinAlgError:
+        ztr = xtr
+        zte = xte
 
-    if not input_train_mod1.obs_names.equals(input_train_mod2.obs_names):
-        common = input_train_mod1.obs_names[input_train_mod1.obs_names.isin(input_train_mod2.obs_names)]
-        input_train_mod1 = input_train_mod1[common].copy()
-        input_train_mod2 = input_train_mod2[common].copy()
-    if not input_train_mod1.var_names.equals(input_test_mod1.var_names):
-        common = input_train_mod1.var_names[input_train_mod1.var_names.isin(input_test_mod1.var_names)]
-        input_train_mod1 = input_train_mod1[:, common].copy()
-        input_test_mod1 = input_test_mod1[:, common].copy()
-
-    y = input_train_mod2.layers["normalized"]
-    y = y.toarray() if issparse(y) else np.asarray(y)
-    y = np.asarray(y, dtype=np.float32)
-    mean = y.mean(axis=0).astype(np.float32)
-    pred = np.tile(mean, (input_test_mod1.n_obs, 1))
-    method_id = "mean_per_gene"
-
-    if TruncatedSVD is not None and NearestNeighbors is not None and input_train_mod1.n_obs > 1:
-        try:
-            xtr = _matrix(input_train_mod1)
-            xte = _matrix(input_test_mod1)
-            n_comp = min(96, input_train_mod1.n_obs - 1, input_train_mod1.n_vars - 1)
-            if n_comp >= 2:
-                latent = TruncatedSVD(n_components=n_comp, random_state=0).fit_transform(vstack([xtr, xte]))
-                ntr = input_train_mod1.n_obs
-                ztr, zte = latent[:ntr], latent[ntr:]
-
-                ztr_knn = ztr / (np.linalg.norm(ztr, axis=1, keepdims=True) + 1e-8)
-                zte_knn = zte / (np.linalg.norm(zte, axis=1, keepdims=True) + 1e-8)
-                k = min(30, ntr)
-                nn = NearestNeighbors(n_neighbors=k, metric="cosine")
-                nn.fit(ztr_knn)
-                dist, idx = nn.kneighbors(zte_knn)
-                w = np.maximum(1.0 - dist, 1e-3).astype(np.float32)
-                knn = (y[idx] * w[..., None]).sum(axis=1) / w.sum(axis=1, keepdims=True)
-
-                zmu = ztr.mean(axis=0, keepdims=True)
-                x0 = ztr - zmu
-                xt = zte - zmu
-                coef = np.linalg.solve(
-                    x0.T @ x0 + np.eye(x0.shape[1], dtype=np.float32),
-                    x0.T @ (y - mean),
-                )
-                ridge = xt @ coef + mean
-                pred = np.maximum(0.0, 0.7 * knn + 0.3 * ridge)
-                method_id = "svd_knn_ridge"
-        except Exception:
-            pass
-
-    prediction = csc_matrix(np.asarray(pred, dtype=np.float32))
+    lam = np.float32(1.0)
+    a = ztr.T @ ztr
+    a.flat[:: a.shape[0] + 1] += lam
+    b = ztr.T @ ytr
+    coef = np.linalg.solve(a, b).astype(np.float32, copy=False)
+    intercept = (ytr.mean(0) - ztr.mean(0) @ coef).astype(np.float32, copy=False)
+    pred = np.maximum(zte @ coef + intercept, 0.0).astype(np.float32, copy=False)
 
     out = ad.AnnData(
-        layers={"normalized": prediction},
-        shape=prediction.shape,
-        obs=input_test_mod1.obs,
-        var=input_train_mod2.var,
-        uns={"dataset_id": input_test_mod1.uns.get("dataset_id", DATASET_ID), "method_id": method_id},
+        layers={"normalized": csc_matrix(pred)},
+        shape=pred.shape,
+        obs=_to_h5ad_compatible_frame(test1.obs),
+        var=_to_h5ad_compatible_frame(train2.var),
+        uns={"dataset_id": test1.uns.get("dataset_id", DATASET_ID), "method_id": "pca_ridge_modality"},
     )
     out.write_h5ad(str(output), compression="gzip")
 

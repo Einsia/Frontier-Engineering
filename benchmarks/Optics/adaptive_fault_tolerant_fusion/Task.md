@@ -45,6 +45,36 @@ Goal:
 - `dm_commands: np.ndarray`, shape `(n_act,)`
   - Must be finite and bounded in `[-max_voltage, max_voltage]`.
 
+## Execution Contract (candidate runs in its own process)
+
+`verification/evaluate.py` runs `baseline/init.py` in a separate process
+with a temporary working directory.
+
+What the evaluator stages into that directory (`problem.npz`, load with
+`np.load("problem.npz", allow_pickle=False)`):
+
+- `slopes_multi`: `(n_cases, 5, 2 * n_subap)` -- the 5-sensor slope stream, one block per case
+- `reconstructor`: `(n_act, 2 * n_subap)`
+- `max_voltage`, `n_act`
+- `uses_prev_commands` is `0` for this task: fusion is single-shot per case, and
+  `prev_commands` is always passed as `None` (as it always was here)
+
+What the candidate must write before exiting, in its working directory:
+
+- `submission.npz` with a single float array `commands`, shape `(n_cases, n_act)`
+  - row `i` is the command your controller issues for observation `i`
+  - every entry must be finite and within `[-max_voltage, max_voltage]`
+
+The `if __name__ == "__main__":` runner at the bottom of `baseline/init.py`
+already implements this: it loops over the observation stream, calls your
+function, passes `prev_commands=None`, and saves the result. **Keep it.** A run that
+crashes, times out, or produces no valid `submission.npz` scores as invalid
+(`combined_score = -1e18`), it does not merely score badly.
+
+The evaluator recomputes everything from `commands` alone -- the DM surface,
+residual, RMS and Strehl. Any score, cost or metric field written into
+`submission.npz` is ignored.
+
 ## Verification Scenario (v3_fault_stress)
 
 `verification/evaluate.py` uses a fault-dominant benchmark:

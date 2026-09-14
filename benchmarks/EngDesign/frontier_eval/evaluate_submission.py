@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hmac
 import importlib.util
 import io
 import json
 import os
-import runpy
+import secrets
 import subprocess
 import sys
+import tempfile
 import time
 import traceback
 from pathlib import Path
@@ -23,6 +25,21 @@ TASK_IDS: tuple[str, ...] = (
     "YJ_02",
     "YJ_03",
 )
+
+# Bound source and serialized submission size in the candidate subprocess.
+MAX_CANDIDATE_BYTES = 8 * 1024 * 1024
+
+SUBMISSION_NAMES: tuple[str, ...] = ("SUBMISSION", "submission", "ENGDESIGN_SUBMISSION")
+
+# Per-task scores are documented as percentages; clamp so that a task-local
+# compromise (e.g. CY_03/WJ_01 execute candidate-supplied source by design)
+# cannot inflate `combined_score` beyond one task's legitimate share.
+SCORE_MIN = 0.0
+SCORE_MAX = 100.0
+
+
+class SubmissionFormatError(ValueError):
+    """Raised when the candidate file is not a readable submission."""
 
 
 def _tail(text: str, limit: int = 8000) -> str:
@@ -47,30 +64,15 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
     return default
 
 
-def _parse_last_json_dict(text: str) -> dict[str, Any] | None:
-    stripped = (text or "").strip()
-    if not stripped:
-        return None
-
-    if stripped.startswith("{") and stripped.endswith("}"):
-        try:
-            parsed = json.loads(stripped)
-            if isinstance(parsed, dict):
-                return parsed
-        except Exception:
-            pass
-
-    for raw in reversed(stripped.splitlines()):
-        line = raw.strip()
-        if not line.startswith("{") or not line.endswith("}"):
-            continue
-        try:
-            parsed = json.loads(line)
-        except Exception:
-            continue
-        if isinstance(parsed, dict):
-            return parsed
-    return None
+def _clamp_score(value: Any, default: float = 0.0) -> float:
+    raw = _safe_float(value, default=default)
+    if raw != raw:  # NaN
+        return default
+    if raw < SCORE_MIN:
+        return SCORE_MIN
+    if raw > SCORE_MAX:
+        return SCORE_MAX
+    return raw
 
 
 def _write_json(path: Path, obj: Any) -> None:
@@ -128,21 +130,83 @@ def _load_module(module_name: str, module_path: Path, extra_paths: list[Path]) -
             sys.modules[module_name] = previous_module
 
 
+def _validate_submission_payload(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise SubmissionFormatError("SUBMISSION must be a JSON-compatible dict")
+    try:
+        json.dumps(value, allow_nan=False)
+    except (ValueError, TypeError, RecursionError) as exc:
+        raise SubmissionFormatError(f"Invalid submission data: {exc}") from exc
+    missing = [t for t in TASK_IDS if t not in value]
+    if missing:
+        raise SubmissionFormatError(
+            f"SUBMISSION is missing required task keys: {', '.join(missing)}"
+        )
+    return value
+
+
 def _load_submission(candidate_path: Path) -> dict[str, Any]:
-    scope = runpy.run_path(str(candidate_path))
-    for key in ("SUBMISSION", "submission", "ENGDESIGN_SUBMISSION"):
-        value = scope.get(key)
-        if isinstance(value, dict):
-            return value
+    """Read JSON directly or evaluate Python SUBMISSION in a restricted child."""
+    if not candidate_path.is_file():
+        raise SubmissionFormatError(f"Candidate file not found: {candidate_path}")
 
-    derived = {task_id: scope.get(task_id) for task_id in TASK_IDS if task_id in scope}
-    if len(derived) == len(TASK_IDS):
-        return derived
+    size = candidate_path.stat().st_size
+    if size > MAX_CANDIDATE_BYTES:
+        raise SubmissionFormatError(
+            f"Candidate file is too large ({size} bytes > {MAX_CANDIDATE_BYTES})."
+        )
 
-    raise ValueError(
-        "Candidate must define a dict variable named `SUBMISSION` "
-        "that contains all EngDesign task payloads."
-    )
+    try:
+        text = candidate_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise SubmissionFormatError(f"Candidate file is not valid UTF-8: {exc}") from exc
+
+    if candidate_path.suffix.lower() in {".json", ".json5"}:
+        try:
+            payload = json.loads(text)
+        except Exception as exc:
+            raise SubmissionFormatError(f"Candidate JSON is invalid: {exc}") from exc
+        if isinstance(payload, dict):
+            for key in SUBMISSION_NAMES:
+                inner = payload.get(key)
+                if isinstance(inner, dict):
+                    return _validate_submission_payload(inner)
+            return _validate_submission_payload(payload)
+        raise SubmissionFormatError("Candidate JSON must contain a top-level object.")
+
+    shared = next((parent / "benchmarks" / "_shared" for parent in Path(__file__).resolve().parents
+                   if (parent / "benchmarks" / "_shared" / "candidate_sandbox.py").is_file()), None)
+    if shared is None:
+        raise SubmissionFormatError("candidate isolation helper not found")
+    if str(shared) not in sys.path:
+        sys.path.insert(0, str(shared))
+    import candidate_sandbox as sandbox
+    runner = """import json, runpy
+from pathlib import Path
+scope = runpy.run_path('candidate.py', run_name='engdesign_candidate')
+for name in ('SUBMISSION', 'submission', 'ENGDESIGN_SUBMISSION'):
+    if name in scope:
+        Path('submission.json').write_text(json.dumps(scope[name], allow_nan=False))
+        break
+else:
+    raise ValueError('Candidate must define SUBMISSION')
+"""
+    with tempfile.TemporaryDirectory(prefix="fe_engdesign_runner_") as tmp:
+        wrapper = Path(tmp) / "runner.py"
+        wrapper.write_text(runner)
+        try:
+            run = sandbox.run_candidate_isolated(
+                wrapper, inputs={"candidate.py": text.encode()},
+                expected_outputs=("submission.json",), timeout_s=60,
+                readonly_paths=(), env_allowlist=("PATH", "LANG", "LC_ALL"),
+                rlimits={"FSIZE": MAX_CANDIDATE_BYTES},
+            )
+            if not run.ok:
+                raise SubmissionFormatError(f"Candidate failed: {run.stderr_tail}")
+            value = sandbox.load_json_output(run)
+        except sandbox.InvalidSubmissionError as exc:
+            raise SubmissionFormatError(str(exc)) from exc
+    return _validate_submission_payload(value)
 
 
 def _normalize_payload(task_id: str, section: Any) -> dict[str, Any]:
@@ -242,8 +306,8 @@ def _evaluate_single_task(
                 passed, details, score, confidence = evaluate_module.evaluate_llm_response(response)
 
         result["passed"] = bool(passed)
-        result["score"] = _safe_float(score, default=0.0)
-        result["confidence"] = _safe_float(confidence, default=0.0)
+        result["score"] = _clamp_score(score, default=0.0)
+        result["confidence"] = _clamp_score(confidence, default=0.0)
         result["task_valid"] = 1.0
         result["details"] = details if details is not None else {}
         result["eval_stdout"] = _tail(stdout_buf.getvalue(), limit=12000)
@@ -268,6 +332,68 @@ def _default_failed_task_result(task_id: str, reason: str) -> dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------------------
+# Per-run result channel
+# Results are written to --result-out with a token supplied by the parent over
+# stdin. The child consumes the token before importing task modules. Candidate
+# stdout is diagnostic output and does not supply the result record.
+# This token is an integrity check, not an OS isolation boundary.
+# ---------------------------------------------------------------------------
+
+_RESULT_TOKEN: str | None = None
+
+
+def _consume_launch_token() -> None:
+    """Read the one-shot token from stdin and close stdin, before any task code."""
+    global _RESULT_TOKEN
+    try:
+        raw = sys.stdin.read()
+    except Exception:
+        raw = ""
+    try:
+        payload = json.loads(raw) if raw.strip() else {}
+        token = payload.get("token") if isinstance(payload, dict) else None
+        _RESULT_TOKEN = str(token) if isinstance(token, str) else None
+    except Exception:
+        _RESULT_TOKEN = None
+    finally:
+        with contextlib.suppress(Exception):
+            sys.stdin.close()
+        with contextlib.suppress(Exception):
+            devnull = os.open(os.devnull, os.O_RDONLY)
+            if devnull != 0:
+                os.dup2(devnull, 0)
+                os.close(devnull)
+        with contextlib.suppress(Exception):
+            sys.stdin = open(os.devnull, "r")  # noqa: SIM115
+
+
+def _write_result_file(path: Path, token: str | None, result: dict[str, Any]) -> None:
+    envelope = {"token": token, "result": result}
+    tmp = path.with_name(path.name + ".partial")
+    tmp.parent.mkdir(parents=True, exist_ok=True)
+    tmp.write_text(json.dumps(envelope, ensure_ascii=False, default=str), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _read_result_file(path: Path, token: str) -> tuple[dict[str, Any] | None, str]:
+    if not path.is_file():
+        return None, "child produced no result file"
+    try:
+        envelope = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return None, f"result file is not valid JSON: {exc}"
+    if not isinstance(envelope, dict):
+        return None, "result file is not a JSON object"
+    got = envelope.get("token")
+    if not isinstance(got, str) or not hmac.compare_digest(got, token):
+        return None, "result file token mismatch (forged or truncated result)"
+    result = envelope.get("result")
+    if not isinstance(result, dict):
+        return None, "result file has no result object"
+    return result, ""
+
+
 def _run_full_evaluation(
     *,
     benchmark_dir: Path,
@@ -280,6 +406,10 @@ def _run_full_evaluation(
     hard_failures: list[str] = []
     task_results: dict[str, dict[str, Any]] = {}
 
+    # Static pre-check only. `_load_submission` parses literals and executes
+    # nothing, so this no longer hands the orchestrator process (which owns
+    # subprocess dispatch, result parsing and metrics.json) to the candidate.
+    # Each child re-reads the file independently anyway.
     try:
         _load_submission(candidate_path)
     except Exception as exc:
@@ -306,55 +436,66 @@ def _run_full_evaluation(
         return
 
     self_path = Path(__file__).resolve()
-    for task_id in TASK_IDS:
-        cmd = [
-            sys.executable,
-            str(self_path),
-            "--single-task",
-            task_id,
-            "--candidate",
-            str(candidate_path),
-            "--benchmark-dir",
-            str(benchmark_dir),
-        ]
+    with tempfile.TemporaryDirectory(prefix="engdesign_results_") as result_dir_name:
+        result_dir = Path(result_dir_name)
+        for task_id in TASK_IDS:
+            token = secrets.token_hex(32)
+            result_path = result_dir / f"{task_id}_{secrets.token_hex(8)}.json"
+            cmd = [
+                sys.executable,
+                str(self_path),
+                "--single-task",
+                task_id,
+                "--candidate",
+                str(candidate_path),
+                "--benchmark-dir",
+                str(benchmark_dir),
+                "--result-out",
+                str(result_path),
+            ]
 
-        try:
-            proc = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=max(5.0, float(task_timeout_s)),
-            )
-        except subprocess.TimeoutExpired as exc:
-            reason = f"TimeoutExpired: {exc}"
-            hard_failures.append(f"{task_id}: {reason}")
-            task_results[task_id] = _default_failed_task_result(task_id, reason)
-            continue
-        except Exception as exc:
-            reason = f"{type(exc).__name__}: {exc}"
-            hard_failures.append(f"{task_id}: {reason}")
-            task_results[task_id] = _default_failed_task_result(task_id, reason)
-            continue
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    input=json.dumps({"token": token}),
+                    capture_output=True,
+                    text=True,
+                    timeout=max(5.0, float(task_timeout_s)),
+                )
+            except subprocess.TimeoutExpired as exc:
+                reason = f"TimeoutExpired: {exc}"
+                hard_failures.append(f"{task_id}: {reason}")
+                task_results[task_id] = _default_failed_task_result(task_id, reason)
+                continue
+            except Exception as exc:
+                reason = f"{type(exc).__name__}: {exc}"
+                hard_failures.append(f"{task_id}: {reason}")
+                task_results[task_id] = _default_failed_task_result(task_id, reason)
+                continue
 
-        parsed = _parse_last_json_dict(proc.stdout or "")
-        if proc.returncode != 0 or not isinstance(parsed, dict):
-            reason = (
-                f"single-task process failed (rc={proc.returncode}). "
-                f"stdout_tail={_tail(proc.stdout or '', 1500)!r} "
-                f"stderr_tail={_tail(proc.stderr or '', 1500)!r}"
-            )
-            hard_failures.append(f"{task_id}: {reason}")
-            task_results[task_id] = _default_failed_task_result(task_id, reason)
-            continue
+            parsed, read_error = _read_result_file(result_path, token)
+            if proc.returncode != 0 or parsed is None:
+                reason = (
+                    f"single-task process failed (rc={proc.returncode}, "
+                    f"result_channel={read_error or 'ok'}). "
+                    f"stdout_tail={_tail(proc.stdout or '', 1500)!r} "
+                    f"stderr_tail={_tail(proc.stderr or '', 1500)!r}"
+                )
+                hard_failures.append(f"{task_id}: {reason}")
+                task_results[task_id] = _default_failed_task_result(task_id, reason)
+                continue
 
-        parsed.setdefault("task_id", task_id)
-        parsed.setdefault("passed", False)
-        parsed.setdefault("score", 0.0)
-        parsed.setdefault("confidence", 0.0)
-        parsed.setdefault("task_valid", 0.0)
-        if proc.stderr:
-            parsed["runner_stderr"] = _tail(proc.stderr, limit=4000)
-        task_results[task_id] = parsed
+            # Identity of the result is decided here, not by the child.
+            parsed["task_id"] = task_id
+            parsed.setdefault("passed", False)
+            parsed["score"] = _clamp_score(parsed.get("score"), default=0.0)
+            parsed["confidence"] = _clamp_score(parsed.get("confidence"), default=0.0)
+            parsed.setdefault("task_valid", 0.0)
+            if proc.stdout:
+                parsed["runner_stdout"] = _tail(proc.stdout, limit=4000)
+            if proc.stderr:
+                parsed["runner_stderr"] = _tail(proc.stderr, limit=4000)
+            task_results[task_id] = parsed
 
     metrics: dict[str, float] = {}
     score_sum = 0.0
@@ -368,7 +509,7 @@ def _run_full_evaluation(
             result = _default_failed_task_result(task_id, "missing task result")
             task_results[task_id] = result
 
-        score_v = _safe_float(result.get("score"), default=0.0)
+        score_v = _clamp_score(result.get("score"), default=0.0)
         passed_v = 1.0 if bool(result.get("passed")) else 0.0
         task_valid_v = _safe_float(result.get("task_valid"), default=0.0)
 
@@ -435,11 +576,25 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--artifacts-out", default="artifacts.json", type=str)
     parser.add_argument("--task-timeout-s", default=180.0, type=float)
     parser.add_argument("--single-task", choices=TASK_IDS, default=None)
+    parser.add_argument(
+        "--result-out",
+        default=None,
+        type=str,
+        help=(
+            "Single-task mode: write the result JSON here instead of stdout. "
+            "The parent authenticates it with a token delivered over stdin."
+        ),
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = _parse_args()
+
+    if args.single_task and args.result_out:
+        # Before importing any task module or touching candidate data.
+        _consume_launch_token()
+
     benchmark_dir = Path(args.benchmark_dir).expanduser().resolve()
     candidate_path = _resolve_candidate_path(benchmark_dir, args.candidate)
 
@@ -449,7 +604,15 @@ def main() -> int:
             benchmark_dir=benchmark_dir,
             candidate_path=candidate_path,
         )
-        print(json.dumps(result, ensure_ascii=False, default=str))
+        if args.result_out:
+            _write_result_file(
+                _resolve_output_path(benchmark_dir, args.result_out),
+                _RESULT_TOKEN,
+                result,
+            )
+        else:
+            # Manual/debug invocation only; the orchestrator never reads stdout.
+            print(json.dumps(result, ensure_ascii=False, default=str))
         return 0
 
     metrics_out = _resolve_output_path(benchmark_dir, args.metrics_out)

@@ -1,2 +1,12 @@
+# The scoring code is locked for the duration of the run (write bits dropped)
+# and fingerprinted afterwards. Individual files rather than the whole
+# `verification/` directory, so validate.py can still create
+# `verification/outputs/`.
+README.md
+README_zh-CN.md
+Task.md
+Task_zh-CN.md
 frontier_eval
 verification/validate.py
+verification/problem.py
+verification/metrics.py

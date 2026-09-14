@@ -36,42 +36,69 @@ Read-only for challenge use:
 
 ## Core file/function to modify
 
-Main function:
-
 - `baseline/init.py`
-- `solve(spec, device=None, seed=0)`
+- Core function: `solve(spec, device=None, seed=0)`
 
-Keep output structure compatible with evaluator.
+You may add or change helpers in the same file. Keep the
+`if __name__ == "__main__":` block at the bottom: it is the evaluation entry
+point.
 
-## Input contract (`spec`)
+## How your program is run
 
-Main fields:
+Your file is executed as **its own process**, in a throwaway directory that
+contains exactly two files:
 
-- global optical setup:
-  - `shape`, `spacing`, `wavelength`, `waist_radius`, `layer_z`
-- `planes`: list of plane configs. Each plane has:
-  - `z`: output plane depth,
-  - `centers`: target focus coordinates,
-  - `ratios`: target power split among focuses on that plane.
-- `roi_radius_m`: ROI radius to measure focus powers.
+- `problem.json` -- the problem, as data (written by the evaluator),
+- a copy of `baseline/init.py` -- your program.
 
-Evaluator also injects:
+The task tree, `verification/`, the oracle and the evaluator are not available
+to the candidate process. Read `problem.json` from the current directory and
+write `submission.npz` to the current directory.
 
-- score constants: `score_eff_target`, `score_ratio_scale`,
-- validity thresholds,
-- reference comparison margins.
+## Input contract (`problem.json`)
 
-## Output contract (from `solve`)
+The problem definition is owned by `verification/problem_spec.py` and is
+identical for every submission. It is read-only and is loaded by the evaluator
+*before* your process starts.
 
-Required keys:
+Fields you receive:
 
-- `system`
-- `input_field`
-- `target_fields` (one per plane)
-- `loss_history`
-- `spec` (recommended)
+- `shape`, `spacing`, `wavelength`, `waist_radius`, `layer_z` -- the shared stack.
+- `planes` -- a list of plane configs; each has `z`, `centers` and `ratios`.
+- `roi_radius_m` -- radius used to measure each spot's power.
+- `steps`, `lr` -- the optimisation budget the evaluator advertises.
+- scoring constants: `score_eff_target`, `score_ratio_scale`, `valid_*`.
 
-Evaluator uses `system.measure_at_z(input_field, z=plane_z)` for each plane.
+`problem.json["submission"]` restates the exact array names, shapes and bounds
+your submission must satisfy.
+
+## Output contract (`submission.npz`)
+
+Write **decision variables only** -- plain real-valued arrays:
+
+- `phases`: `float64`, shape `(n_layers, shape, shape)` -- the phase map of each
+  `PhaseModulator`, in the order of `layer_z`. Values in radians, `|phase| <= 1e4`.
+
+One shared stack must serve every plane in `planes`; there is no per-plane mask.
+
+Optional, diagnostics only (never scored): `loss_history`, a 1-D float array.
+
+`verification/evaluate.py` then does all of the following itself:
+
+1. builds the `PhaseModulator` stack from your `phases`,
+2. builds the Gaussian input field,
+3. propagates it to every `z` in `planes`,
+4. builds each plane's target from its `centers` / `ratios`,
+5. computes per-plane `ratio_mae`, `efficiency`, `shape_cosine`, and the mean score.
+
+Consequences you should design for:
+
+- Returning a `system`, an `input_field`, a `target_field` or a self-reported
+  score/metric has **no effect** -- nothing but the named arrays is read.
+- `submission.npz` is loaded with `allow_pickle=False`, so only arrays survive.
+- Arrays are validated for shape, dtype, finiteness and range. A crash, a
+  timeout, a missing `submission.npz` or an out-of-range array is a hard
+  rejection (`combined_score = -1e18`), not a low score.
 
 ## Baseline implementation (current)
 

@@ -1,1 +1,10 @@
-.
+# Copy task inputs and scorer files without generated outputs or caches.
+README.md
+README_zh-CN.md
+Task.md
+Task_zh-CN.md
+baseline/init.py
+verification/validate.py
+verification/problem.py
+verification/metrics.py
+frontier_eval

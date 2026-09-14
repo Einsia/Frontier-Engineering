@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Score a submission against the frozen Frontier-Eng Medal podium.
 
-The gold/silver/bronze baselines are frozen at the v1 snapshot (2026-04-14) and
-shipped in ``medal_podium.csv``. This script takes a new model's best-feasible
+The gold/silver/bronze thresholds are shipped in
+``medal_podium.csv``. This script takes a new model's best-feasible
 score on each task and reports its Medal Score, so anyone can be scored against
 the released benchmark without rerunning the reference models.
 
@@ -12,9 +12,10 @@ Usage
 
 Submission CSV format (header required): two columns, ``Task,Score``, one row
 per task, using the task names from ``medal_podium.csv`` (e.g. ``JobShop_abz``).
-Higher score is better on every task. Missing tasks score 0. See
+Higher score is better on every task. Missing, blank, or nonfinite scores earn
+no credit. Blank podium thresholds mean that medal tier is unavailable. See
 ``submission_example.csv`` (the claude-opus-4.6 column) for a working example;
-scoring it reproduces its leaderboard line (Medal v1 = 0.490, v1-lite = 0.501).
+scoring it reproduces its leaderboard line (Medal v1 = 0.533, v1-lite = 0.501).
 
 Metric
 ------
@@ -26,6 +27,7 @@ subset (10 tasks).
 
 import argparse
 import csv
+import math
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -42,12 +44,14 @@ V1_LITE = {
 
 
 def load_podium(path):
-    """task -> (gold, silver, bronze) thresholds (higher is better)."""
+    """task -> (gold, silver, bronze); absent thresholds are None."""
     podium = {}
     with open(path, encoding="utf-8-sig") as f:
         for row in csv.DictReader(f):
-            podium[row["Task"]] = (
-                float(row["Gold"]), float(row["Silver"]), float(row["Bronze"]))
+            podium[row["Task"]] = tuple(
+                float(row[name]) if row[name].strip() else None
+                for name in ("Gold", "Silver", "Bronze")
+            )
     return podium
 
 
@@ -56,26 +60,32 @@ def load_submission(path):
     scores = {}
     with open(path, encoding="utf-8-sig") as f:
         reader = csv.reader(f)
-        first = next(reader)
-        if not (first[1].strip().lower() in ("score", "best", "value")):
+        first = next(reader, None)
+        if first is None:
+            return scores
+        if len(first) < 2 or first[1].strip().lower() not in ("score", "best", "value"):
             f.seek(0)  # no recognizable header -> treat all rows as data
             reader = csv.reader(f)
         for row in reader:
             if len(row) < 2 or not row[0].strip():
                 continue
             try:
-                scores[row[0].strip()] = float(row[1])
+                value = float(row[1])
             except ValueError:
                 continue  # skip header/garbage rows
+            if math.isfinite(value):
+                scores[row[0].strip()] = value
     return scores
 
 
 def tier(score, gold, silver, bronze):
-    if score >= gold:
+    if not math.isfinite(score):
+        return 0.0, None
+    if gold is not None and score >= gold:
         return GOLD, "gold"
-    if score >= silver:
+    if silver is not None and score >= silver:
         return SILVER, "silver"
-    if score >= bronze:
+    if bronze is not None and score >= bronze:
         return BRONZE, "bronze"
     return 0.0, None
 

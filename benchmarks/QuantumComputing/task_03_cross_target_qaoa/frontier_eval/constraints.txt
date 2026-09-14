@@ -4,3 +4,30 @@ QuantumComputing unified constraints:
 3) Return a valid Qiskit `QuantumCircuit`.
 4) Do not modify benchmark evaluator/test infrastructure files under `verification/`, `tests/`, or `frontier_eval/`.
 5) Keep imports and code compatible with the benchmark runtime environment.
+
+Execution and correctness contract:
+6) `baseline/solve.py` runs in its own interpreter, not inside the scorer. Your
+   input circuit arrives as OpenQASM 3 and your returned circuit is exported to
+   OpenQASM 3 and re-parsed by the scorer before anything is measured. Only the
+   circuit itself crosses that boundary: overriding `count_ops`, `depth` or
+   `size` on a `QuantumCircuit` subclass has no effect on your score.
+7) The returned circuit MUST be functionally equivalent to the input circuit.
+   Equivalence is checked before any metric is computed, and a circuit that
+   fails is not scored at all (the run is marked invalid, not merely low).
+   Specifically:
+   - it must implement the same unitary, up to a global phase and up to the
+     qubit permutation your circuit declares (see 8);
+   - it must measure the same classical bits the input circuit measures;
+   - the empty circuit, a measurement-only circuit, and any circuit produced
+     with a lossy `approximation_degree` are rejected;
+   - equivalence is tested on random input states, not only on |0...0>, so
+     precomputing the benchmark's single output state and preparing it cheaply
+     does not work;
+   - `reset`, mid-circuit measurement and classically-conditioned operations
+     make a circuit unverifiable and are therefore rejected.
+8) If your circuit is wider than the input (i.e. you mapped it onto the device),
+   it MUST carry the transpiler's layout so the scorer can tell which physical
+   qubit holds which input qubit. Returning the circuit `transpile()` produced
+   is enough. If you post-process it, preserve `circuit._layout` (the helper in
+   `baseline/structural_optimizer.py` already does). A circuit that is the same
+   width as the input and carries no layout is read as the identity mapping.

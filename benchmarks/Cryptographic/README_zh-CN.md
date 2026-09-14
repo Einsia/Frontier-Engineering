@@ -9,8 +9,8 @@
 每个任务都提供：
 
 - 基线 C++ 实现（`baseline/*.cpp`）
-- 正确性校验（`verification/validate.cpp`）
-- 吞吐率评测（`verification/evaluate.cpp`）
+- 正确性校验（评分器自带 FIPS/NIST 参考实现；`verification/validate.cpp` 仅为独立的开发自检工具）
+- 吞吐率评测（由评分器自己计时，并校验每一次计时迭代的输出；`verification/evaluate.cpp` 仅为独立的开发自检工具）
 - 算法参考 PDF（`references/*.pdf`）
 
 ## 在 frontier_eval 中运行（unified）

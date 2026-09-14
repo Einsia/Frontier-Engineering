@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 from statistics import mean
 from typing import Any
@@ -11,18 +12,36 @@ from qiskit.circuit import QuantumCircuit
 TASK_DIR = Path(__file__).resolve().parent.parent
 
 from utils import (
+    compose_candidate_layout,
     compute_metrics,
     create_run_dir,
     dump_json,
     load_cases,
-    load_solver,
+    rejected_case_result,
+    run_candidate_circuit,
     save_circuit_artifacts,
     timed_call,
+    verify_circuit_equivalence,
 )
 from mqt.bench import BenchmarkLevel, get_benchmark
 from mqt.bench.targets.gatesets import get_target_for_gateset
 
 CLIFFORD_T_BASIS = ["cx", "h", "x", "y", "z", "s", "sdg", "t", "tdg"]
+
+CANDIDATE_TIMEOUT_S = 900.0
+
+# These cases are 3, 4 and 5 qubits, so the candidate's whole effective unitary
+# is at most 32x32 and can be compared exactly. Nothing about the cost function
+# (T-count + 0.2 * two-qubit + 0.05 * depth) stops a candidate from returning a
+# cheaper circuit that computes something else, so this gate is what makes the
+# score mean anything.
+EQUIVALENCE_MODE = "exact"
+EQUIVALENCE_THRESHOLD = 1.0 - 1e-9
+# Optimizers routinely elide the QFT's trailing swaps and record them as a
+# layout permutation; when that record is lost we still accept a circuit that
+# is right up to relabelling the output qubits, since a relabelling costs
+# nothing to undo classically and cannot hide a cheaper wrong circuit.
+ALLOW_OUTPUT_PERMUTATION = True
 
 
 def synthesis_cost(depth: int, two_qubit_count: int, t_count: int, tdg_count: int) -> float:
@@ -46,6 +65,9 @@ def _strip_non_unitary_ops(qc: QuantumCircuit) -> QuantumCircuit:
             continue
         qubits = [qc.find_bit(qubit).index for qubit in instruction.qubits]
         cleaned.append(operation.copy(), qubits, [])
+    # Keep the transpiler's qubit-permutation record: dropping it used to make
+    # even Qiskit's own opt-3 reference look inequivalent to the input.
+    cleaned._layout = getattr(qc, "_layout", None)
     return cleaned
 
 
@@ -59,11 +81,12 @@ def transpile_to_clifford_t(qc: QuantumCircuit, opt_level: int) -> QuantumCircui
     return _strip_non_unitary_ops(transpiled)
 
 
-def evaluate_case(case: dict[str, Any], solver: Any, artifact_root: Path) -> dict[str, Any]:
+def evaluate_case(case: dict[str, Any], task_dir: Path, artifact_root: Path) -> dict[str, Any]:
     benchmark = case["benchmark"]
     num_qubits = case["num_qubits"]
-    target = get_target_for_gateset(case["target_gateset"], num_qubits)
-    case_dir = artifact_root / case["case_id"]
+    gateset_name = case["target_gateset"]
+    case_id = case["case_id"]
+    case_dir = artifact_root / case_id
     case_dir.mkdir(parents=True, exist_ok=True)
 
     input_qc = _strip_non_unitary_ops(get_benchmark(
@@ -73,15 +96,51 @@ def evaluate_case(case: dict[str, Any], solver: Any, artifact_root: Path) -> dic
     ))
     save_circuit_artifacts(input_qc, case_dir, "input")
 
-    candidate_raw, solve_time = timed_call(solver, input_qc.copy(), target, case)
+    run = run_candidate_circuit(
+        task_dir,
+        input_circuit=input_qc,
+        case=case,
+        target_spec={"kind": "gateset", "name": gateset_name, "num_qubits": num_qubits},
+        timeout_s=CANDIDATE_TIMEOUT_S,
+    )
+    if not run.ok:
+        return rejected_case_result(
+            case_id,
+            run.error or "candidate produced no circuit",
+            {"stderr_tail": run.stderr_tail, "artifacts_dir": str(case_dir)},
+        )
+
+    candidate_raw = run.circuit
     save_circuit_artifacts(candidate_raw, case_dir, "candidate_raw")
 
-    candidate_canon, canon_time = timed_call(
-        transpile_to_clifford_t,
-        candidate_raw,
-        0,
-    )
+    try:
+        candidate_canon, canon_time = timed_call(
+            transpile_to_clifford_t,
+            candidate_raw,
+            0,
+        )
+    except Exception as exc:
+        return rejected_case_result(
+            case_id,
+            f"candidate circuit could not be canonicalized into the Clifford+T basis: {exc}",
+            {"artifacts_dir": str(case_dir)},
+        )
     save_circuit_artifacts(candidate_canon, case_dir, "candidate_canonical", save_image=False)
+
+    equivalence = verify_circuit_equivalence(
+        input_qc,
+        candidate_canon,
+        meta=compose_candidate_layout(candidate_canon, run.meta, input_qc.num_qubits),
+        mode=EQUIVALENCE_MODE,
+        threshold=EQUIVALENCE_THRESHOLD,
+        allow_output_permutation=ALLOW_OUTPUT_PERMUTATION,
+    )
+    if not equivalence.ok:
+        return rejected_case_result(
+            case_id,
+            f"candidate circuit is not equivalent to the input circuit: {equivalence.reason}",
+            {"equivalence": equivalence.to_dict(), "artifacts_dir": str(case_dir)},
+        )
 
     candidate_metrics = compute_metrics(candidate_canon)
     candidate_cost = synthesis_cost(
@@ -121,11 +180,13 @@ def evaluate_case(case: dict[str, Any], solver: Any, artifact_root: Path) -> dic
     gap_vs_opt3 = (candidate_cost - opt3_cost) / opt3_cost if opt3_cost else 0.0
 
     return {
-        "case_id": case["case_id"],
+        "case_id": case_id,
+        "valid": True,
+        "equivalence": equivalence.to_dict(),
         "candidate": {
-            "solve_runtime_s": solve_time,
+            "solve_runtime_s": run.runtime_s,
             "canonicalize_runtime_s": canon_time,
-            "total_runtime_s": solve_time + canon_time,
+            "total_runtime_s": run.runtime_s + canon_time,
             "cost": candidate_cost,
             "score_0_to_3": candidate_score,
             "metrics": candidate_metrics.to_dict(),
@@ -151,9 +212,30 @@ def main() -> None:
     artifact_root = args.artifact_dir if args.artifact_dir is not None else create_run_dir(TASK_DIR, prefix="eval")
     artifact_root.mkdir(parents=True, exist_ok=True)
 
-    solver = load_solver(TASK_DIR)
     cases = load_cases(TASK_DIR)
-    results = [evaluate_case(case, solver, artifact_root) for case in cases]
+    results = [evaluate_case(case, TASK_DIR, artifact_root) for case in cases]
+    rejected = [r for r in results if not r.get("valid")]
+
+    if rejected:
+        print("Task 02 Evaluation: REJECTED")
+        for row in rejected:
+            print(f"  {row['case_id']}: {row['rejection_reason']}")
+        if args.json_out is not None:
+            dump_json(
+                args.json_out,
+                {
+                    "task": "task_02_clifford_t_synthesis",
+                    "summary": {
+                        "cases": len(results),
+                        "valid": False,
+                        "rejected_cases": [r["case_id"] for r in rejected],
+                        "artifacts_dir": str(artifact_root),
+                    },
+                    "results": results,
+                },
+            )
+            print(f"\nJSON report saved to {args.json_out}")
+        sys.exit(1)
 
     avg_candidate_cost = mean(r["candidate"]["cost"] for r in results)
     avg_candidate_score = mean(r["candidate"]["score_0_to_3"] for r in results)
@@ -173,6 +255,7 @@ def main() -> None:
         print(
             f"{row['case_id']}: candidate_cost={row['candidate']['cost']:.4f}, "
             f"candidate_score={row['candidate']['score_0_to_3']:.4f}, "
+            f"equivalence_fidelity={row['equivalence']['fidelity']:.12f}, "
             f"opt0={row['references']['opt_0']['cost']:.4f}, "
             f"opt3={row['references']['opt_3']['cost']:.4f}"
         )
@@ -189,6 +272,7 @@ def main() -> None:
             "task": "task_02_clifford_t_synthesis",
             "summary": {
                 "cases": len(results),
+                "valid": True,
                 "avg_candidate_cost": avg_candidate_cost,
                 "avg_candidate_score_0_to_3": avg_candidate_score,
                 "avg_opt0_cost": avg_opt0_cost,

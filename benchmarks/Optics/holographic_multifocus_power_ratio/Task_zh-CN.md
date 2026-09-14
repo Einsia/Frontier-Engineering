@@ -31,46 +31,64 @@
 
 ## 核心修改文件/函数
 
-主要修改点：
-
 - `baseline/init.py`
 - 核心函数：`solve(spec, device=None, seed=0)`
 
-你可以改同文件内辅助函数，但必须保持返回字段与 evaluator 兼容。
+可以在同一文件内增删辅助函数，但必须保留文件底部的
+`if __name__ == "__main__":` 块——它是评测入口。
 
-## 输入协议（`spec`）
+## 程序如何被运行
 
-`verification/evaluate.py` 会基于 `make_default_spec()` 构造 `spec`，并注入评测常量。
+你的文件会作为**独立进程**执行，工作目录是一个临时目录，其中只有两个文件：
 
-关键字段：
+- `problem.json`——以数据形式给出的题目（由评分器写入），
+- `baseline/init.py` 的一份副本——你的程序。
 
-- `shape`：仿真网格大小（如 72 表示 72x72）。
-- `spacing`：采样间距（米/像素）。
-- `wavelength`：波长。
-- `waist_radius`：输入高斯光束腰半径。
-- `layer_z`：可训练相位层的 z 位置。
-- `output_z`：输出观测面位置。
-- `focus_centers`：6 个目标焦点坐标 `(x, y)`（米）。
-- `focus_ratios`：目标焦点功率比例。
-- `roi_radius_m`：统计焦点功率的 ROI 半径。
+候选进程无法访问任务目录、`verification/`、oracle 和评分脚本。
+从当前目录读 `problem.json`，向当前目录写 `submission.npz`。
 
-评测注入参数：
+## 输入协议（`problem.json`）
 
-- `score_eff_target`, `score_ratio_scale`
-- `valid_ratio_mae_max`, `valid_efficiency_min`, `valid_score_min`
-- `better_score_margin`, `better_shape_margin`
+题目定义由 `verification/problem_spec.py` 拥有，对所有提交完全一致。该文件只读，
+并且在你的进程启动**之前**就已被评分器加载。
 
-## 输出协议（`solve` 返回）
+你会收到的字段：
 
-`solve` 至少返回以下键：
+- `shape`、`spacing`、`wavelength`、`waist_radius`——网格与光源。
+- `layer_z`——每层可训练相位面的 z 位置。
+- `output_z`——观测面。
+- `focus_centers`——6 个目标光斑坐标 `(x, y)`，单位米。
+- `focus_ratios`——各光斑的目标相对功率。
+- `roi_radius_m`——统计单个光斑功率的 ROI 半径。
+- `steps`、`lr`——评分器给出的优化预算。
+- 评分常数：`score_eff_target`、`score_ratio_scale`、`valid_*`。
 
-- `system`：训练后的光学系统（评测会用它继续传播）。
-- `input_field`：输入光场。
-- `target_field`：目标模板场/强度。
-- `loss_history`：训练损失曲线。
-- `spec`（建议保留）：运行时使用的配置。
+`problem.json["submission"]` 会再次给出提交数组的准确名称、形状与取值范围。
 
-缺失这些键或几何不匹配会导致评测失败。
+## 输出协议（`submission.npz`）
+
+只写**决策变量**——纯实数数组：
+
+- `phases`：`float64`，形状 `(n_layers, shape, shape)`——按 `layer_z` 顺序给出每层
+  `PhaseModulator` 的相位图。单位弧度，要求 `|phase| <= 1e4`。
+
+可选、仅用于绘图诊断（不参与评分）：`loss_history`，一维浮点数组。
+
+随后 `verification/evaluate.py` 自己完成以下全部工作：
+
+1. 用你的 `phases` 构建 `PhaseModulator` 光学系统；
+2. 构建高斯输入场；
+3. 传播到 `output_z`；
+4. 用 `focus_centers` / `focus_ratios` 构建目标场；
+5. 计算 `ratio_mae`、`efficiency`、`shape_cosine` 与最终分数。
+
+由此带来的设计约束：
+
+- 返回 `system`、`input_field`、`target_field` 或自报的分数/指标**完全无效**——
+  除上述数组外的任何内容都不会被读取。
+- `submission.npz` 以 `allow_pickle=False` 加载，因此只有数组能通过。
+- 数组会校验形状、dtype、有限性与取值范围。崩溃、超时、缺少 `submission.npz`
+  或数组越界都是**硬拒绝**（`combined_score = -1e18`），而不是低分。
 
 ## Baseline 当前实现
 

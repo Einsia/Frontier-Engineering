@@ -393,7 +393,10 @@ def load_unified_task_spec(*, task_cfg: Any, repo_root: Path) -> UnifiedTaskSpec
         raise TypeError(f"`task.runtime.env` must be a mapping, got {type(runtime_env_raw)}")
     runtime_env = {str(k): str(v) for k, v in runtime_env_raw.items()}
 
-    parse_stdout_json = _as_bool(cfg.get("parse_stdout_json"), default=True)
+    # Default False: parsing the combined_score from a candidate program's
+    # stdout is a spoofing channel (see conf/task/unified.yaml). The value only
+    # comes back into play when a task explicitly opts in.
+    parse_stdout_json = _as_bool(cfg.get("parse_stdout_json"), default=False)
 
     return UnifiedTaskSpec(
         repo_root=repo_root.resolve(),

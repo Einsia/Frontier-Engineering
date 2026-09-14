@@ -151,5 +151,11 @@ def optimize_by_local_rewrite(input_circuit: QuantumCircuit, *, max_rounds: int 
     optimized = QuantumCircuit(*input_circuit.qregs, *input_circuit.cregs, name=f"{input_circuit.name}_structopt")
     for op, qargs, cargs in instructions:
         optimized.append(op, list(qargs), list(cargs))
+    # Rewriting does not move qubits, so the transpiler's layout record (which
+    # says where each input qubit sits at the start and end of the circuit)
+    # still applies. Dropping it would leave the evaluator unable to tell a
+    # correctly-routed circuit from a wrong one, and the circuit would be
+    # rejected by the equivalence gate.
+    optimized._layout = getattr(input_circuit, "_layout", None)
     return optimized
 

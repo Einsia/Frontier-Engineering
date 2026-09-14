@@ -27,23 +27,43 @@ Goal: minimize **makespan** (finish time of the last completed operation).
 
 ### Input (conceptual)
 
-Each run receives one benchmark instance containing:
+The evaluator runs `baseline/init.py` in an isolated subprocess and calls
+`solve_instance(instance)` once per benchmark instance. `instance` has exactly
+three keys:
 
+- `name`: instance name
 - `duration_matrix[j][k]`: processing time of operation `k` in job `j`
 - `machines_matrix[j][k]`: machine used by operation `k` in job `j`
-- metadata (`optimum`, `lower_bound`, `upper_bound`, `reference`)
+
+The instance does not include `optimum`, `lower_bound` or `upper_bound`;
+these are retained by the evaluator for scoring. The evaluator loads instances
+from `JobShop/data/benchmark_instances.json`.
 
 ### Output (conceptual)
 
-A feasible schedule:
+Return a dict describing a feasible schedule:
 
-- start time for every operation
-- implied machine timelines and job completion times
-- scalar objective: `makespan`
+```python
+{"machine_schedules": [                 # indexed by machine id
+    [{"job_id": 0, "operation_index": 0, "start_time": 0, "end_time": 7}, ...],
+    ...
+]}
+```
+
+- `duration` per operation is optional; if present it must match the instance.
+- `makespan` is optional. If you report one it is cross-checked against the
+  value the evaluator recomputes from your schedule, and a mismatch invalidates
+  the instance. It never becomes the score: the score always uses the
+  recomputed makespan.
+
+The evaluator rejects a schedule unless every operation appears exactly once, on
+the machine the instance assigns it, for exactly its stated duration, with no
+two operations overlapping on a machine and no job running its operations out of
+order.
 
 In this workspace:
 
-- baseline returns a pure-python result dict with `makespan`.
+- baseline returns a pure-python result dict with `machine_schedules`.
 - reference returns a `Schedule` from `job_shop_lib`.
 
 ## Expected result quality

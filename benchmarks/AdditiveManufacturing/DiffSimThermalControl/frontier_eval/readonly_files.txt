@@ -5,3 +5,4 @@ references/original/toolpath.crs
 frontier_eval/constraints.txt
 frontier_eval/eval_command.txt
 verification/canonical.py
+verification/candidate_runner.py

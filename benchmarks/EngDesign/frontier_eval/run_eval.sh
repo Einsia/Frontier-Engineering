@@ -139,5 +139,29 @@ if [[ ! -f "${ARTIFACTS_JSON}" ]]; then
 EOF
 fi
 
-# Keep return code 0. unified reads validity/score from metrics.json.
-exit 0
+# Propagate evaluator failures and mark metrics invalid so the return code
+# and the recorded result agree.
+if [[ ${EVAL_RC} -ne 0 ]]; then
+  "${PYTHON_CMD}" - "${METRICS_JSON}" "${EVAL_RC}" <<'PYFIX' || true
+import json
+import sys
+
+path, rc = sys.argv[1], float(sys.argv[2])
+try:
+    with open(path, "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+    if not isinstance(data, dict):
+        data = {}
+except Exception:
+    data = {}
+data["valid"] = 0.0
+data["combined_score"] = 0.0
+data["avg_score"] = 0.0
+data["eval_returncode"] = rc
+with open(path, "w", encoding="utf-8") as fh:
+    json.dump(data, fh, ensure_ascii=False, indent=2)
+    fh.write("\n")
+PYFIX
+fi
+
+exit "${EVAL_RC}"

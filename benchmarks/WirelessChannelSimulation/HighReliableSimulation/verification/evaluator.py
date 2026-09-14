@@ -3,15 +3,14 @@ from __future__ import annotations
 import json
 import math
 import argparse
-import runpy
+import os
+import sys
 import time
 import traceback
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
-from numpy.random import Generator, Philox
 
 # 候选冻结常量（2026-02-15 标定结果，建议发布前再高预算复验）
 DEV_SIGMA = 0.268
@@ -20,6 +19,8 @@ MAX_SAMPLES = 100_000
 BATCH_SIZE = 10_000
 MIN_ERRORS = 20
 REPEATS = 3
+HAMMING_R = 7
+CHASE_T = 3
 
 EPSILON = 0.8
 INVALID_COMBINED_SCORE = -1e18
@@ -29,17 +30,56 @@ R0_DEV = 7.261287772505011e-07
 R0_LOG_DEV = float(math.log(R0_DEV))
 T0_DEV = 10.4001037335396
 
+CANDIDATE_TIMEOUT_S = 1800.0
+
+# The isolation driver in benchmarks/_shared/sampler_isolation.py times each
+# repeat with `time.time()`, looked up on the shared `time` module at call time.
+# The candidate is executed by runpy *inside* that driver process, so rebinding
+# `time.time` makes every repeat report runtime_s = 0 and the score becomes
+# T0_DEV / (0 * err_log_ratio + 1e-6). Measured: combined_score 10_400_103.73
+# against an honest 262.63 -- a factor of ~39_600.
+#
+# runtime_s feeds the score directly, so it cannot be taken on trust. This
+# process measures the subprocess's wall clock itself and requires the
+# self-reported total to be consistent with it. The parent's clock is in a
+# different process and is not reachable from the candidate.
+RUNTIME_STARTUP_ALLOWANCE_S = 5.0   # interpreter + numpy import, driver overhead
+RUNTIME_MIN_FRACTION = 0.5          # of the wall clock actually spent
+RUNTIME_OVERREPORT_TOLERANCE_S = 1.0
+
 
 def _is_repo_root(path: Path) -> bool:
     return (path / "benchmarks").is_dir() and (path / "frontier_eval").is_dir()
 
 
 def _find_repo_root() -> Path:
+    env_root = (os.environ.get("FRONTIER_ENGINEERING_ROOT") or "").strip()
+    if env_root:
+        candidate = Path(env_root).expanduser().resolve()
+        if _is_repo_root(candidate):
+            return candidate
+
     here = Path(__file__).resolve()
     for parent in [here.parent, *here.parents]:
         if _is_repo_root(parent):
             return parent
     return Path.cwd().resolve()
+
+
+def _import_isolation(repo_root: Path):
+    """Import the shared isolation helper.
+
+    It lives outside every benchmark directory so a ``copy_files.txt`` of ``.``
+    cannot drag it into a sandbox the candidate can write to.
+    """
+    shared = repo_root / "benchmarks" / "_shared"
+    if not (shared / "sampler_isolation.py").is_file():
+        raise RuntimeError(f"shared isolation helper not found under {shared}")
+    if str(shared) not in sys.path:
+        sys.path.insert(0, str(shared))
+    import sampler_isolation  # noqa: PLC0415
+
+    return sampler_isolation
 
 
 def _wrap(metrics: dict[str, float], artifacts: dict[str, str | bytes]):
@@ -48,13 +88,6 @@ def _wrap(metrics: dict[str, float], artifacts: dict[str, str | bytes]):
     except ModuleNotFoundError:
         return metrics
     return EvaluationResult(metrics=metrics, artifacts=artifacts)
-
-
-def _load_program_module(program_path: Path):
-    if not program_path.is_file():
-        raise RuntimeError(f"无法加载程序文件: {program_path}")
-    namespace = runpy.run_path(str(program_path), run_name="candidate_program")
-    return SimpleNamespace(**namespace)
 
 
 def _resolve_program_path(program_path: str, repo_root: Path) -> Path:
@@ -80,61 +113,6 @@ def _resolve_program_path(program_path: str, repo_root: Path) -> Path:
     )
     task_path = (task_root / raw).resolve()
     return task_path
-
-
-def _normalize_result(result: Any) -> tuple[float, float, float, float, float, float]:
-    """
-    归一化输出到：
-    errors_log, weights_log, err_ratio, total_samples, actual_std, converged(0/1)
-    """
-    if isinstance(result, dict):
-        return (
-            float(result["errors_log"]),
-            float(result["weights_log"]),
-            float(result.get("err_ratio", np.nan)),
-            float(result.get("total_samples", np.nan)),
-            float(result.get("actual_std", np.nan)),
-            1.0 if bool(result.get("converged", False)) else 0.0,
-        )
-
-    if isinstance(result, (tuple, list)) and len(result) >= 6:
-        return (
-            float(result[0]),
-            float(result[1]),
-            float(result[2]),
-            float(result[3]),
-            float(result[4]),
-            1.0 if bool(result[5]) else 0.0,
-        )
-
-    raise ValueError("simulate_variance_controlled 返回值格式不支持")
-
-
-def _build_code(repo_root: Path, seed: int):
-    import sys
-
-    sys.path.insert(0, str(repo_root))
-    from benchmarks.WirelessChannelSimulation.HighReliableSimulation.runtime.chase import ChaseDecoder
-    from benchmarks.WirelessChannelSimulation.HighReliableSimulation.runtime.code_linear import HammingCode
-
-    code = HammingCode(r=7, decoder="binary")
-    code.rng = Generator(Philox(seed))
-    code.set_decoder(ChaseDecoder(code=code, t=3))
-    return code
-
-
-def _run_canonical_simulation(*, code: Any, sampler: Any):
-    # Use the benchmark-owned simulation loop so candidates cannot self-report
-    # forged aggregate metrics through their own wrapper method.
-    return code.simulate_variance_controlled(
-        noise_std=DEV_SIGMA,
-        target_std=TARGET_STD,
-        max_samples=MAX_SAMPLES,
-        sampler=sampler,
-        batch_size=BATCH_SIZE,
-        fix_tx=True,
-        min_errors=MIN_ERRORS,
-    )
 
 
 def _validate_repeat_stats(
@@ -171,21 +149,38 @@ def evaluate(program_path: str, *, repo_root: Path | None = None):
     artifacts: dict[str, str | bytes] = {}
 
     try:
-        import sys
+        iso = _import_isolation(repo_root)
 
-        sys.path.insert(0, str(repo_root))
-        from benchmarks.WirelessChannelSimulation.HighReliableSimulation.runtime.sampler import SamplerBase
-
+        # The candidate is *code*: the benchmark-owned simulation loop calls the
+        # candidate's sample() once per batch. It therefore runs in a subprocess
+        # and returns numbers only; nothing below trusts a self-reported score.
+        wall_start = time.time()
         try:
-            module = _load_program_module(program)
-        except Exception as e:
+            records = iso.run_sampler_repeats(
+                task="hrs",
+                candidate_path=program,
+                repo_root=repo_root,
+                class_name="MySampler",
+                repeats=REPEATS,
+                constants={
+                    "r": HAMMING_R,
+                    "chase_t": CHASE_T,
+                    "sigma": DEV_SIGMA,
+                    "target_std": TARGET_STD,
+                    "max_samples": MAX_SAMPLES,
+                    "batch_size": BATCH_SIZE,
+                    "min_errors": MIN_ERRORS,
+                },
+                reset_rng=True,
+                call_mode="canonical",
+                timeout_s=CANDIDATE_TIMEOUT_S,
+                python=sys.executable,
+            )
+        except iso.SamplerRunError as e:
+            if "timed out" in str(e):
+                metrics["timeout"] = 1.0
             raise RuntimeError(f"加载选手程序失败: {e}") from e
-        if not hasattr(module, "MySampler"):
-            raise AttributeError("提交程序中未找到类 MySampler")
-
-        cls = module.MySampler
-        if not isinstance(cls, type) or not issubclass(cls, SamplerBase):
-            raise TypeError("MySampler 必须继承 SamplerBase")
+        candidate_wall_s = float(time.time() - wall_start)
 
         runtimes: list[float] = []
         err_logs: list[float] = []
@@ -194,41 +189,45 @@ def evaluate(program_path: str, *, repo_root: Path | None = None):
         stds: list[float] = []
         converged_flags: list[float] = []
 
-        for rep in range(REPEATS):
-            seed = rep
-            code = _build_code(repo_root, seed=seed)
+        for rep, record in enumerate(records):
             try:
-                sampler = cls(code=code, seed=seed)
-            except Exception as e:
-                raise RuntimeError(f"MySampler 初始化失败: {e}") from e
-            if hasattr(sampler, "rng"):
-                sampler.rng = Generator(Philox(seed))
+                v = iso.validate_common_repeat(record, max_samples=MAX_SAMPLES)
+            except iso.InvalidSubmissionError as e:
+                raise ValueError(f"repeat {rep} 结果非法: {e}") from e
 
-            if not hasattr(sampler, "simulate_variance_controlled"):
-                raise AttributeError("MySampler 缺少 simulate_variance_controlled 方法")
-
-            t0 = time.time()
-            try:
-                result = _run_canonical_simulation(code=code, sampler=sampler)
-            except Exception as e:
-                raise RuntimeError(f"canonical simulate_variance_controlled 执行失败: {e}") from e
-            dt = time.time() - t0
-
-            errors_log, weights_log, err_ratio, total_samples, actual_std, converged = _normalize_result(result)
+            errors_log = v["a"]
+            weights_log = v["b"]
+            err_ratio = v["c"]
             err_rate_log = float(errors_log - weights_log)
             _validate_repeat_stats(
                 err_rate_log=err_rate_log,
                 err_ratio=err_ratio,
-                total_samples=total_samples,
-                actual_std=actual_std,
+                total_samples=float(v["total_samples"]),
+                actual_std=float(v["actual_std"]),
             )
 
-            runtimes.append(float(dt))
+            runtimes.append(float(v["runtime_s"]))
             err_logs.append(err_rate_log)
             ratios.append(err_ratio)
-            samples.append(total_samples)
-            stds.append(actual_std)
-            converged_flags.append(converged)
+            samples.append(float(v["total_samples"]))
+            stds.append(float(v["actual_std"]))
+            converged_flags.append(1.0 if v["converged"] else 0.0)
+
+        # Cross-check the self-reported timings against the wall clock this
+        # process measured for the whole subprocess.
+        reported_total_s = float(np.sum(runtimes))
+        floor_s = RUNTIME_MIN_FRACTION * max(
+            0.0, candidate_wall_s - RUNTIME_STARTUP_ALLOWANCE_S
+        )
+        if reported_total_s > candidate_wall_s + RUNTIME_OVERREPORT_TOLERANCE_S:
+            raise ValueError(
+                f"自报运行时间 {reported_total_s:.3f}s 超过实测墙钟 {candidate_wall_s:.3f}s"
+            )
+        if reported_total_s < floor_s:
+            raise ValueError(
+                f"自报运行时间 {reported_total_s:.3f}s 低于墙钟下界 {floor_s:.3f}s"
+                f" (wall={candidate_wall_s:.3f}s)"
+            )
 
         runtime_median = float(np.median(runtimes))
         err_log_median = float(np.median(err_logs))
@@ -257,8 +256,11 @@ def evaluate(program_path: str, *, repo_root: Path | None = None):
                 "target_std_attainment_rate": std_attainment_rate,
                 "converged_rate": float(np.mean(converged_flags)),
                 "sigma": DEV_SIGMA,
-                "decoder_chase_t": 3.0,
+                "decoder_chase_t": float(CHASE_T),
                 "trusted_canonical_loop": 1.0,
+                "isolated_candidate": 1.0,
+                "candidate_wall_s": candidate_wall_s,
+                "self_reported_total_s": reported_total_s,
             }
         )
         artifacts["dev_constants"] = json.dumps(
@@ -272,6 +274,10 @@ def evaluate(program_path: str, *, repo_root: Path | None = None):
                 "t0_dev": T0_DEV,
                 "repeats": REPEATS,
                 "scoring_note": "score requires err_rate_log close to reference and median actual_std <= target_std",
+                "isolation_note": (
+                    "candidate runs in a subprocess and returns numbers only; "
+                    "all aggregation and scoring happens in the evaluator"
+                ),
             },
             ensure_ascii=False,
             indent=2,
@@ -284,9 +290,11 @@ def evaluate(program_path: str, *, repo_root: Path | None = None):
                 "actual_samples": samples,
                 "actual_std": stds,
                 "converged": converged_flags,
+                "audit": [r["audit"] for r in records],
             },
             ensure_ascii=False,
             indent=2,
+            default=str,
         )
     except (
         AttributeError,

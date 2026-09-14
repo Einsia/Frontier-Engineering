@@ -1,3 +1,11 @@
+"""Local kernel-checking tool; official scoring uses ``frontier_eval/evaluator.py``.
+
+This utility loads candidate and reference code in the same process, so its
+correctness and timing diagnostics are intended for local development. The
+scoring entrypoint uses separate candidate and trusted workers and a scorer-owned
+clock.
+"""
+
 import dataclasses
 import re
 import time
@@ -19,7 +27,6 @@ try:
 except ImportError:
     TestSpec = dict
 
-from baseline.submission import custom_kernel
 from baseline.reference import check_implementation, generate_input
 
 WARMUP_RUNS = 10
@@ -82,6 +89,7 @@ def get_test_cases(file_name: str) -> list[TestCase]:
 
 
 def warm_up(test: TestCase):
+    from baseline.submission import custom_kernel
     args = dict(test.args)
     if "seed" in args:
         args["seed"] = int(args["seed"]) + 1_000_000
@@ -118,6 +126,7 @@ def calculate_stats(durations: list[int]):
 
 
 def run_testing(logger: PopcornOutput, tests: list[TestCase]):
+    from baseline.submission import custom_kernel
     passed = True
     logger.log("test-count", len(tests))
     for idx, test in enumerate(tests):
@@ -152,6 +161,7 @@ def _input_for_repeat(test: TestCase, repeat_idx: int):
 
 
 def benchmark(test: TestCase, recheck: bool, max_repeats: int, max_time_ns: float) -> Stats | str:
+    from baseline.submission import custom_kernel
     durations = []
     config, Q, K, V = generate_input(**test.args)
 

@@ -12,33 +12,37 @@
 改进 `baseline/init.py`，让输出强度图更接近目标结构，并减少暗区泄漏。
 
 建议重点改：
-- `solve_baseline(problem, seed=None)`
+- `solve(problem)` in `baseline/init.py`
 
 ## 可修改边界
 - 可修改：`baseline/init.py`
-- 只读：`verification/validate.py`
+- 只读（评测期间去写权限并做指纹校验）：`verification/validate.py`、`verification/problem.py`、`verification/metrics.py`、`frontier_eval/`
 
-评测依赖接口：
-- `build_problem(config: dict | None) -> dict`
-- `solve_baseline(problem: dict, seed: int | None = None) -> np.ndarray`
-- `forward_intensity(problem: dict, phase: np.ndarray) -> np.ndarray`
+## 评分契约
+评测器**不会 import** `baseline/init.py`。它会作为独立程序在单独子进程中运行，工作目录是一个
+一次性临时目录，其中已经放好由评分侧生成的题目定义：
 
+- `problem.json`——配置（`cfg`）以及 `decision_variable` 块，明确说明要返回什么
+- `problem.npz`——`x`, `y`, `aperture_amp`, `target_amp`
 
-### 输入 `problem`
-关键字段：
-- `x`, `y`：像素坐标
-- `aperture_amp`：孔径掩膜，形状 `(N, N)`
-- `target_amp`：目标振幅图，形状 `(N, N)`
-- `cfg`：参数字典（如 `slm_pixels`, `seed`）
+你的程序必须在当前目录写出 `submission.json` 并以 0 退出：
 
-### 输出
-- `phase`：形状 `(N, N)` 的相位图（弧度）
+```json
+{"phase": [[...128 floats...], ...]}   // 128 rows, radians
+```
 
-## 核心可改函数
-主要修改点：
-- `solve_baseline(problem, seed=None)`
+评测器对 `phase` 的强制校验：
+- 形状必须是 `(128, 128)`
+- 每个元素有限，且 `|phase| <= 1e4`
 
-评测会固定调用该函数，并基于其输出计算指标。
+`target_amp` 由评分侧生成并只读下发。它就是你被评判的目标，你无法替换成自己的目标。
+
+**只返回决策变量，不要返回别的。** 其它任何键——`metrics`、`score`、`score_pct`、
+`cv_orders` ……——都会在评分前被丢弃，仅记录在指标文件的 `contract.ignored_submission_keys` 里。
+题目定义、前向模型与全部指标位于 `verification/problem.py` 与 `verification/metrics.py`：
+评测器根据提交的决策变量运行前向模型并计算指标；oracle 使用相同的计分函数。
+
+提交被拒（形状/长度错误、非有限值或越界、非零退出码、超时、没有 `submission.json`）即判为 invalid。
 
 ## Baseline 当前实现
 当前 baseline 是单次逆变换：

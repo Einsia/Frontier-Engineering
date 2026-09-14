@@ -31,46 +31,70 @@ The challenge setup is:
 
 ## Core file/function to modify
 
-Primary target:
-
 - `baseline/init.py`
 - Core function: `solve(spec, device=None, seed=0)`
 
-You may also adjust helper functions in the same file, but keep return fields compatible with evaluator.
+You may add or change helpers in the same file. Keep the
+`if __name__ == "__main__":` block at the bottom: it is the evaluation entry
+point.
 
-## Input contract (`spec`)
+## How your program is run
 
-`verification/evaluate.py` builds `spec` from `make_default_spec()` and injects evaluation constants.
+Your file is executed as **its own process**, in a throwaway directory that
+contains exactly two files:
 
-Important fields:
+- `problem.json` -- the problem, as data (written by the evaluator),
+- a copy of `baseline/init.py` -- your program.
 
-- `shape`: simulation grid size (e.g., 72 means 72x72 samples).
-- `spacing`: physical sampling pitch (meters per pixel).
-- `wavelength`: laser wavelength.
-- `waist_radius`: Gaussian beam waist.
-- `layer_z`: z positions of trainable phase layers.
-- `output_z`: target observation plane.
-- `focus_centers`: list of 6 target spot coordinates `(x, y)` in meters.
-- `focus_ratios`: target relative power per spot.
-- `roi_radius_m`: radius for measuring each spot power.
+The task tree, `verification/`, the oracle and the evaluator are not available
+to the candidate process. Read `problem.json` from the current directory and
+write `submission.npz` to the current directory.
 
-Scoring/verification constants added by evaluator:
+## Input contract (`problem.json`)
 
-- `score_eff_target`, `score_ratio_scale`,
-- `valid_ratio_mae_max`, `valid_efficiency_min`, `valid_score_min`,
-- `better_score_margin`, `better_shape_margin`.
+The problem definition is owned by `verification/problem_spec.py` and is
+identical for every submission. It is read-only and is loaded by the evaluator
+*before* your process starts.
 
-## Output contract (from `solve`)
+Fields you receive:
 
-Your `solve` must return a dict containing at least:
+- `shape`, `spacing`, `wavelength`, `waist_radius` -- the grid and the source.
+- `layer_z` -- z position of each trainable phase layer.
+- `output_z` -- the observation plane.
+- `focus_centers` -- the 6 target spot coordinates `(x, y)`, in metres.
+- `focus_ratios` -- the target relative power of each spot.
+- `roi_radius_m` -- radius used to measure each spot's power.
+- `steps`, `lr` -- the optimisation budget the evaluator advertises.
+- scoring constants: `score_eff_target`, `score_ratio_scale`, `valid_*`.
 
-- `system`: trained optical system (used by evaluator to propagate fields).
-- `input_field`: source field.
-- `target_field`: target field/intensity template.
-- `loss_history`: list of training loss values.
-- `spec` (recommended): merged runtime spec.
+`problem.json["submission"]` restates the exact array names, shapes and bounds
+your submission must satisfy.
 
-If these keys are missing or geometry mismatches, verification will fail.
+## Output contract (`submission.npz`)
+
+Write **decision variables only** -- plain real-valued arrays:
+
+- `phases`: `float64`, shape `(n_layers, shape, shape)` -- the phase map of each
+  `PhaseModulator`, in the order of `layer_z`. Values in radians, `|phase| <= 1e4`.
+
+Optional, diagnostics only (never scored): `loss_history`, a 1-D float array.
+
+`verification/evaluate.py` then does all of the following itself:
+
+1. builds the `PhaseModulator` stack from your `phases`,
+2. builds the Gaussian input field,
+3. propagates it to `output_z`,
+4. builds the target field from `focus_centers` / `focus_ratios`,
+5. computes `ratio_mae`, `efficiency`, `shape_cosine` and the final score.
+
+Consequences you should design for:
+
+- Returning a `system`, an `input_field`, a `target_field` or a self-reported
+  score/metric has **no effect** -- nothing but the named arrays is read.
+- `submission.npz` is loaded with `allow_pickle=False`, so only arrays survive.
+- Arrays are validated for shape, dtype, finiteness and range. A crash, a
+  timeout, a missing `submission.npz` or an out-of-range array is a hard
+  rejection (`combined_score = -1e18`), not a low score.
 
 ## Baseline implementation (what it currently does)
 

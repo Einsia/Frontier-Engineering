@@ -16,9 +16,9 @@ InventoryOptimization_tree_gsm_safety_stock,0.3813,0.6606070711644478,claude-opu
 JobShop_abz,80.5042,96.1035,claude-opus-4.6,91.23143065488635,gpt-5.4,88.4924,glm-5
 JobShop_swv,81.6325,89.4966,claude-opus-4.6,87.33430826602005,gpt-5.4,87.1611,glm-5
 JobShop_ta,78.8,90.8322,claude-opus-4.6,86.8095,glm-5,86.16070055174835,gpt-5.4
-KernelEngineering_FlashAttention,,13.567074545432089,gpt-5.4,13.33479349322082,qwen3-coder-next,12.445371229667932,gemini-3.1-pro-preview
-KernelEngineering_MLA,,1.4292278915219672,gpt-5.4,1.411204104155448,gemini-3.1-pro-preview,1.4094301293314115,seed-2.0-pro
-KernelEngineering_TriMul,,2.568818916185172,glm-5,2.5413408823671753,claude-opus-4.6,2.529851645031261,seed-2.0-pro
+KernelEngineering_FlashAttention,11.138507582378653,13.567074545432089,gpt-5.4,13.33479349322082,qwen3-coder-next,12.445371229667932,gemini-3.1-pro-preview
+KernelEngineering_MLA,0.552838720330043,1.4292278915219672,gpt-5.4,1.411204104155448,gemini-3.1-pro-preview,1.4094301293314115,seed-2.0-pro
+KernelEngineering_TriMul,2.299576995396445,2.568818916185172,glm-5,2.5413408823671753,claude-opus-4.6,2.529851645031261,seed-2.0-pro
 Optics_adaptive_fault_tolerant_fusion,0.3959,0.64,deepseek-v3.2,0.6398,claude-opus-4.6/gemini-3.1-pro-preview/glm-5/grok-4.20/qwen3-coder-next/seed-2.0-pro,0.6398,claude-opus-4.6/gemini-3.1-pro-preview/glm-5/grok-4.20/qwen3-coder-next/seed-2.0-pro
 Optics_adaptive_temporal_smooth_control,0.3152,0.8421,qwen3-coder-next/seed-2.0-pro,0.8421,qwen3-coder-next/seed-2.0-pro,0.842,grok-4.20
 Optics_fiber_guardband_spectrum_packing,0.3861,0.6754289215686274,gpt-5.4,0.6692,claude-opus-4.6/glm-5,0.6692,claude-opus-4.6/glm-5
@@ -29,9 +29,9 @@ Optics_holographic_multiplane_focusing,0.3302,0.7196,deepseek-v3.2,0.6002,claude
 Optics_phase_dammann_uniform_orders,26.8969,99.7995,claude-opus-4.6,97.9498,gemini-3.1-pro-preview,97.8709,glm-5
 Optics_phase_fourier_pattern_holography,32.6457,82.1276,claude-opus-4.6,76.6371,gemini-3.1-pro-preview,76.0127,glm-5
 PyPortfolioOpt_robust_mvo_rebalance,32.9804,99.99460428985267,gpt-5.4,99.9946,claude-opus-4.6,99.983,grok-4.20
-QuantumComputing_task_01_routing_qftentangled,,3.5195267063303555,glm-5,3.5048626168869443,grok-4.20,3.449520068113739,deepseek-v3.2
-QuantumComputing_task_02_clifford_t_synthesis,,2.84734657075243,claude-opus-4.6/deepseek-v3.2/gemini-3.1-pro-preview/gpt-5.4/grok-4.20/qwen3-coder-next/seed-2.0-pro,2.84734657075243,claude-opus-4.6/deepseek-v3.2/gemini-3.1-pro-preview/gpt-5.4/grok-4.20/qwen3-coder-next/seed-2.0-pro,2.84734657075243,claude-opus-4.6/deepseek-v3.2/gemini-3.1-pro-preview/gpt-5.4/grok-4.20/qwen3-coder-next/seed-2.0-pro
-QuantumComputing_task_03_cross_target_qaoa,,1.680392020478902,gemini-3.1-pro-preview,,,,
+QuantumComputing_task_01_routing_qftentangled,0.19783929777177592,3.5195267063303555,glm-5,3.5048626168869443,grok-4.20,3.449520068113739,deepseek-v3.2
+QuantumComputing_task_02_clifford_t_synthesis,3.0,2.84734657075243,claude-opus-4.6/deepseek-v3.2/gemini-3.1-pro-preview/gpt-5.4/grok-4.20/qwen3-coder-next/seed-2.0-pro,2.84734657075243,claude-opus-4.6/deepseek-v3.2/gemini-3.1-pro-preview/gpt-5.4/grok-4.20/qwen3-coder-next/seed-2.0-pro,2.84734657075243,claude-opus-4.6/deepseek-v3.2/gemini-3.1-pro-preview/gpt-5.4/grok-4.20/qwen3-coder-next/seed-2.0-pro
+QuantumComputing_task_03_cross_target_qaoa,1.4803774770018094,1.680392020478902,gemini-3.1-pro-preview,,,,
 ReactionOptimisation_mit_case1_mixed,87.3082,98.66214557690091,gpt-5.4,98.6621,claude-opus-4.6,98.6041,deepseek-v3.2
 ReactionOptimisation_reizman_suzuki_pareto,63.5202,82.9901,glm-5,82.3427,claude-opus-4.6,82.24612252072882,gpt-5.4
 ReactionOptimisation_snar_multiobjective,57.5234,87.39396909451965,gpt-5.4,87.3657,claude-opus-4.6,82.7881,deepseek-v3.2

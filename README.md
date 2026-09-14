@@ -123,9 +123,7 @@ If you want the full `v1` problem set with normal optimization runs later, see [
 
 Detailed leaderboard (incl. average rank): [lab.einsia.ai/frontier-eng/leaderboard](https://lab.einsia.ai/frontier-eng/leaderboard). Released score tables and the per-task medal podium: [`leaderboard/`](leaderboard/README.md).
 
-**Medal Score** (gold/silver/bronze podium, higher is better, normalized to `[0,1]` = mean per-task podium credit). On each task the top-3 valid model scores in the **corrected v1 snapshot (2026-09-14)** are frozen as gold/silver/bronze baselines; a model earns 1.00 / 0.67 / 0.33 for reaching each. Reported on both the full **v1** set (47 tasks) and the **v1-lite** subset (10 tasks); gold/silver/bronze counts are for v1 (see [`leaderboard/`](leaderboard/README.md)):
-
-This snapshot combines rescored archived submissions, fixed-design calculations and available replacement best programs with different iteration budgets. Invalid results receive no medal credit. Scoring conventions are documented in [`leaderboard/`](leaderboard/README.md).
+**Medal Score** (gold/silver/bronze podium, higher is better, normalized to `[0,1]` = mean per-task podium credit). On each task the top-3 best scores in the **v1 snapshot (2026-04-14)** are frozen as gold/silver/bronze baselines; a model earns 1.00 / 0.67 / 0.33 for reaching each. Reported on both the full **v1** set (47 tasks) and the **v1-lite** subset (10 tasks); gold/silver/bronze counts are for v1 (see [`leaderboard/`](leaderboard/README.md)):
 
 | Rank | Model | Medal (v1) | Medal (v1-lite) | 🥇 | 🥈 | 🥉 |
 | :--: | :--- | --: | --: | --: | --: | --: |

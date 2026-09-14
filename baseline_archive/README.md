@@ -2,12 +2,7 @@
 
 English | [简体中文](#简体中文)
 
-`baseline_archive/` is a root-level snapshot of the final global best code produced by our agent runs for each available experiment / algorithm / model / task combination. It serves as a reference baseline for the community. The current leaderboard
-uses replacement best programs for GPT-5.4 on SingleCell and Quantum task 01,
-Claude on Quantum task 01, and Gemini on Quantum task 03. These replacements
-come from runs with different iteration budgets; Claude's replacement is the
-initial baseline retained as best. Other archived programs are preserved,
-including submissions marked invalid in the current leaderboard.
+`baseline_archive/` is a root-level snapshot of the final global best code produced by our agent runs for each available experiment / algorithm / model / task combination. It serves as a reference baseline for the community.
 
 ## Layout
 
@@ -32,7 +27,7 @@ baseline_archive/
 
 ## 简体中文
 
-`baseline_archive/` 位于仓库根目录，收录我们 agent 实验在各实验 / 算法 / 模型 / task 组合上产出的最终全局 best 代码，可作为社区参考 baseline。当前榜单已替换 GPT-5.4 的 SingleCell、Quantum task 01，Claude 的 Quantum task 01，以及 Gemini 的 Quantum task 03 所对应的 best 程序。补跑的迭代预算不同；Claude 对应的 best 仍为初始基线。其他归档代码保留，包括当前榜单已判无效的提交。
+`baseline_archive/` 位于仓库根目录，收录我们 agent 实验在各实验 / 算法 / 模型 / task 组合上产出的最终全局 best 代码，可作为社区参考 baseline。
 
 ### 目录结构
 

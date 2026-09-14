@@ -118,9 +118,7 @@ bash scripts/batch/validate_v1_task_envs.sh
 
 详细榜单（含 average rank）见 [lab.einsia.ai/frontier-eng/leaderboard](https://lab.einsia.ai/frontier-eng/leaderboard)。发布的分数表与每题金银铜 podium 见 [`leaderboard/`](leaderboard/README.md)。
 
-**Medal Score**（金银铜 podium，越高越好，归一化到 `[0,1]`，即每题领奖台得分的均值）。每题取 **修正版 v1 snapshot (2026-09-14)** 的前三个有效模型分数冻结为金/银/铜 baseline，模型达到金/银/铜分别得 1.00 / 0.67 / 0.33。同时汇报 **v1**（47 题）与 **v1-lite**（10 题）两个集合；金银铜次数为 v1：
-
-当前快照汇总归档重评、固定设计计分及已有替换 best 程序，补跑预算不同。无效结果不获得奖牌积分。具体计分约定见 [`leaderboard/`](leaderboard/README.md)。
+**Medal Score**（金银铜 podium，越高越好，归一化到 `[0,1]`，即每题领奖台得分的均值）。每题取 **v1 snapshot (2026-04-14)** 的前三名分数冻结为金/银/铜 baseline，模型达到金/银/铜分别得 1.00 / 0.67 / 0.33。同时汇报 **v1**（47 题）与 **v1-lite**（10 题）两个集合；金银铜次数为 v1（`gpt-5.4` 采用其 47 题全量重测结果）：
 
 | 排名 | Model | Medal (v1) | Medal (v1-lite) | 🥇 | 🥈 | 🥉 |
 | :--: | :--- | --: | --: | --: | --: | --: |

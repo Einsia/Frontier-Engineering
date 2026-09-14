@@ -1,10 +1,8 @@
 #!/usr/bin/env python
-"""Scorer-owned problem definition for Task 03 (Dammann uniform orders).
+"""Scorer-owned problem definition for phase dammann uniform orders.
 
-The grating period, wavelength, sampling, focal length and the target order
-range used to be authored by ``baseline/init.py``. They are authored here now
-and shipped to the candidate as read-only input, so the candidate optimizes
-against a requirement it cannot restate.
+The grating period, wavelength, sampling, focal length and target order range
+are defined here and supplied to the candidate as problem inputs.
 """
 
 from __future__ import annotations

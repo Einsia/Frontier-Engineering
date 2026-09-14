@@ -1,12 +1,6 @@
-// NOTE: this file is a developer convenience (see verification/valid.sh), NOT
-// the scorer. Scoring is done by benchmarks/_shared/crypto_eval.py, which
-// generates its own inputs, computes the expected answers in-process from
-// FIPS/NIST references, spawns the candidate itself and checks EVERY timed
-// iteration. Nothing here is compiled or parsed during an evaluation run.
-//
-// It used to be: this file was compiled *after* the candidate binary had
-// already run with its cwd set to this directory, so a candidate could rewrite
-// it and dictate its own throughput. Do not reintroduce that ordering.
+// Local verification utility; the scoring entrypoint uses
+// benchmarks/_shared/crypto_eval.py to generate inputs, check outputs against
+// trusted references and measure throughput. This file is not used for scoring.
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>

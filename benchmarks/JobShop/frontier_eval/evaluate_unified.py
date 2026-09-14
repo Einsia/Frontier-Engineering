@@ -1,16 +1,9 @@
 """Unified evaluator entrypoint for the JobShop family subtasks.
 
-Two properties this file is responsible for, both of which used to be missing:
-
-1. **Instance data is scorer-owned.** The benchmark instances -- the matrices
-   feasibility is checked against and the `optimum` used as the scoring
-   denominator -- are read here from the vendored
-   `benchmarks/JobShop/data/benchmark_instances.json`, which lives outside the
-   candidate's sandbox copy. Previously they were loaded by calling into the
-   candidate's own module, i.e. from the candidate itself, so a
-   self-consistent fake instance scored 100.
-2. **The candidate never runs in this process.** It is executed per instance in
-   a subprocess (see `verification/evaluate.py`) and hands back only a schedule.
+Instance matrices and optimum values are read from the scorer-owned
+``benchmarks/JobShop/data/benchmark_instances.json``. The candidate runs in a
+subprocess for each instance and returns a schedule. Feasibility and score are
+computed against the benchmark data.
 """
 
 from __future__ import annotations

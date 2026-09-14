@@ -70,14 +70,7 @@ def _import_isolation(repo_root: Path):
 
 
 def _load_scoring_module(repo_root: Path) -> Any:
-    """Load the benchmark's scoring functions into *this* process.
-
-    This must happen before the candidate runs. The evaluator used to shell out
-    to `verification/evaluator.py` *after* the candidate had finished and read
-    the score off its stdout; because the candidate is handed
-    FRONTIER_ENGINEERING_ROOT and shares the filesystem, it could simply
-    overwrite that file first (measured: combined_score 987654.0 against an
-    honest baseline of 199.32).
+    """Load scoring functions and their dependencies before candidate execution.
     """
     path = (
         repo_root

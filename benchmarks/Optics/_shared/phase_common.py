@@ -1,39 +1,10 @@
-"""Scorer-owned plumbing shared by the four Optics ``phase_*`` benchmarks.
+"""Scorer-owned support for the four Optics ``phase_*`` benchmarks.
 
-Why this file lives outside every benchmark directory
------------------------------------------------------
-Each ``phase_*`` task copies its own directory into a sandbox where the
-candidate program is dropped in as ``baseline/init.py``. Anything reachable
-from that copy is, in principle, reachable by the candidate. This module sits
-in ``benchmarks/Optics/_shared/``, which is *not* inside any benchmark dir, so
-no ``copy_files.txt`` entry (not even ``.``) can pull it into the sandbox --
-the same argument that keeps ``benchmarks/_shared/candidate_sandbox.py`` safe.
-
-The contract this module enforces
----------------------------------
-The audited failure of these four tasks was that ``verification/validate.py``
-imported the candidate's module and then asked *the candidate* for the problem
-definition, the forward model, and the metrics::
-
-    problem      = baseline_module.build_problem()      # problem <- candidate
-    baseline_sol = baseline_module.solve_baseline(problem)
-    metrics_base = baseline_sol["metrics"]              # metrics <- candidate
-
-Two archived exploits followed directly from that:
-
-* ``phase_dammann_uniform_orders``: a candidate saturated its own
-  ``evaluate_orders`` with ``np.tanh(64 * core / scale)``, driving the reported
-  ``cv_orders`` to ~0 and the score to 99.999999999.
-* ``phase_fourier_pattern_holography``: a candidate redefined ``target_amp`` in
-  its own ``build_problem`` as the far field of a flat-phase aperture, then
-  returned an all-zero phase, so its output matched its target pointwise --
-  99.99998936, with the code commenting "The solver can then reproduce the
-  target exactly".
-
-Under the new contract the candidate is a subprocess that receives a
-scorer-authored problem file and returns *only decision variables*. Every
-number that enters a score is computed here, in ``verification/problem.py`` and
-``verification/metrics.py`` -- code the candidate can neither supply nor edit.
+This module lives outside individual benchmark directories so their copy lists
+do not include it in candidate workspaces. The candidate receives scorer-owned
+problem data and returns decision variables. The scorer validates the returned
+arrays and computes the physical outputs and metrics through the task's
+``verification/problem.py`` and ``verification/metrics.py`` modules.
 """
 
 from __future__ import annotations

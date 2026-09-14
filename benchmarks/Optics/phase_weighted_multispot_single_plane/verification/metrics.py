@@ -1,10 +1,7 @@
 #!/usr/bin/env python
-"""Scorer-owned forward model and metrics for Task 01.
+"""Scorer-owned forward propagation and metrics for weighted multi-spot design.
 
-``forward_intensity`` used to be a candidate-supplied function and the metrics
-were computed from whatever intensity that function chose to return. Both are
-now fixed here, so all eight models on the leaderboard are measured with one
-ruler.
+Intensity and metrics are computed from the candidate's phase map.
 """
 
 from __future__ import annotations

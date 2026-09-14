@@ -1,41 +1,14 @@
-"""Shared scorer-side template for the Optics ``fiber_*`` benchmarks.
+"""Shared scorer-side execution for the Optics ``fiber_*`` benchmarks.
 
-The four fiber tasks (WDM power allocation, MCS+power scheduling, DSP mode
-scheduling, guard-band spectrum packing) used to load the candidate with
-``importlib.util.spec_from_file_location(...) / exec_module`` and call it
-in the evaluator's own process, with ``verification/`` on ``sys.path``. That
-put the candidate next to ``oracle.py`` -- the reference-answer generator --
-and an archived candidate exploited exactly that (``from oracle import
-select_mcs_power_oracle``).
+The candidate runs from a temporary workspace containing the runner, solver
+and scenario data. It returns declared solution fields in ``submission.json``;
+the scorer validates them and recomputes the metrics. Nonzero exits, timeouts,
+missing output and nonfinite values are rejected.
 
-This module keeps all four evaluators on one code path:
-
-* the candidate runs in a subprocess whose cwd is a fresh temporary directory
-  holding only ``candidate_runner.py``, ``candidate_solver.py`` and
-  ``scenario.json`` -- ``oracle.py`` is neither present nor importable;
-* the child hands back a *solution*, never a score, and the scorer keeps only
-  the declared solution keys before validating and scoring it;
-* a non-zero return code, a timeout, a missing ``submission.json`` or a
-  non-finite value is an invalid run, scored as such.
-
-Callers must import their scoring dependencies (numpy, theoryBER, the oracle)
-at module import time -- i.e. before ``run_candidate`` is ever called.
-
-Residual exposure (not closed here, and not introduced here)
------------------------------------------------------------
-The candidate runs as the same OS user as the scorer, so ``/proc/<ppid>/``
-remains readable to it: ``cwd`` gives the evaluator's working directory,
-``cmdline`` contains the ``--solver <path>`` argument, and ``environ`` holds
-the parent's copy of the variables stripped from the child. Any of the three
-lets a determined candidate derive the task tree and read ``oracle.py`` off
-disk. This is a property of same-user subprocess isolation and applies equally
-to every task converted with ``benchmarks/_shared/candidate_sandbox.py``,
-including the joint_replenishment pilot. Closing it needs a real boundary --
-a separate uid, a PID namespace, or ``hidepid`` -- and the unified evaluator
-already supports one via ``task.runtime.isolation_mode=docker``. What the
-conversion does buy unconditionally is that the *default* import path is gone:
-``oracle`` is no longer a module on the candidate's ``sys.path``, so the
-archived one-line exploit fails instead of silently succeeding.
+Callers import scoring dependencies before executing candidates. The temporary
+workspace removes ``verification/`` from the default Python import path. This
+helper uses compatibility mode: the PID namespace does not hide host files,
+so it does not by itself prevent reading scorer files or private oracle data.
 """
 
 from __future__ import annotations
@@ -241,8 +214,8 @@ def run_candidate(
             expected_outputs=("submission.json",),
             timeout_s=float(contract.timeout_s),
             argv=("--entrypoint", contract.entrypoint),
-            # True: the runner is copied into the temp cwd and sys.path[0]
-            # becomes that cwd, so the candidate cannot reach verification/.
+            # Copy the runner into the temporary cwd so verification/ is not
+            # on the default Python import path. Host files remain visible.
             copy_into_workdir=True,
             env_allowlist=_child_env_allowlist(),
             rlimits={"CPU": int(contract.timeout_s) + 30},

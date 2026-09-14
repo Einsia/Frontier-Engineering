@@ -1,49 +1,16 @@
-"""Shared plumbing for the four Optics ``adaptive_*`` adaptive-optics benchmarks.
+"""Shared execution support for the four Optics ``adaptive_*`` benchmarks.
 
-Historically each of those tasks did::
+The scorer generates the disturbance stream and sends observations to the
+candidate. Disturbances do not depend on controller output; ``prev_applied``
+is a deterministic recurrence over the candidate's previous commands.
 
-    candidate_fn = load_callable(candidate_path, "compute_dm_commands")
-    ...
-    cmd = candidate_fn(slopes, reconstructor, control_model, prev_applied, ...)
+The candidate runs in a subprocess and returns a ``(n_steps, n_act)`` command
+matrix. The scorer validates it, reconstructs the applied commands and computes
+the physical metrics and score with its own model.
 
-i.e. the candidate was ``exec_module``-ed straight into the scoring process and
-then called once per simulation step. That is the exact process-boundary hole
-``benchmarks/_shared/candidate_sandbox.py`` exists to close: a candidate sharing
-the scorer's interpreter can monkeypatch numpy, the metric functions, the
-reference controller, or ``json.dump`` and write its own score.
-
-The conversion implemented here rests on one structural observation about all
-four evaluators: **the disturbance stream never depends on the controller
-output.** Phase screens, WFS slopes and sensor faults are drawn from the
-evaluator's ``Generator`` *before* the controller is called in every iteration,
-and nothing after the call consumes randomness. The only feedback path into the
-controller is ``prev_applied``, which is a deterministic recurrence over the
-controller's own past commands.
-
-So the loop can be cut in two without changing a single number:
-
-1. the scorer generates the whole disturbance stream up front and ships only the
-   *observations* (slopes) to the candidate -- never the ground-truth phase;
-2. the candidate runs alone in a subprocess, replays the documented actuator
-   recurrence to reconstruct ``prev_applied`` itself, and returns a
-   ``(n_steps, n_act)`` command matrix as data;
-3. the scorer re-derives ``applied`` from the returned commands with its own copy
-   of the recurrence, and recomputes every metric and the final score itself.
-
-Step 3 is what makes step 2 harmless: whatever the candidate believed about the
-plant, the scorer trusts only the commands and re-simulates. A candidate that
-reports metrics, or that lies about its own internal state, changes nothing.
-
-Invariants callers must preserve (mirrors ``candidate_sandbox``):
-
-1. Import this module -- and every scoring dependency (numpy, aotools, the
-   reference controller) -- before running the candidate.
-2. Never read a score/metric field out of the candidate's output. Only
-   ``commands`` is consumed, and only after ``validate_commands``.
-3. A crash, a timeout, a missing ``submission.npz`` or a command matrix that
-   fails validation is a hard rejection: the evaluator must not write
-   ``metrics.json`` and must exit non-zero, so ``frontier_eval/parse_result.py``
-   records ``combined_score = -1e18`` / ``valid = 0``.
+Callers must import scoring dependencies before running the candidate, consume
+only validated commands, and reject crashes, timeouts or missing output. A
+rejected run must not emit successful metrics.
 """
 
 from __future__ import annotations

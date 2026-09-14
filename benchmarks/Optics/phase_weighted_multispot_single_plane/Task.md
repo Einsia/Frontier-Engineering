@@ -44,8 +44,8 @@ Constraints the verifier enforces on `phase`:
 under `contract.ignored_submission_keys` in the metrics file. The problem definition,
 the forward model and every metric live in `verification/problem.py` and
 `verification/metrics.py`: the verifier rebuilds the problem, runs the forward model on
-your decision variable itself, and recomputes all metrics. Nothing you report can move
-the score, and the oracle is graded with the identical functions.
+your decision variable, and computes all metrics. The oracle uses the same scoring
+functions.
 
 A rejected submission (wrong shape/length, non-finite or out-of-range values, non-zero
 exit code, timeout, or no `submission.json`) scores as invalid.

@@ -187,13 +187,10 @@ def score_solution(solution_q: float, q_baseline: float, cfg: dict):
 
 
 class _Validation:
-    """Strict, scorer-owned checks on the candidate's reported order quantity.
+    """Validate the candidate's reported order quantity.
 
-    ``q_classic`` -- the scoring anchor used as the denominator for cost and
-    risk scores -- is *not* part of the candidate's output. It is computed
-    here from the fixed cfg (see ``main``), so a candidate cannot shrink it to
-    inflate its own relative improvement (the historical exploit: reporting
-    q_classic=1.0 alongside a normal Q saturated both scores to 1.0).
+    The scorer computes ``q_classic``, the cost and risk normalization anchor, from
+    the fixed configuration. Candidate output does not supply that reference value.
     """
 
     MAX_Q = 1.0e6
@@ -274,8 +271,7 @@ def main() -> None:
         "recovery_rate": 0.35,
     }
 
-    # The scoring anchor is always computed by the evaluator, never taken from
-    # the candidate: this is the value a candidate previously overrode.
+    # Compute the scoring anchor from the evaluator's configuration.
     q_classic = classic_eoq(cfg["fixed_cost"], cfg["holding_cost"], cfg["demand_rate"])
 
     candidate_path = TASK_DIR / "baseline" / "init.py"

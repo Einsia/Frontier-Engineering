@@ -1,16 +1,8 @@
-"""Task-local entry point for the Cryptographic scorer.
+"""Task-local entrypoint for the shared Cryptographic scorer.
 
-Deliberately thin. The scoring logic lives in ``benchmarks/_shared/crypto_eval.py``
-so that it sits *outside* every benchmark directory: this task's
-``copy_files.txt`` is ``.``, so anything kept under ``frontier_eval/`` here is
-copied into the agent's workspace, and it is the workspace copy that
-``run_eval.py`` actually executes. Keeping the scorer out of that tree means
-there is no workspace copy of it to edit in the first place.
-
-The previous implementation lived here in full (566 lines) and, among other
-things, compiled ``verification/evaluate.cpp`` *after* the candidate binary had
-already run with its cwd set to that same directory. See the module docstring of
-``crypto_eval`` for the full list of what was wrong and what replaced it.
+Scoring is implemented in ``benchmarks/_shared/crypto_eval.py``, outside the
+benchmark directory copied into candidate workspaces. This module locates that
+implementation and forwards the evaluation request.
 """
 
 from __future__ import annotations

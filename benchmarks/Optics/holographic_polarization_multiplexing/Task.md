@@ -56,9 +56,9 @@ contains exactly two files:
 - `problem.json` -- the problem, as data (written by the evaluator),
 - a copy of `baseline/init.py` -- your program.
 
-Nothing else is reachable from there: the task tree, `verification/`, the oracle
-and the evaluator are all absent and not importable. You read `problem.json` from
-the current directory and write `submission.npz` to the current directory.
+The task tree, `verification/`, the oracle and the evaluator are not available
+to the candidate process. Read `problem.json` from the current directory and
+write `submission.npz` to the current directory.
 
 ## Input contract (`problem.json`)
 
@@ -99,10 +99,6 @@ Optional, diagnostics only (never scored): `loss_history`, a 1-D float array.
 3. propagates to `output_z`,
 4. builds both target maps from the `pattern_*` fields,
 5. computes match, separation, own-efficiency, ratio error and the final score.
-
-The old contract read the *output fields and the target maps* from the candidate
-and compared them against each other -- no propagation happened in the evaluator
-at all. Both sides of every comparison are now built here.
 
 Consequences you should design for:
 

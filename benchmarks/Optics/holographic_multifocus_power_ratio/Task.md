@@ -46,9 +46,9 @@ contains exactly two files:
 - `problem.json` -- the problem, as data (written by the evaluator),
 - a copy of `baseline/init.py` -- your program.
 
-Nothing else is reachable from there: the task tree, `verification/`, the oracle
-and the evaluator are all absent and not importable. You read `problem.json` from
-the current directory and write `submission.npz` to the current directory.
+The task tree, `verification/`, the oracle and the evaluator are not available
+to the candidate process. Read `problem.json` from the current directory and
+write `submission.npz` to the current directory.
 
 ## Input contract (`problem.json`)
 

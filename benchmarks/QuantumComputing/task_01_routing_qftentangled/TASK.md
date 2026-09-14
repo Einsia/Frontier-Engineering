@@ -64,8 +64,7 @@ layout is read as the identity mapping.
 
 `baseline/solve.py` runs in its own interpreter. The input circuit reaches you
 as OpenQASM 3, and your returned circuit is exported to OpenQASM 3 and
-re-parsed by the scorer before it is measured. Only the circuit crosses that
-boundary, so overriding `count_ops`, `depth` or `size` changes nothing.
+re-parsed by the scorer, which computes the circuit metrics.
 
 ## Cost and Score
 Cost function:

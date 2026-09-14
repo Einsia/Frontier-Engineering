@@ -54,8 +54,8 @@ CS 类比：
 - `problem.json`——以数据形式给出的题目（由评分器写入），
 - `baseline/init.py` 的一份副本——你的程序。
 
-除此之外什么都访问不到：任务目录、`verification/`、oracle 和评分脚本都不存在，
-也无法 import。你从当前目录读 `problem.json`，向当前目录写 `submission.npz`。
+候选进程无法访问任务目录、`verification/`、oracle 和评分脚本。
+从当前目录读 `problem.json`，向当前目录写 `submission.npz`。
 
 ## 输入协议（`problem.json`）
 
@@ -93,9 +93,6 @@ CS 类比：
 3. 传播到 `output_z`；
 4. 用 `pattern_*` 字段构建两张目标图；
 5. 计算 match、separation、own-efficiency、比例误差与最终分数。
-
-旧契约直接从候选返回值里读取**输出场和目标图**并互相比较——评分器本身完全没有做传播。
-现在比较的两端都由评分器自己构建。
 
 由此带来的设计约束：
 

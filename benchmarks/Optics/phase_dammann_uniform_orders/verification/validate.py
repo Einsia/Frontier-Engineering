@@ -1,20 +1,11 @@
 #!/usr/bin/env python
-"""Validation for Task 03 -- Dammann uniform orders, score in [0, 100].
+"""Validate Dammann uniform-order designs and report a score in [0, 100].
 
-Scoring contract (rewritten after the isolation audit)
-------------------------------------------------------
-1. ``verification/problem.py`` authors the grating geometry and the target
-   order range.
-2. The candidate runs as a subprocess in a throwaway directory and writes
-   ``submission.json`` containing exactly one decision variable: the strictly
-   increasing transition vector.
-3. ``verification/metrics.py`` builds the grating, propagates it and computes
-   ``cv_orders`` / ``efficiency`` / ``min_to_max`` / ``score_pct``. The archived
-   99.999999999 run replaced its own ``evaluate_orders`` with a saturating
-   ``np.tanh(64 * core / scale)``; that function no longer exists on the
-   candidate side, and no number the candidate reports is read.
-4. The two oracles -- the literature transition table and a SciPy differential
-   evolution search -- are graded with the same functions.
+The scorer supplies the grating geometry and target order range. The candidate
+runs in a subprocess and returns a strictly increasing transition vector in
+``submission.json``. The scorer propagates the resulting grating and computes
+uniformity, efficiency and the final score. Reference designs are evaluated
+with the same physical model and metrics.
 """
 
 from __future__ import annotations

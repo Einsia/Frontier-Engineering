@@ -41,9 +41,7 @@ PYTHONPATH=. python benchmarks/Optics/phase_weighted_multispot_single_plane/veri
 
 oracle：`slmsuite` 的 `WGS-Kim`。
 
-公共评分工具在 `benchmarks/Optics/_shared/phase_common.py`，位于所有 benchmark 目录之外，
-任何 `copy_files.txt` 条目都无法把它拷进候选所在的沙箱。
+公共评分工具位于 `benchmarks/Optics/_shared/phase_common.py`。
 
-`baseline/init.py` 不再是可被 import 的求解器接口：`validate.py` 会在一次性临时目录里以子进程
-运行它，并且只读取 `submission.json`。因此手工单独运行它需要一个含 `problem.json` / `problem.npz`
-的目录；最简单的方式是直接跑 validator。
+`validate.py` 在子进程的临时工作目录中运行 `baseline/init.py`，并读取 `submission.json`。
+手动运行需要在工作目录中准备 `problem.json` 和 `problem.npz`；运行 validator 会准备这些输入。

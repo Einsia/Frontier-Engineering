@@ -1,13 +1,8 @@
-"""Thin adapter onto the shared, hardened Cryptographic scorer.
+"""Adapter for the shared Cryptographic scorer.
 
-This module used to hold its own 566-line copy of the evaluator -- the same code
-that also sat in each of the three ``benchmarks/Cryptographic/*/frontier_eval/``
-directories. Four copies meant four places for the same holes to live, so the
-implementation now lives once in ``benchmarks/_shared/crypto_eval.py``; see that
-module's docstring for what was wrong with the old pipeline and what replaced it.
-
-The return shape is preserved: a bare metrics dict when ``openevolve`` is not
-installed, an ``EvaluationResult`` when it is.
+``benchmarks/_shared/crypto_eval.py`` implements scoring for all three tasks.
+Return a metrics dictionary when ``openevolve`` is unavailable, or an
+``EvaluationResult`` when it is installed.
 """
 
 from __future__ import annotations

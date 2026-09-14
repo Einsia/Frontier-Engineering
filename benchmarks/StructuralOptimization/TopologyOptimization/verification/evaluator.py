@@ -1,21 +1,9 @@
-"""Evaluator for Topology Optimization — MBB Beam (SIMP Method)
+"""Evaluator for TopologyOptimization.
 
-Scoring contract
-----------------
-The candidate hands back *design variables only* (``density_vector``: the
-flattened nelx*nely density field). The FEM solve, the compliance, the volume
-constraint and the score are all recomputed here from that field. This part was
-already right and is unchanged; the surrounding orchestration was not.
-
-Isolation invariants (see ``benchmarks/_shared/candidate_sandbox.py``)
----------------------------------------------------------------------
-1. Every import is resolved at module import time. numpy/scipy already were;
-   the optional ``EvaluationResult`` import has been hoisted out of ``_wrap``,
-   which used to run after the candidate had finished.
-2. The candidate delivers a solution, never a score. Already true here.
-3. A non-zero return code, or a timeout, is a failure. This evaluator recorded
-   ``program_returncode`` into the metrics and then scored the run anyway; it
-   now early-returns. (This bug is the reason invariant 3 exists.)
+The candidate returns the flattened nelx*nely density field. The scorer computes
+FEM response, compliance, volume constraint and score from those design variables.
+Scoring dependencies are imported before candidate execution. Timeouts and
+nonzero exits are rejected even when a submission file exists.
 """
 
 from __future__ import annotations
@@ -442,8 +430,7 @@ def evaluate(program_path: str, *, repo_root: Path | None = None) -> Any:
     metrics["program_returncode"] = float(run.returncode)
     metrics["candidate_runtime_s"] = float(run.runtime_s)
 
-    # 2. Invariant 3. This evaluator previously recorded the return code into
-    #    the metrics and then went on to score the submission regardless.
+    # Reject timeouts and nonzero exits even if a result file was written.
     if run.timed_out:
         metrics["timeout"] = 1.0
         metrics["runtime_s"] = float(time.time() - start)

@@ -1,28 +1,11 @@
-"""
-Evaluator for ISCSO 2023 — 284-Member 3D Truss Sizing Optimization
+"""Evaluator for ISCSO2023.
 
-Scoring contract
-----------------
-The candidate hands back *design variables only* (``solution_vector``: 284
-section IDs drawn from the fixed section database). Everything that decides the
-score -- the tower topology, the three load cases, the FEM solve, the
-stress/displacement checks, the weight and the score itself -- is recomputed
-here. No quantity the candidate reports about its own design is believed.
+The candidate returns 284 section IDs from the fixed section database. The scorer computes
+tower response under all load cases, constraints, weight and score from those design variables.
+Scoring dependencies are imported before candidate execution. Timeouts and
+nonzero exits are rejected even when a submission file exists.
 
-Isolation invariants (see ``benchmarks/_shared/candidate_sandbox.py``)
----------------------------------------------------------------------
-1. Every import this module needs is resolved at *module import time*, before
-   the candidate has run. ``fem_truss3d`` used to be imported lazily inside
-   ``build_fem_and_evaluate`` -- i.e. after the candidate subprocess had
-   returned -- so a candidate that restored the write bit on
-   ``verification/fem_truss3d.py`` (same uid, so ``chmod`` always succeeds) and
-   rewrote it got the scorer to import *its* solver and mint its own weight.
-2. The candidate delivers a solution, never a score.
-3. A non-zero return code, or a timeout, is a failure. It is not excused by a
-   surviving ``submission.json``.
-
-Known limitation, deliberately not papered over: ``num_evaluations`` is
-self-reported. See ``_MAX_EVAL_NOTE``.
+``num_evaluations`` is self-reported; see ``_MAX_EVAL_NOTE``.
 """
 
 from __future__ import annotations

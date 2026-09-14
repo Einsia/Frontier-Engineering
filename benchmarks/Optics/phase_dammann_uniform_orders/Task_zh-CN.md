@@ -15,8 +15,7 @@
 主要优化点：
 - `solve(problem)` in `baseline/init.py`
 
-`main()` 会把返回的向量写进 `submission.json`。之后构场、传播、评估指标全部由评测器自己完成，
-不再在你的进程里运行。
+`main()` 把返回的向量写入 `submission.json`。评测器负责构场、传播和指标计算。
 
 ## 可修改边界
 - 可修改：`baseline/init.py`
@@ -42,15 +41,14 @@
 
 **只返回决策变量，不要返回别的。** 其它任何键——`metrics`、`score`、`score_pct`、
 `cv_orders` ……——都会在评分前被丢弃，仅记录在指标文件的 `contract.ignored_submission_keys` 里。
-题目定义、前向模型与全部指标现在都在 `verification/problem.py` 与 `verification/metrics.py`：
-评测器自己重建题目、自己对你的决策变量跑前向、自己重算所有指标。你自报的任何数字都无法改变分数，
-且 oracle 使用完全相同的函数打分。
+题目定义、前向模型与全部指标位于 `verification/problem.py` 与 `verification/metrics.py`：
+评测器根据提交的决策变量运行前向模型并计算指标；oracle 使用相同的计分函数。
 
 提交被拒（形状/长度错误、非有限值或越界、非零退出码、超时、没有 `submission.json`）即判为 invalid。
 
 ## Baseline 当前实现
-当前 baseline 在固定边界内取均匀间隔跃迁。下面 1-5 步是评测器的前向模型
-（`verification/metrics.py`），不再由你实现：
+当前 baseline 在固定边界内取均匀间隔跃迁。下面 1-5 步由评测器的前向模型
+（`verification/metrics.py`）执行：
 1. 生成单周期二值相位掩膜
 2. 重复周期构造完整光栅
 3. 叠加透镜相位

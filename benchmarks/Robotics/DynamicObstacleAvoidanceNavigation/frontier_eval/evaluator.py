@@ -1,52 +1,10 @@
-"""Hardened unified evaluator for Robotics/DynamicObstacleAvoidanceNavigation.
+"""Evaluator for dynamic obstacle-avoidance navigation.
 
-What was wrong
---------------
-The previous version copied the whole benchmark tree into a scratch directory,
-ran the candidate inside it, and *then* did::
-
-    eval_path = sandbox_task / "verification" / "evaluator.py"
-    spec.loader.exec_module(module)
-    result = module.evaluate(sandbox_submission)
-
-Two separate holes followed from that ordering, both confirmed by running
-attack candidates against the old file:
-
-1. **The scorer was loaded from a directory the candidate had just written to.**
-   A candidate whose ``main()`` overwrote ``../verification/evaluator.py`` with
-   ``def evaluate(*a, **k): return {"score": 0.0, "feasible": True}`` was scored
-   by its own code. Measured ``combined_score`` went from 0.0722 (honest
-   baseline, 12.85 s mean arrival) to 1.0 -- the maximum the metric can take,
-   since ``combined_score = 1 / (1 + arrival_time)``.
-2. **The environment being scored came from the same writable copy.** The
-   verification module resolves ``references/scenarios.json`` relative to its own
-   ``__file__``, so rewriting the sandbox copy replaced the scenes the
-   *submission was graded against*. A candidate that deleted every obstacle and
-   moved each goal onto its own start scored 1.0 with an all-zero control
-   sequence -- the same "candidate supplies the instance" defect found in
-   JobShop.
-
-The fix
--------
-* ``benchmarks/_shared/candidate_sandbox`` runs the candidate as a subprocess.
-  It never enters this process, so it cannot rebind a scoring function.
-* The trusted scenario bytes are read, and the trusted scoring module is
-  imported (numpy included), **before** the candidate is started, from the
-  pristine benchmark directory rather than from anything the candidate can
-  reach. That is invariant 1 of the sandbox helper's docstring.
-* The candidate is staged into a minimal tree containing only its own file and a
-  private copy of ``references/scenarios.json``. Whatever it does to that copy is
-  irrelevant: scoring uses the bytes captured beforehand.
-* The candidate returns a *trajectory* (``timestamps`` / ``controls``) and
-  nothing else. Collision checking, bounds, the kinematic limits, goal arrival
-  and the arrival time are all recomputed here from the trusted scenes. No field
-  the candidate reports is read; there is no self-reported ``time`` /
-  ``collisions`` / ``success`` path into the metrics.
-
-Deliberately unchanged: the unicycle integration, the goal tolerance, the
-arrival-time objective and the all-scenes-must-succeed hard gate all still live
-in ``verification/evaluator.py``. An honest candidate's score is bit-identical to
-the pre-hardening value.
+The scorer loads scenario data and its scoring module before candidate
+execution. The candidate receives a private scenario copy and returns trajectory
+timestamps and controls. The scorer computes collisions, kinematic limits, goal
+arrival and arrival time from the trusted scenario data. Every scenario must
+succeed. Candidate-reported metrics are not used.
 """
 
 
@@ -65,10 +23,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-# The pre-hardening evaluator reported 0.0 for an unusable run. 0.0 is the
-# infimum of this task's metric (``1/(1+t)`` is strictly positive for every
-# finite arrival time), so it already dominates nothing; it is kept verbatim
-# so hardening moves no published number, honest or otherwise.
+# Invalid runs receive 0.0, below every valid inverse-arrival-time score.
 INVALID_COMBINED_SCORE = 0.0
 
 TASK_NAME = "DynamicObstacleAvoidanceNavigation"

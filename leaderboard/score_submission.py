@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Score a submission against the frozen Frontier-Eng Medal podium.
 
-The corrected gold/silver/bronze baselines (2026-09-14) are shipped in
+The gold/silver/bronze thresholds are shipped in
 ``medal_podium.csv``. This script takes a new model's best-feasible
 score on each task and reports its Medal Score, so anyone can be scored against
 the released benchmark without rerunning the reference models.

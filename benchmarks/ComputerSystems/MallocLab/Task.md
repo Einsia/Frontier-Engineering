@@ -113,6 +113,8 @@ The `memlib.c` package simulates a memory system for the dynamic memory allocato
 
 * Interface functions in `mm.c` must not be modified.
 
+* `mm.c` must not read standard input.
+
 * System library functions must not be called.
 
 * Global or static composite data structures, such as arrays, structures, trees, or lists, must not be defined in the `mm.c` program. However, global scalar variables, such as integers, floating-point numbers, and pointers, can be declared in `mm.c`.
@@ -120,6 +122,9 @@ The `memlib.c` package simulates a memory system for the dynamic memory allocato
 * Returned memory blocks should be 16-byte aligned.
 
 ## Scoring Criteria
+
+The evaluator reads the result file written by `mdriver`. The allocator and
+driver execute in the same process and share an address space.
 
 * Space Utilization: The ratio between the maximum amount of memory used by the program and the maximum heap size used by the allocator; the optimal ratio is 1.
 
@@ -142,24 +147,3 @@ The `memlib.c` package simulates a memory system for the dynamic memory allocato
 * The first 9 traces only include `malloc` and `free`, while the last two include `malloc`, `free`, and `realloc`. It is recommended to debug `realloc` only after `malloc` and `free` work correctly on the first 9 traces.
 
 * `realloc` can be built on top of `malloc` and `free`, but to achieve very good performance, it needs to be designed separately.
-
-## How the score reaches the grader
-
-`mm.c` is compiled into `mdriver`, so anything `mdriver` prints is something
-your allocator could also have printed. The score therefore does not travel
-over stdout. `mdriver` writes a JSON record to the path given by `-o`, stamped
-with a per-run token the grader hands it on stdin and takes away before the
-first allocator call. The grader scores that record and nothing else.
-
-Two consequences for your allocator:
-
-* Printing your own `Score = ... = N/100` line has no effect.
-* `mm.c` must not read stdin. If the token is gone by the time `main()` looks
-  for it, the run is aborted and scored zero.
-
-This closes the channel, not the process boundary: your code and the grading
-code share an address space, and that is inherent to the task -- an allocator
-has to run inside the program whose allocations are being measured. The
-benchmark is scored on the understanding that submissions are honest
-allocators. See `frontier_eval/known_exploit_token_replay.c` for the case that
-is knowingly left open.

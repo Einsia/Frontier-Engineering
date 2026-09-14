@@ -39,9 +39,8 @@
 
 **只返回决策变量，不要返回别的。** 其它任何键——`metrics`、`score`、`score_pct`、
 `cv_orders` ……——都会在评分前被丢弃，仅记录在指标文件的 `contract.ignored_submission_keys` 里。
-题目定义、前向模型与全部指标现在都在 `verification/problem.py` 与 `verification/metrics.py`：
-评测器自己重建题目、自己对你的决策变量跑前向、自己重算所有指标。你自报的任何数字都无法改变分数，
-且 oracle 使用完全相同的函数打分。
+题目定义、前向模型与全部指标位于 `verification/problem.py` 与 `verification/metrics.py`：
+评测器根据提交的决策变量运行前向模型并计算指标；oracle 使用相同的计分函数。
 
 提交被拒（形状/长度错误、非有限值或越界、非零退出码、超时、没有 `submission.json`）即判为 invalid。
 

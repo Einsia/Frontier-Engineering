@@ -1,127 +1,32 @@
-"""Hardened scorer for benchmarks/Cryptographic/{AES-128,SHA-256,SHA3-256}.
+"""Scorer for the AES-128, SHA-256 and SHA3-256 benchmarks.
 
-Why this file exists
---------------------
-The three Cryptographic benchmarks used to be scored like this:
+The scorer imports and checks its reference implementations before compiling
+and running the candidate. It generates the inputs, checks every candidate
+output against its own expected value, and computes throughput from elapsed
+time measured in this process. Correctness checks are outside the timed window.
+Each timed iteration removes stale output and varies the input seed.
 
-    compile candidate            -> verification/custom_aes
-    compile verification/validate.cpp
-    run validate                 (which runs custom_aes; candidate code executes)
-    compile verification/evaluate.cpp     <-- AFTER the candidate has run
-    run evaluate                 (which runs custom_aes 550x, ignoring its output)
-    combined_score = geometric mean of the "Throughput : N Mbps" lines
-                     scraped from evaluate's stdout
+Timing contract
+---------------
+The benchmark uses 1000- and 1000000-byte inputs, 500 and 50 iterations,
+``Mbps = bits / 1e6 / seconds``, and a geometric mean over both input sizes.
+Candidates are invoked through ``/bin/sh -c``. Process startup dominates the
+small-input case, so changes to spawning, output transport or input staging
+can change the measured throughput. See ``_spawn`` and ``_Handler.write_seed``.
 
-Three things were wrong with that, and each one was independently sufficient to
-make ``combined_score`` a number the candidate chose rather than earned:
-
-1. **evaluate.cpp was compiled after the candidate had already run.** The
-   candidate binary runs with its cwd set to the sandbox's ``verification``
-   directory, which is exactly where ``evaluate.cpp`` sits waiting to be built.
-   A candidate that passed the correctness check and then overwrote that file
-   with a program printing ``Throughput : 999999999.00 Mbps`` was scored at
-   999999999. Measured, not hypothesised: 1.0e9 versus an honest 21.0.
-
-2. **Nothing checked the candidate's output during the timed phase.**
-   ``evaluate.cpp`` only looked at the exit status; for SHA-256 and SHA3-256 it
-   sent the digest to ``/dev/null`` outright. The two phases are trivially
-   distinguishable (the correctness phase feeds ten short vectors, the timed
-   phase feeds exactly 1000 or 1000000 bytes), so a candidate could be honest
-   while being checked and return instantly while being timed. Measured: 3.2x
-   to 4.0x score inflation with a five-line patch to the shipped baseline.
-
-3. **The correctness verdict was a regex over text the candidate could write
-   into.** ``validate.cpp`` echoes the candidate's own output back to stdout,
-   and SHA3-256's ``validate.cpp`` additionally ``return 0``s no matter how many
-   vectors failed -- so its whole gate was ``re.search`` over a stream the
-   candidate contributes to.
-
-What this file does instead
----------------------------
-The candidate is a *separate program that answers questions*, and nothing else:
-
-* Everything the scorer needs is imported before any candidate code exists:
-  ``crypto_reference`` (self-tested against FIPS-197 / SP 800-38A / FIPS-180-4 /
-  FIPS-202 vectors at import) is resident before the compiler is even invoked.
-* The candidate is compiled **once**, before it has ever executed. Nothing is
-  compiled afterwards, so there is no build input left for it to rewrite.
-* No ``verification/*.cpp`` is used at scoring time at all. The scorer generates
-  the inputs, holds the plaintext/message bodies in its own memory, computes the
-  expected ciphertext/digest itself, spawns the candidate, and times it.
-* **Every timed iteration is checked**, against an expectation derived from
-  scorer-owned bytes, with the output file removed first so a stale answer
-  cannot be replayed. The check happens outside the timing window.
-* Each iteration gets a freshly randomised input of the *same length* (a new
-  key/IV for AES, a new 64-byte prefix for the hash tasks), so the answer to
-  iteration *i* is not the answer to iteration *i-1*.
-* ``combined_score`` is computed here from elapsed seconds this process
-  measured. No number is ever parsed out of anything the candidate can print.
-
-Preserved on purpose (so honest scores stay comparable)
-------------------------------------------------------
-Stream sizes (1000 / 1000000 bytes), iteration counts (500 / 50), the
-``Mbps = bits/1e6/seconds`` formula, the geometric mean over the two cases, and
-the ``/bin/sh -c "./custom_x ..."`` spawn -- the 1000-byte case is dominated by
-process startup, and dropping the shell hop alone would have more than doubled
-the reported throughput. Measured on the audit host: C++ ``system()`` 1.111s for
-500 spawns versus ``subprocess.run(["/bin/sh","-c",...])`` 1.126s, i.e. inside
-the ~3% run-to-run noise, while a direct ``exec`` without the shell was 0.513s.
-
-Because the 1000-byte case measures process startup and not cryptography
-(~2.3 ms of spawn against ~2 us of hashing), scorer-side overhead in the spawn
-path reads as a slower candidate. Three such traps were found and removed by
-measuring an honest baseline before and after; see ``_spawn`` and
-``_Handler.write_seed`` for the numbers. Anyone touching the spawn path should
-re-run that comparison rather than reason about it.
-
-Measured effect of the whole change on the shipped baselines (medians of 9
-interleaved runs each, so machine drift hits both arms equally):
-
-    AES-128    20.939 -> 20.632   -1.5%   (1 MB case  +0.1%)
-    SHA-256    35.300 -> 34.277   -2.9%   (1 MB case  -0.3%)
-    SHA3-256   67.039 -> 74.103  +10.5%   (1 MB case  +3.7%)
-
-SHA3-256 moves because the old harness ran ``./custom_sha3 f > /dev/null`` and
-the digest now comes back on a pipe instead; the shell redirect it no longer
-performs was worth ~20% of that task's spawn-bound case (3.738 -> 4.495 Mbps in
-isolation). That overhead was the scorer's, not the candidate's, so the number
-is not being restored artificially.
-
-Known residual risks
---------------------
-* **Same-uid observability.** The candidate runs as the same user as the scorer,
-  so ``/proc/<ppid>/`` is readable and ptrace_scope is 0 on the audit host. It
-  cannot change the score (the score never leaves this process), but it can see
-  where this process lives. Closing that needs
-  ``task.runtime.isolation_mode=docker`` or a uid/mount namespace.
-* **Memoising across iterations.** Per-iteration input variation forces fresh
-  work for each *distinct* input, but when the AES reference falls back to the
-  pure-Python backend the 1000000-byte case reuses a small cycle of variants
-  (see ``_variant_count``) because computing 50 distinct 1 MB keystreams in pure
-  Python would cost ~90s. In that configuration a candidate that caches
-  ciphertext keyed by input content still gets a speed-up. The active backend is
-  reported as ``aes_reference_backend`` / ``throughput_variants_*`` so a
-  suspicious score can be checked. With ``cryptography`` installed (the normal
-  case) every iteration is distinct and this does not apply.
-* **Borrowing a crypto library.** The compile line has no ``-lcrypto``, but a
-  candidate could ``dlopen`` libcrypto and let OpenSSL do the work. That is a
-  task-intent question, not a score-integrity one -- the output would be
-  genuinely correct -- so it is reported (``candidate_dynamic_libs``) rather
-  than failed.
-* **A runaway candidate can leak a process.** The timed loop keeps CPython's
-  vfork path (see ``_spawn``), so the watchdog kills by pid plus a ``/proc``
-  child sweep rather than by process group. A process that survives that has no
-  channel to the score and belongs to an already-invalid run, but it can
-  outlive the evaluation.
-* **Unbounded stdout is a scorer-memory problem, not a scoring one.** The two
-  hash tasks return their digest on a pipe that this process drains, so a
-  candidate that writes without bound can make the scorer allocate until the
-  per-invocation deadline. It cannot make the digest right.
-* **The scoring code still lives next to the candidate's workspace.** This
-  module is deliberately under ``benchmarks/_shared/`` rather than in the task's
-  ``frontier_eval/`` directory, so a ``copy_files.txt`` of ``.`` cannot drag it
-  into the agent sandbox. The task-local ``evaluator_impl.py`` is a shim that
-  loads this file from the repo root.
+Execution limits
+----------------
+* Candidates share the scorer's OS user and host filesystem. Preloading scoring
+  code and reference data does not provide filesystem or process isolation.
+* The pure-Python AES reference uses a limited cycle of input variants for the
+  large-input case. A candidate can cache answers for repeated inputs. With the
+  ``cryptography`` backend, each iteration has a distinct input. The backend
+  and variant counts are included in the metrics.
+* Dynamic library use is reported through ``candidate_dynamic_libs``; the
+  evaluator does not prohibit loading an external crypto implementation.
+* Timed invocations use a PID watchdog with a descendant sweep. A process that
+  escapes the sweep may outlive an invalid evaluation. Digest output captured
+  on a pipe can also consume memory until the invocation deadline.
 """
 
 from __future__ import annotations
@@ -256,12 +161,8 @@ class _Handler:
     #: File the candidate is contracted to write its answer to; empty when the
     #: answer arrives on stdout instead.
     output_file: str = ""
-    #: Read the answer off a pipe rather than out of a file. This is what
-    #: validate.cpp did (popen), and it matters for the score: routing the
-    #: digest to a real file instead cost ~15% of the 1000-byte case's
-    #: throughput, which is dominated by process startup. Measured on the audit
-    #: host, 500 spawns: `> /dev/null` 3.615 Mbps, pipe 3.426, `> test_out.txt`
-    #: 3.020.
+    #: Read digest output from a pipe. Output transport affects the small-input
+    #: throughput measurement, which is dominated by process startup.
     capture_stdout: bool = False
 
     def new_body(self, rng: "secrets.SystemRandom", nbytes: int) -> _Body:
@@ -282,14 +183,9 @@ class _Handler:
     def write_seed(self, run_dir: Path, seed: Any) -> None:
         """Rewrite only the seed-dependent prefix of an already-staged input.
 
-        The timed loop must not rebuild the whole input file: re-encoding a
-        megabyte of plaintext to hex and re-writing it every iteration churned
-        several megabytes of allocations and tmpfs pages per round and made the
-        candidate's own spawn measurably slower -- 114 ms against 64 ms for the
-        identical binary and identical file contents on the audit host, i.e. a
-        30% dent in a score that is supposed to be about the candidate. The
-        seed sits at a fixed-width offset 0 in every format used here, so this
-        is a 64-66 byte pwrite.
+        Rebuilding the whole input would add allocation and filesystem overhead around
+        candidate execution. Every format has a fixed-width seed at offset zero, so
+        only 64-66 bytes need to be rewritten between iterations.
         """
         raise NotImplementedError
 
@@ -474,35 +370,17 @@ def _spawn(
     capture_stderr: bool,
     new_session: bool = False,
 ) -> subprocess.CompletedProcess:
-    """Spawn the candidate the way ``std::system()`` did: fork, /bin/sh -c, exec.
+    """Invoke the candidate through ``/bin/sh -c`` and enforce its deadline.
 
-    Two things here are deliberate and both were found by comparing an honest
-    candidate's score before and against after the hardening. Each cost about a
-    fifth of the 1000-byte case, which is process-startup bound (~2.3 ms per
-    spawn against ~2 us of actual hashing), so a scorer-side inefficiency there
-    reads as a slower candidate.
+    A watchdog enforces timeouts without adding ``communicate(timeout=...)`` polling
+    to timed invocations. Those invocations also avoid creating a new session,
+    which can change process-startup overhead. Untimed correctness checks may use
+    a separate session.
 
-    * **Not** ``subprocess.run(..., timeout=...)``. Passing a timeout makes
-      ``communicate`` wait by *polling* waitpid with a backoff capped at 50 ms
-      rather than blocking in it. Measured on the audit host with the identical
-      binary and input: 113.7 ms per 1 MB invocation with the timeout against
-      64.0 ms without. The deadline is enforced by a watchdog instead.
-    * **Not** ``start_new_session=True``. It makes CPython fall back from vfork
-      to fork, and forking a ~50 MB scorer costs ~0.47 ms of page-table copying
-      per spawn: 2.90 ms against 2.44 ms. It is used only for the ten untimed
-      correctness invocations.
-
-    The cost of not having a session of our own is that a runaway candidate is
-    killed by pid rather than by process group. ``sh -c '<single command>'``
-    execs in place on dash and bash, so the pid we hold is normally the
-    candidate itself; ``_descendants`` sweeps up the case where it is not. A
-    process that still escapes is a leak, not a score: it has no channel to the
-    number, and the run it belonged to is already invalid.
-
-    ``capture_stderr`` is on for the correctness invocations, where the message
-    is worth having, and off for the 550 timed ones, where a candidate writing
-    without bound to a pipe the scorer must drain is a way to exhaust the
-    scorer's memory rather than to earn a score.
+    The watchdog kills a process group when available; otherwise it kills the PID
+    and sweeps its descendants. A child that escapes this sweep can outlive the
+    failed evaluation. Stderr is captured for correctness checks only, to avoid
+    unbounded diagnostic output in the timed loop.
     """
     proc = subprocess.Popen(
         ["/bin/sh", "-c", handler.command],

@@ -633,8 +633,7 @@ def verify_circuit_equivalence(
         msg = f"input circuit is not verifiable: {exc}"
         raise RuntimeError(msg) from exc
 
-    # Cheap structural pre-checks. These alone reject the empty circuit, which
-    # is the exploit that historically topped this leaderboard.
+    # Reject empty circuits before the state-based equivalence checks.
     if candidate_circuit.size() == 0:
         return EquivalenceReport(
             False, mode, 0.0, threshold, 0, reason="candidate circuit is empty (0 operations)"

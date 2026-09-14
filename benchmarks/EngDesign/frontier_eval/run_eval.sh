@@ -139,11 +139,8 @@ if [[ ! -f "${ARTIFACTS_JSON}" ]]; then
 EOF
 fi
 
-# A non-zero evaluator return code means the harness itself failed, not that
-# the candidate merely scored badly. This script used to swallow it with a
-# blanket `exit 0`, which permanently disabled the unified framework's
-# returncode check for EngDesign. Propagate the real code, and force
-# metrics.json to an invalid result so both signals agree.
+# Propagate evaluator failures and mark metrics invalid so the return code
+# and the recorded result agree.
 if [[ ${EVAL_RC} -ne 0 ]]; then
   "${PYTHON_CMD}" - "${METRICS_JSON}" "${EVAL_RC}" <<'PYFIX' || true
 import json

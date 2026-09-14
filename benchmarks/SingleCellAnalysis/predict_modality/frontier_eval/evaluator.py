@@ -72,13 +72,7 @@ def _import_isolation(repo_root: Path):
 
 
 def _load_scorer_module(repo_root: Path) -> Any:
-    """Load the benchmark's scorer into *this* process, before the candidate runs.
-
-    The evaluator used to shell out to this file after the candidate had
-    finished, with ``PYTHONPATH=<repo_root>`` in the child's environment. Since
-    PYTHONPATH precedes site-packages, a candidate could drop
-    ``<repo_root>/anndata.py`` and have the scorer import it instead
-    (measured: combined_score 1.0 with rmse 0.0, against an honest 0.6079).
+    """Load scoring code and its dependencies before candidate execution.
     """
     path = (
         repo_root

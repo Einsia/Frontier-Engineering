@@ -1,15 +1,8 @@
-"""Evaluator for the Robotics/CoFlyersVasarhelyiTuning benchmark.
+"""Evaluator for CoFlyers Vasarhelyi tuning.
 
-Isolation contract
--------------------
-The candidate used to be ``exec_module``-d straight into this process, sharing
-a namespace with the scorer's own numpy-based simulation. Now the candidate
-runs in a throw-away subprocess driven by the trusted
-``verification/candidate_runner.py`` (see ``benchmarks/_shared/candidate_sandbox.py``)
-and returns only the raw dict each ``solve(problem)`` call produced. This file
-validates and clips every reported parameter itself (``_validate_and_merge_params``)
-and re-runs the whole physics simulation (``simulate_case``) with its own
-untouched code -- nothing the candidate returns is trusted as a score.
+The candidate runs in a subprocess and returns the parameters produced by
+``solve(problem)``. The scorer validates and clips the parameters, then runs
+``simulate_case`` with its own physical model and computes the score.
 """
 
 from __future__ import annotations

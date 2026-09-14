@@ -1,18 +1,9 @@
-"""Verification script for Holographic H2: multi-plane focusing.
+"""Evaluator for holographic multiplane focusing.
 
-Contract (changed -- see ``benchmarks/_shared/optics_holographic.py``):
-
-* the problem definition lives in ``verification/problem_spec.py``, not in the
-  candidate;
-* the candidate runs as its own process and returns only the decision variables
-  -- the phase map of each modulator layer -- as arrays in ``submission.npz``;
-* this file builds the optical system from those arrays, propagates to every
-  observation plane, builds each plane's target, and computes every metric.
-
-The old contract consumed ``result["system"]``, ``result["input_field"]`` and
-``result["target_fields"]`` straight from the candidate, so a submission could
-hand back a fake system whose ``measure_at_z`` returned the very targets it also
-supplied. That is no longer expressible: only float arrays cross the boundary.
+The scorer loads the problem from ``verification/problem_spec.py``. The
+candidate runs in a subprocess and returns phase maps for each layer
+in ``submission.npz``. The scorer validates those arrays and constructs
+the optical system, fields and targets at each observation plane, and metrics.
 """
 
 from __future__ import annotations

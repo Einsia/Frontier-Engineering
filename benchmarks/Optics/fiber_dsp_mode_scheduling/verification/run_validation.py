@@ -1,12 +1,10 @@
 #!/usr/bin/env python
 """Verification script for Task 3 (EDC/DBP mode scheduling).
 
-The candidate no longer runs in this process. It is executed in a subprocess
-whose cwd is a fresh temporary directory (see
-``benchmarks/Optics/_shared/fiber_harness.py``) and hands back only
-``submission.json``. That is what keeps ``verification/oracle.py`` -- the
-reference-answer generator that used to sit next to the candidate on
-``sys.path`` -- out of the candidate's reach.
+``benchmarks/Optics/_shared/fiber_harness.py`` runs the candidate in a temporary
+workspace and validates its returned ``submission.json``. The scorer computes
+metrics and reference results separately. Filesystem protection depends on the
+sandbox mode selected by the helper.
 """
 
 from __future__ import annotations

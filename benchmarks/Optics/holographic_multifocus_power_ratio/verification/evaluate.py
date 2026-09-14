@@ -1,17 +1,9 @@
-"""Verification script for Holographic H1: multifocus power-ratio control.
+"""Evaluator for holographic multifocus power ratio.
 
-Contract (changed -- see ``benchmarks/_shared/optics_holographic.py``):
-
-* the problem definition lives in ``verification/problem_spec.py``, not in the
-  candidate;
-* the candidate runs as its own process and returns only the decision variables
-  -- the phase map of each modulator layer -- as arrays in ``submission.npz``;
-* this file builds the optical system from those arrays, propagates the field,
-  builds the target, and computes every metric itself.
-
-No callable, field, system or self-reported number crosses the boundary, which
-is what makes the archived ``_LookupSystem`` attack (a fake ``measure_at_z``
-returning the candidate's own target) unexpressible rather than merely detected.
+The scorer loads the problem from ``verification/problem_spec.py``. The
+candidate runs in a subprocess and returns phase maps for each layer
+in ``submission.npz``. The scorer validates those arrays and constructs
+the optical system, propagated fields, target and metrics.
 """
 
 from __future__ import annotations

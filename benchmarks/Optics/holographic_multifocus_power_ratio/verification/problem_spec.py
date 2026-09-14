@@ -1,14 +1,7 @@
-"""Scorer-owned problem definition for Holographic H1 (multifocus power ratio).
+"""Scorer-owned problem definition for multifocus power-ratio design.
 
-This file used to be ``make_default_spec()`` inside ``baseline/init.py`` -- that
-is, the *candidate* declared the focus coordinates, the target power ratios, the
-grid and the wavelength, and the evaluator then scored the candidate against the
-candidate's own problem. Moving it here makes the problem fixed and identical for
-every submission.
-
-``verification/`` is read-only for candidates (see ``frontier_eval/readonly_files.txt``)
-and ``verification/evaluate.py`` imports this module *before* the candidate
-process starts, so a candidate cannot influence what it is graded against.
+Focus coordinates, target power ratios, grid and wavelength are defined here
+and loaded by the evaluator before candidate execution.
 """
 
 from __future__ import annotations

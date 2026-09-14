@@ -1,24 +1,11 @@
 """Core of the SustainDC hand-written-control benchmark.
 
-Isolation contract
-------------------
-This benchmark scores a candidate *relative to a NoOp reference*
-(``score_episode`` -> ``100 * sqrt(improvement_fraction)``). That makes the
-reference itself a scoring input: an attacker does not have to make the
-datacenter better, only to make the yardstick worse. When the candidate was
-``exec_module``-d into this process (the old ``load_policy_module`` path in
-``verification/evaluate.py``), its module-level code ran *before*
-``run_benchmark`` and could rebind any of the globals that ``run_benchmark``
-resolves at call time -- ``NoOpPolicy``, ``run_episode``, ``score_episode``,
-``SCENARIOS``, ``NOISE_TOLERANCE`` -- and drive the score to ~100 with a policy
-byte-identical to NoOp.
-
-The fix is structural: candidate code never enters this process. It runs in a
-throw-away subprocess (``verification/policy_runner.py``) behind
-``IsolatedPolicy``, which answers one ``decide_actions`` call per environment
-step over a pipe. This process owns the environments, the NoOp reference, the
-action validation and the scoring, so the reference cannot be reached at all.
-``_assert_scoring_integrity`` is belt-and-braces on top of that boundary.
+The scorer owns the environments, NoOp reference, action validation and scoring.
+``IsolatedPolicy`` executes candidate policy code in a subprocess and exchanges
+one ``decide_actions`` request per environment step. Scores are calculated from
+the resulting episode relative to the NoOp reference, using
+``100 * sqrt(improvement_fraction)``. ``_assert_scoring_integrity`` checks the
+scorer's function bindings before evaluation.
 """
 
 from __future__ import annotations

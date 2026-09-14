@@ -27,10 +27,8 @@ _CACHED_MODEL_KEY = ""
 
 CANDIDATE_TIMEOUT_S = 900.0
 
-# Environment the candidate subprocess may see. FRONTIER_ENGINEERING_ROOT stays:
-# every shipped and archived candidate uses it to locate the read-only
-# references/car_surface_points.npy. PYTHONPATH is deliberately gone -- the
-# evaluator used to prepend the repo root to the candidate's import path.
+# Candidates use FRONTIER_ENGINEERING_ROOT to locate reference surface points.
+# PYTHONPATH is excluded from the subprocess environment.
 CANDIDATE_ENV_ALLOWLIST = (
     "PATH",
     "HOME",
@@ -412,16 +410,7 @@ def evaluate(program_path: str, *, repo_root: Path | None = None) -> Any:
         metrics["runtime_s"] = float(time.time() - start)
         return _wrap(metrics, artifacts)
 
-    # ------------------------------------------------------------------
-    # Everything the scorer needs is loaded BEFORE the candidate runs.
-    #
-    # The evaluator used to import torch and build the model *after* the
-    # candidate subprocess had exited. The candidate runs as the same uid and
-    # shares the filesystem, so by then it could have rewritten the PhySense
-    # `models` package that `_load_model` imports, or replaced the checkpoint
-    # that `torch.load` unpickles -- either one is code execution inside the
-    # scoring process, after which the reported score means nothing.
-    # ------------------------------------------------------------------
+    # Load model code and checkpoint data before candidate execution.
     try:
         sandbox = _import_isolation(repo_root)
     except Exception as e:

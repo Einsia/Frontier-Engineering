@@ -1,16 +1,9 @@
-"""Task-specific glue between MLA and the isolated kernel harness.
+"""Task adapter between MLA and the isolated kernel harness.
 
-See ``benchmarks/_shared/kernel_isolation.py`` for the contract. The reference
-implementation, the KV-cache semantics and the tolerances (rtol=2e-2, atol=8e-3)
-are the benchmark's own, taken from the pristine ``baseline/reference.py``; only
-the process they run in has changed.
-
-One measurement bug is fixed here as a side effect. The old benchmark loop ran
-``benchmark(test, recheck=False, ...)``: it reused a single KV cache across all
-100 timed reps while ``custom_kernel`` appends a row and advances ``seq_len``
-on every call, so rep 100 was measured on a sequence 99 tokens longer than rep 1
--- and only the very first rep was ever checked for correctness. Here every rep
-starts from the same restored cache state, and every rep is verified.
+The reference implementation, KV-cache semantics and tolerances (rtol=2e-2,
+atol=8e-3) come from ``baseline/reference.py``. Every repetition starts from the
+same restored cache state and its output is verified, because a decode call
+appends a row and advances ``seq_len``.
 """
 
 from __future__ import annotations

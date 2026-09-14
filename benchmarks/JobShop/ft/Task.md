@@ -35,10 +35,9 @@ three keys:
 - `duration_matrix[j][k]`: processing time of operation `k` in job `j`
 - `machines_matrix[j][k]`: machine used by operation `k` in job `j`
 
-There is **no metadata**. `optimum`, `lower_bound` and `upper_bound` are the
-scoring denominator and stay with the evaluator; a solver that could read them
-would be grading its own work. Instances are loaded by the evaluator from
-`JobShop/data/benchmark_instances.json`; the candidate does not supply them.
+The instance does not include `optimum`, `lower_bound` or `upper_bound`;
+these are retained by the evaluator for scoring. The evaluator loads instances
+from `JobShop/data/benchmark_instances.json`.
 
 ### Output (conceptual)
 

@@ -1,51 +1,10 @@
-"""Hardened unified evaluator for Robotics/UAVInspectionCoverageWithWind.
+"""Evaluator for UAV inspection coverage with wind.
 
-What was wrong
---------------
-The previous version copied the whole benchmark tree into a scratch directory,
-ran the candidate inside it, and *then* did::
-
-    eval_path = sandbox_task / "verification" / "evaluator.py"
-    spec.loader.exec_module(module)
-    result = module.evaluate(sandbox_submission)
-
-Two separate holes followed from that ordering, both confirmed by running
-attack candidates against the old file:
-
-1. **The scorer was loaded from a directory the candidate had just written to.**
-   A candidate whose ``main()`` overwrote ``../verification/evaluator.py`` with
-   ``def evaluate(*a, **k): return {"score": 1e9, "feasible": True}`` was scored
-   by its own code. Measured ``combined_score`` went from 28.85 (honest
-   baseline) to 1.0e9.
-2. **The environment being scored came from the same writable copy.** The
-   verification module resolves ``references/scenarios.json`` relative to its own
-   ``__file__``, so rewriting the sandbox copy replaced the scenes the
-   *submission was graded against*. A candidate that moved every inspection point
-   onto the start position and deleted the wind, the no-fly zones and the
-   dynamic obstacles scored a perfect 100.0 with an all-zero control sequence --
-   the same "candidate supplies the instance" defect found in JobShop.
-
-The fix
--------
-* ``benchmarks/_shared/candidate_sandbox`` runs the candidate as a subprocess.
-  It never enters this process, so it cannot rebind a scoring function.
-* The trusted scenario bytes are read, and the trusted scoring module is
-  imported (numpy included), **before** the candidate is started, from the
-  pristine benchmark directory rather than from anything the candidate can
-  reach. That is invariant 1 of the sandbox helper's docstring.
-* The candidate is staged into a minimal tree containing only its own file and a
-  private copy of ``references/scenarios.json``. Whatever it does to that copy is
-  irrelevant: scoring uses the bytes captured beforehand.
-* The candidate returns a *trajectory* (``timestamps`` / ``controls``) and
-  nothing else. Coverage, energy, collisions, bounds and feasibility are all
-  recomputed here from the trusted scenes. No field the candidate reports is
-  read; there is no self-reported ``score`` / ``coverage`` / ``collisions`` path
-  into the metrics.
-
-Deliberately unchanged: the physics, the per-scene score
-``coverage_ratio * 100 - 0.5 * energy``, and the all-scenes-must-pass hard gate
-all still live in ``verification/evaluator.py``. An honest candidate's score is
-bit-identical to the pre-hardening value.
+The scorer loads scenario data and scoring dependencies before candidate
+execution. The candidate receives a private scenario copy and returns trajectory
+timestamps and controls. The scorer computes coverage, energy, collisions and
+feasibility from the trusted scenario data. Every scenario must pass; its score
+is ``100 * coverage_ratio - 0.5 * energy``. Candidate-reported metrics are unused.
 """
 
 from __future__ import annotations

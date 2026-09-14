@@ -1,13 +1,8 @@
 #!/usr/bin/env python
-"""Scorer-owned problem definition for Task 02 (hard Fourier pattern holography).
+"""Scorer-owned problem definition for Fourier pattern holography.
 
-This is the file that closes the archived exploit. ``build_target_pattern`` and
-``build_problem`` used to live in ``baseline/init.py``: one candidate simply
-redefined ``target_amp`` as the far field of a flat-phase aperture and returned
-an all-zero phase, so its output equalled its target pointwise and it scored
-99.99998936 ("The solver can then reproduce the target exactly", per its own
-comment). The target is now authored here and shipped to the candidate as a
-read-only input, so the candidate can chase the target but never move it.
+The target pattern and aperture are fixed here and supplied to the candidate.
+Candidates return a phase map to be evaluated against that target.
 """
 
 from __future__ import annotations

@@ -1,15 +1,8 @@
-"""Scorer-owned problem definition for Holographic H4 (polarization multiplexing).
+"""Scorer-owned problem definition for polarization multiplexing.
 
-This file used to be ``make_default_spec()`` inside ``baseline/init.py``. This
-task was the most exposed of the four: the old evaluator read
-``result["output_field_x"]``, ``result["output_field_y"]``, ``result["target_map_x"]``
-and ``result["target_map_y"]`` straight from the candidate, i.e. the candidate
-supplied *both* sides of every comparison and no propagation happened in the
-evaluator at all.
-
-Now the spec lives here, the candidate submits only the Jones phase maps, and
-``verification/evaluate.py`` builds the inputs, runs the propagation and builds
-the targets itself.
+The candidate supplies Jones phase maps. The scorer constructs input fields,
+propagates the optical system and compares its outputs with the targets defined
+by this specification.
 """
 
 from __future__ import annotations

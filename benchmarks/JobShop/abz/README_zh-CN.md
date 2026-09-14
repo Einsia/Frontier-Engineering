@@ -48,7 +48,7 @@
 ## 快速开始
 
 ```bash
-# baseline 由评测器在子进程中驱动，自身不再加载实例数据。
+# baseline 由评测器在子进程中驱动。
 # 手动运行时需传入单个实例文件：
 #   python JobShop/abz/baseline/init.py --instance-json /path/to/instance.json
 python JobShop/abz/verification/evaluate.py --max-instances 2 --reference-time-limit 5

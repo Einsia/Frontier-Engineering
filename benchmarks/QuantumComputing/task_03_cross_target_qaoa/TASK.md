@@ -46,11 +46,9 @@ marked invalid, not merely given a low score.
   exceed `1 - 1e-9`.
 - Global phase is ignored. So is the qubit permutation a routing pass
   introduces -- as long as your circuit declares it (see below).
-- Rejected: the empty circuit, a lossy `approximation_degree` (the previous
-  baseline used `approximation_degree=0.95`, which cost 33 two-qubit gates'
-  worth of "improvement" at a fidelity of 0.23 and is now refused), `reset`,
-  mid-circuit measurement, classically conditioned operations, and any circuit
-  touching more than 22 qubits.
+- Rejected: the empty circuit, circuits that fail the fidelity threshold,
+  `reset`, mid-circuit measurement, classically conditioned operations, and
+  any circuit touching more than 22 qubits.
 
 ## Qubit Layout
 
@@ -67,8 +65,7 @@ implement fails the check.
 
 `baseline/solve.py` runs in its own interpreter. The input circuit reaches you
 as OpenQASM 3, and your returned circuit is exported to OpenQASM 3 and
-re-parsed by the scorer before it is measured. Only the circuit crosses that
-boundary, so overriding `count_ops`, `depth` or `size` changes nothing.
+re-parsed by the scorer, which computes the circuit metrics.
 
 ## Cost and Score
 Cost function:

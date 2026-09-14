@@ -1,53 +1,10 @@
-"""Hardened unified evaluator for Robotics/PIDTuning.
+"""Evaluator for PID tuning.
 
-What was wrong
---------------
-This task already got the hard part right: the candidate ran as a subprocess and
-returned only ``submission.json``, and ``verification/evaluator.py`` owns a
-genuinely good three-layer gate (keys present -> numeric -> inside the
-configured range). What it got wrong was *ordering*. The old flow was::
-
-    proc = subprocess.run([sys.executable, sandbox_program], ...)   # candidate
-    ...
-    spec.loader.exec_module(module)                                 # scorer
-    raw_score = float(module.evaluate(sandbox_submission))          # config re-read
-
-Both the scoring module and the graded instance were fetched from the benchmark
-tree *after* the candidate had had a turn on the same filesystem. That is
-invariant 1 of ``benchmarks/_shared/candidate_sandbox`` violated, and both halves
-were confirmed exploitable against the old file:
-
-1. **Scorer loaded from a path the candidate had just written.** A candidate
-   whose body was ``(repo/verification/evaluator.py).write_text(
-   "def evaluate(p): return 999.0")`` plus a junk ``{"junk": 1}`` submission was
-   graded by its own code: ``combined_score`` 0.036626766599899996 (honest
-   baseline) -> **999.0**.
-2. **Graded instance supplied by the candidate.** ``load_config()`` resolves
-   ``references/pid_config.json`` from ``__file__``, i.e. re-reads it at scoring
-   time. A candidate that replaced ``scenarios`` with a single 0.5 s hover
-   starting 1 mm off target -- and submitted the *stock* baseline gains --
-   scored **11683.569318244708**, because the score is a geometric mean of
-   1/ITAE and ITAE shrinks with the horizon.
-
-The fix
--------
-* The trusted config bytes are read and ``verification/evaluator.py`` is
-  exec_module'd (numpy included) **before** the candidate is started, from the
-  pristine benchmark directory. Scoring afterwards uses only those in-memory
-  objects, so what the candidate does to the tree is irrelevant to its own score.
-* The candidate runs via ``candidate_sandbox.run_candidate_isolated``: its own
-  process, a scrubbed environment, resource limits, and a hard timeout. It never
-  enters this process, so it cannot rebind ``simulate_quadrotor_2d``.
-* The 12 gains are re-validated here, on the scorer's side, against the trusted
-  bounds, with an explicit finite/non-bool check ahead of the interval test --
-  ``lo <= NaN <= hi`` is False, so NaN was already rejected, but by accident
-  rather than on purpose.
-
-Deliberately unchanged: ``verification/evaluator.py`` is byte-for-byte the same
-file. The quadrotor integration, the pitch-limit hard gate, the ITAE objective
-and the geometric mean all still live there and are still the only thing that
-produces a number. An honest candidate's score is bit-identical to the
-pre-hardening value (0.036626766599899996 for ``scripts/init.py``).
+The scorer loads the configuration and simulation code before running the
+candidate in a subprocess. The twelve returned gains must be finite, non-boolean
+numbers within the trusted bounds. ``verification/evaluator.py`` performs the
+quadrotor simulation, applies the pitch gate and computes the geometric mean
+of inverse ITAE across the configured scenarios.
 """
 
 from __future__ import annotations

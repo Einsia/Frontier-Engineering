@@ -1,24 +1,13 @@
-"""Verification script for Holographic H3: multi-wavelength focusing/splitting.
+"""Evaluator for holographic multispectral focusing.
 
-Contract (changed -- see ``benchmarks/_shared/optics_holographic.py``):
+The scorer loads the problem from ``verification/problem_spec.py``. The
+candidate runs in a subprocess and returns thickness maps for each layer
+in ``submission.npz``. The scorer validates those arrays and constructs
+the dispersive system, input fields at each wavelength and metrics.
 
-* the problem definition lives in ``verification/problem_spec.py``, not in the
-  candidate;
-* the candidate runs as its own process and returns only the decision variables
-  -- one physical thickness profile per layer -- as arrays in ``submission.npz``;
-* this file builds the dispersive modulator stack from those arrays, builds the
-  four input fields, propagates each of them, and computes every metric.
-
-The old contract read ``result["system"]`` and ``result["input_fields"]`` from
-the candidate, so a submission could return a lookup object whose
-``measure_at_z`` handed back whatever the metric wanted. Only float arrays cross
-the boundary now.
-
-Reference asymmetry (unchanged in intent, now explicit): the oracle is allowed a
-*per-wavelength* phase mask, i.e. four independent holograms rather than one
-shared dispersive stack. That is a deliberate upper bound, it is selected here by
-the scorer and never by a submission, and it is recorded in ``summary.json`` as
-``reference.design_space``.
+The reference uses separate phase masks for each wavelength, which is a larger
+design space than the candidate's shared dispersive stack. This reference
+choice is recorded in ``summary.json`` as ``reference.design_space``.
 """
 
 from __future__ import annotations

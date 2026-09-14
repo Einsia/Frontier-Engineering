@@ -61,9 +61,8 @@ Goal:
 
 ## Execution Contract (candidate runs in its own process)
 
-`verification/evaluate.py` no longer imports `baseline/init.py` into the scoring
-process. It launches it as a standalone script in a throwaway directory, so the
-candidate cannot observe or influence how it is scored.
+`verification/evaluate.py` runs `baseline/init.py` in a separate process
+with a temporary working directory.
 
 What the evaluator stages into that directory (`problem.npz`, load with
 `np.load("problem.npz", allow_pickle=False)`):

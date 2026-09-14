@@ -1,79 +1,13 @@
-"""Hardened unified evaluator for Robotics/RobotArmCycleTimeOptimization.
+"""Evaluator for robot-arm cycle-time optimization.
 
-What was wrong
---------------
-The candidate was already run as a subprocess, but the scoring code was fetched
-*after* it had had a turn on the same filesystem::
+The scorer snapshots verification code, reference data and required PyBullet
+assets before running the candidate. Returned waypoints and timestamps are
+rebuilt as finite numeric arrays and checked with the trusted simulator.
 
-    proc = subprocess.run([sys.executable, sandbox_program], ...)   # candidate
-    ...
-    eval_path = (benchmark_dir / "verification" / "evaluator.py").resolve()
-    spec.loader.exec_module(module)                                 # scorer
-    raw_score = float(module.evaluate(sandbox_submission))
-
-``benchmark_dir`` comes from ``FRONTIER_ENGINEERING_ROOT``, which the harness
-points at the real repository, and the whole environment was passed straight
-through to the child. That is invariant 1 of ``benchmarks/_shared/candidate_sandbox``
-violated, and it was confirmed exploitable against the old file:
-
-1. **Scorer loaded from a path the candidate had just written.** A candidate
-   whose body was ``(repo/.../verification/evaluator.py).write_text(
-   "def evaluate(p): return 0.0")`` plus a junk ``{"junk": 1}`` submission was
-   graded by its own code: ``combined_score`` 0.2921925682511491 (honest
-   baseline, 2.4224 s cycle time) -> **1.0**, the supremum of ``1/(1+T)``.
-2. **The robot and the world came from a writable path too.** The trusted
-   evaluator loads ``plane.urdf`` and ``kuka_iiwa/model.urdf`` through
-   ``pybullet_data.getDataPath()``, which resolves into the user's writable
-   site-packages directory -- outside the repository, so the harness' source-tree
-   fingerprint does not cover it. Measured against the old file (with the data
-   path redirected to a scratch copy, so the real site-packages was never
-   touched): a candidate that submitted the honest baseline trajectory and also
-   inverted every ``<limit lower=... upper=...>`` in ``kuka_iiwa/model.urdf`` was
-   graded on its own robot -- ``combined_score`` 0.2921925682511491 -> **0.0**,
-   because the evaluator then bailed with "invalid joint limits from URDF".
-   That direction is score *suppression*; no score-inflating exploit was found
-   through this path, because neither the URDF joint limits nor the obstacle
-   binds the optimum here (see the sampling note below). It is closed anyway: a
-   candidate that can rewrite the model can decide what any *later* candidate is
-   graded on.
-
-A third defect is in the trusted evaluator itself and is fixed there:
-``_validate_format`` gated everything with ``>``/``<``, and every comparison
-against NaN is False, so all-NaN ``waypoints`` passed the start/goal tolerance,
-the joint limits, the velocity and acceleration limits and the collision query.
-Only ``scipy.interpolate.CubicSpline``'s internal "`y` must contain only finite
-values" assertion stopped it -- see the note at the bottom of this docstring.
-
-The fix
--------
-* A *private* copy of ``verification/`` and ``references/`` is staged, and the
-  trusted scorer is exec_module'd from that copy, **before** the candidate is
-  started. The candidate is never told where it is, and scoring never reads the
-  repository again.
-* The pybullet asset subset the trusted evaluator loads (``plane.*``,
-  ``kuka_iiwa/``) is copied out of ``pybullet_data`` into the same private tree
-  before the candidate runs, and the trusted module's ``pybullet_data`` global is
-  rebound to a shim returning that private path. Rewriting site-packages after
-  the fact no longer changes the robot being scored.
-* The candidate runs via ``candidate_sandbox.run_candidate_isolated``: its own
-  process, a scrubbed environment (no ``FRONTIER_ENGINEERING_ROOT``), resource
-  limits and a hard timeout. It never enters this process.
-* The submission is re-validated here and *rebuilt* into exactly
-  ``{"waypoints", "timestamps"}`` of finite floats, so no other field and no
-  non-finite value can reach the simulator.
-
-Deliberately unchanged: the cubic-spline interpolation, the 30-samples-per-segment
-sweep, the joint/velocity/acceleration limits, the PyBullet contact query and the
-``score = timestamps[-1]`` objective all still live in
-``verification/evaluator.py`` and are still the only thing that produces a number.
-An honest candidate's score is bit-identical to the pre-hardening value
-(cycle_time_s 2.4224005284777377, combined_score 0.2921925682511491 for
-``baseline/solution.py``).
-
-Not fixed here, reported instead: each segment is sampled at 30 points with
-``endpoint=False``, so the final timestamp -- and therefore the goal
-configuration -- is never collision-checked, and a violation can hide between
-samples. Tightening that moves honest scores, so it is a product decision.
+The evaluator uses cubic-spline interpolation and samples thirty points per
+segment with ``endpoint=False``. The final timestamp is not collision-checked,
+and collisions between samples can be missed. Filesystem visibility depends
+on the sandbox mode.
 """
 
 from __future__ import annotations
@@ -91,10 +25,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-# The pre-hardening evaluator reported 0.0 for an unusable run. ``1/(1+T)`` is
-# strictly positive for every admissible T (timestamps[0] == 0 and strictly
-# increasing forces T > 0), so 0.0 already ranks below every valid score; it is
-# kept verbatim so hardening moves no published number, honest or otherwise.
+# Invalid runs receive 0.0, below every valid inverse-cycle-time score.
 INVALID_COMBINED_SCORE = 0.0
 
 TASK_NAME = "RobotArmCycleTimeOptimization"
@@ -344,10 +275,8 @@ def evaluate(program_path: str, *, repo_root: Path | None = None):
                 inputs=inputs,
                 expected_outputs=("submission.json",),
                 timeout_s=timeout_s,
-                # Copy into the sandbox: keeps sys.path[0] and __file__ inside a
-                # directory holding nothing but the candidate and its own copy of
-                # the references. Matches the pre-hardening contract, where the
-                # candidate ran from a scratch dir containing only itself.
+                # Stage the candidate with its own reference copies so its
+                # default import path points at that temporary workspace.
                 copy_into_workdir=True,
                 env_allowlist=CANDIDATE_ENV_ALLOWLIST,
                 rlimits=CANDIDATE_RLIMITS,

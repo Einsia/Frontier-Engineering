@@ -1,25 +1,9 @@
-"""
-Evaluator for ISCSO 2015 — 45-Bar 2D Truss Size + Shape Optimization
+"""Evaluator for ISCSO2015.
 
-Scoring contract
-----------------
-The candidate hands back *design variables only* (``solution_vector``: 45 areas
-followed by 9 shape coordinates). Everything that decides the score -- the FEM
-solve, the stress/displacement constraint check, the weight, and the score
-itself -- is recomputed here from those variables. No field the candidate
-reports about its own design is ever believed.
-
-Isolation invariants (see ``benchmarks/_shared/candidate_sandbox.py``)
----------------------------------------------------------------------
-1. Every import this module needs is resolved at *module import time*, before
-   the candidate has run. ``fem_truss2d`` used to be imported lazily inside
-   ``build_fem_and_evaluate`` -- i.e. after the candidate subprocess had
-   returned -- so a candidate that restored the write bit on
-   ``verification/fem_truss2d.py`` (same uid, so ``chmod`` always succeeds) and
-   rewrote it got the scorer to import *its* solver and mint its own weight.
-2. The candidate delivers a solution, never a score.
-3. A non-zero return code, or a timeout, is a failure. It is not excused by a
-   surviving ``submission.json``.
+The candidate returns 45 member areas and 9 shape coordinates. The scorer computes
+FEM response, stress and displacement constraints, weight and score from those design variables.
+Scoring dependencies are imported before candidate execution. Timeouts and
+nonzero exits are rejected even when a submission file exists.
 """
 
 from __future__ import annotations

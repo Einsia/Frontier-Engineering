@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """Validation for Task 01 -- hard weighted multi-spot, score in [0, 1].
 
-Scoring contract (rewritten after the isolation audit)
-------------------------------------------------------
+Scoring contract
+----------------
 1. This file builds the problem (``verification/problem.py``). The candidate
    never states the problem.
 2. The candidate runs as a *subprocess* in a throwaway directory, reads the

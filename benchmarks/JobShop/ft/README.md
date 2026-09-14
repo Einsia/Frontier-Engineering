@@ -49,7 +49,7 @@ A foundational early benchmark set from industrial scheduling literature. Common
 
 ```bash
 # The baseline is driven by the evaluator, which runs it in a subprocess.
-# It no longer loads instances itself; to run it by hand, hand it one instance:
+# To run the baseline directly, pass one instance:
 #   python JobShop/ft/baseline/init.py --instance-json /path/to/instance.json
 python JobShop/ft/verification/evaluate.py --max-instances 2 --reference-time-limit 5
 ```

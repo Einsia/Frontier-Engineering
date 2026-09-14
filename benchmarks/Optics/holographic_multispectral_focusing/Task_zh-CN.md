@@ -53,8 +53,8 @@
 - `problem.json`——以数据形式给出的题目（由评分器写入），
 - `baseline/init.py` 的一份副本——你的程序。
 
-除此之外什么都访问不到：任务目录、`verification/`、oracle 和评分脚本都不存在，
-也无法 import。你从当前目录读 `problem.json`，向当前目录写 `submission.npz`。
+候选进程无法访问任务目录、`verification/`、oracle 和评分脚本。
+从当前目录读 `problem.json`，向当前目录写 `submission.npz`。
 
 ## 输入协议（`problem.json`）
 

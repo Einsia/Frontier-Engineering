@@ -1,16 +1,8 @@
 #!/usr/bin/env python
-"""Scorer-owned forward model and metrics for Task 03.
+"""Scorer-owned forward model and metrics for Dammann uniform orders.
 
-``build_incident_field`` and ``evaluate_orders`` used to live in
-``baseline/init.py``. The archived 99.999999999 run exploited exactly that: it
-kept the physics intact but replaced its own ``evaluate_orders`` with a
-saturating transform, ``np.tanh(64.0 * core / (scale + 1e-12))``, which drives
-the spread of the order energies -- and therefore ``cv_orders`` -- to ~0
-regardless of how uneven the real orders were. The validator then read that
-number straight out of the candidate's dict.
-
-Both functions are now here. The candidate supplies transition positions and
-nothing else.
+Candidates supply transition positions. The scorer constructs the incident
+field and computes order energies and uniformity from those positions.
 """
 
 from __future__ import annotations

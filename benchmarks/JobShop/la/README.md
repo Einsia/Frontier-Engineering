@@ -49,7 +49,7 @@ A widely used benchmark family for comparing dispatching, metaheuristics, and ex
 
 ```bash
 # The baseline is driven by the evaluator, which runs it in a subprocess.
-# It no longer loads instances itself; to run it by hand, hand it one instance:
+# To run the baseline directly, pass one instance:
 #   python JobShop/la/baseline/init.py --instance-json /path/to/instance.json
 python JobShop/la/verification/evaluate.py --max-instances 2 --reference-time-limit 5
 ```

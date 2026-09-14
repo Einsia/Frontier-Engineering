@@ -1,26 +1,12 @@
 """Evaluator for benchmarks/KernelEngineering/MLA.
 
-The candidate never runs in this process, and never in the process that decides
-whether its output is correct. Three processes, three jobs:
+The scorer reads the benchmark specification and computes the score. A trusted
+worker creates inputs and checks outputs against the reference implementation;
+a separate candidate worker runs ``custom_kernel``. Scoring uses elapsed time
+measured by the scorer through output delivery.
 
-* this one  -- owns the score. Parses the benchmark spec from the pristine tree,
-               drives the other two, and computes ``1e9 / geom_mean_ns`` itself.
-* trusted   -- owns correctness. Generates the inputs, keeps the authoritative
-               copy in its own memory, and checks every candidate output against
-               its own reference implementation with the benchmark's tolerances.
-* candidate -- owns nothing. Runs ``custom_kernel`` and hands back an output
-               tensor and a duration, both of which are cross-checked here.
-
-The old evaluator ran ``verification/eval.py`` in one subprocess that imported
-the candidate alongside the reference implementation, the clock and the log file
-this evaluator parsed. A candidate could write ``check: pass`` plus a forged
-``benchmark.0.mean`` straight into the inherited POPCORN_FD and exit before
-running a kernel; it could also just replace ``check_implementation`` or
-``time.perf_counter_ns``. Measured on a CPU stand-in, either attack scored
-1.0e9 against an honest baseline of ~4.9e3.
-
-``verification/eval.py`` is still there, but only as a local self-test tool for
-whoever writes a kernel. It is no longer part of scoring.
+``verification/eval.py`` is a local kernel-checking tool and is not used by this
+scoring entrypoint.
 """
 
 from __future__ import annotations

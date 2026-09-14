@@ -7,13 +7,9 @@ Four benchmarks share one shape:
   * RayleighFadingBER     -> class ``DeepFadeSampler``
   * HighReliableSimulation-> class ``MySampler``
 
-Each evaluator used to do ``runpy.run_path(candidate)`` **inside the scoring
-process** and then pull a *class* out of the resulting namespace, instantiate it
-and call methods on it. That is not a data hand-off: the candidate's whole
-contribution is an algorithm (an importance-sampling proposal), invoked as a
-per-batch callback by the benchmark's simulation loop. So ``ast.literal_eval``
-is not applicable to this family -- there is no constant to lift out. The only
-sound fix is a process boundary.
+The candidate supplies an importance-sampling algorithm invoked by the
+simulation loop. Candidate execution runs in a subprocess; the parent validates
+returned records and computes the final score.
 
 What this module provides
 -------------------------
@@ -56,19 +52,17 @@ each evaluator maps them back.
 Design notes / deliberate choices
 ---------------------------------
 * The driver source is a **string constant in this module**, materialised into a
-  scorer-owned temp directory -- not into the candidate's sandbox and not into
-  the benchmark tree. A candidate cannot edit the file that drives it.
+  scorer-owned temporary directory outside the benchmark tree. Filesystem
+  protection depends on the selected sandbox mode.
 * The runtime modules are imported in the child *before* the candidate is
   executed, so ``sys.modules`` already holds the trusted copies (invariant 1 of
   ``candidate_sandbox``).
 * Aggregation (medians, convergence rate, validity, score) is **not** done here
   and is never read from the child. Each evaluator recomputes it from the
   validated per-repeat numbers.
-* No ``RLIMIT_AS``/``RLIMIT_CPU`` is applied: the honest baselines are heavily
-  multi-threaded (the LDPC baseline burns ~1300 CPU-seconds of BLAS across ~60
-  threads in 21s wall-clock), so a CPU-second cap would kill honest work and an
-  address-space cap collides with BLAS thread arenas. Wall-clock ``timeout_s``
-  plus ``RLIMIT_FSIZE``/``RLIMIT_NOFILE`` are the enforced limits.
+* ``RLIMIT_AS`` and ``RLIMIT_CPU`` are omitted because the workloads use
+  multiple BLAS threads and their associated address-space allocations.
+  Wall-clock ``timeout_s``, ``RLIMIT_FSIZE`` and ``RLIMIT_NOFILE`` are enforced.
 
 Who computes the aggregates (``call_mode``)
 -------------------------------------------
@@ -76,36 +70,20 @@ Who computes the aggregates (``call_mode``)
 whatever ``simulate_variance_controlled`` the candidate defines. The candidate
 then contributes only ``sample()``, and every aggregate -- the log weights, the
 sample count, the standard error, the convergence flag -- is produced by trusted
-code. Aggregate forgery is structurally impossible. This is used by
-LDPCErrorFloor, RayleighFadingBER and HighReliableSimulation, whose shipped
-baselines already delegate to that loop, so adopting it changed no honest score.
+code. This is used by LDPCErrorFloor, RayleighFadingBER and
+HighReliableSimulation. The candidate and simulation loop still share the child
+interpreter, so this separation alone does not protect every child-side binding.
 
 ``call_mode="candidate"`` keeps the older contract where the candidate owns the
 loop and reports the 6-tuple itself.
 
-Residual risk (PMDSimulation only)
-----------------------------------
-PMDSimulation is still on ``call_mode="candidate"``. Its shipped baseline
-reimplements the loop (log-weight clipping to [-100, 100] plus an adaptive bias
-schedule), so switching it to the canonical loop would change the honest score
-and was left as a product decision rather than made silently here.
-
-For that one task a candidate can therefore still *fabricate* its aggregate
-result, subject to everything ``validate_common_repeat`` enforces: the numbers
-must be finite and in-domain, ``total_samples`` must be a positive integer no
-larger than both ``max_samples`` and the number of rows the proposal actually
-produced (observed by the driver's recorder, not reported by the candidate), and
-``outage_prob`` must be a probability. That narrows the forgery but does not
-close it: a candidate that draws one honest batch and then reports an on-target
-outage probability passes. Closing it means either switching PMD to
-``call_mode="canonical"`` and re-baselining ``R0_DEV``, or having the driver
-return the raw per-batch proposal so the scorer can re-run the (cheap) PMD
-evolution itself. Both are tractable; neither is done here.
-
-The same "re-run it in the scorer" option is genuinely available for
-LDPCErrorFloor (one batch of 50x1008 floats, ~400 KB) and RayleighFadingBER
-(~1.6 MB, closed-form BER), and not for HighReliableSimulation (~300 MB and a
-Chase-3 decode that dominates the runtime metric).
+Candidate-owned aggregates
+--------------------------
+PMDSimulation uses ``call_mode="candidate"`` and its candidate owns the simulation
+loop, including log-weight clipping and adaptive bias updates. The returned
+aggregates are checked for finite, in-domain values and sample counts consistent
+with observed proposal calls. These checks do not independently recompute the
+reported outage probability, so fabricated aggregates can still pass them.
 """
 
 from __future__ import annotations
@@ -495,12 +473,8 @@ def main():
     # 1. Trusted runtime first -- it is resident before any candidate code runs.
     rt = _import_runtime(task, repo_root)
 
-    # Bind the clock to a local BEFORE the candidate exists. `time.time()` is
-    # resolved on the module object at call time, and the candidate runs in
-    # this very process, so `import time; time.time = lambda: 0.0` used to make
-    # every repeat report 0.0s -- worth a ~39600x score on HighReliableSim.
-    # A local reference cannot be reached by mutating the module.
-    # monotonic, not time: durations must not move with the wall clock.
+    # Capture the monotonic clock before candidate execution so later module
+    # attribute changes do not replace this local reference.
     _clock = time.monotonic
 
     # 2. Now the candidate. Executing it here is the point: this process is the
@@ -684,14 +658,9 @@ def run_sampler_repeats(
         if not isinstance(rec["raw"], dict) or not isinstance(rec["audit"], dict):
             raise SamplerRunError(f"repeat {i} has a malformed record")
 
-    # runtime_s is measured inside the process the candidate runs in, so it is
-    # only as trustworthy as that process. The parent's wall clock is not, so
-    # use it as a bound: the repeats cannot together have taken longer than the
-    # subprocess was alive, and they cannot plausibly account for almost none
-    # of it either. This does not make a forged clock impossible -- a candidate
-    # that scales every repeat down by the same modest factor stays inside the
-    # window -- it removes the "report 0.0" case, which is the one worth
-    # thousands of times the honest score.
+    # Bound child-reported runtimes against elapsed time measured by the
+    # parent. This rejects implausible values but does not prevent a candidate
+    # from understating its runtime within the permitted window.
     reported_total = 0.0
     for i, rec in enumerate(records):
         value = decode_special(rec["runtime_s"])

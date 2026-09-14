@@ -1,44 +1,26 @@
-"""Run a candidate program in an isolated subprocess and hand back only data.
+"""Run a candidate program in a subprocess and return serialized data.
 
-The unified harness (``frontier_eval/tasks/unified/evaluator/python.py``) makes
-a single process boundary that contains *both* the per-task scoring script and
-the candidate. For the score to be trustworthy, the candidate must live in a
-separate process that returns only data -- never code, never a callable, never a
-self-reported score.
+This helper separates candidate execution from the per-task scorer. It lives
+outside benchmark directories so task-local ``copy_files.txt`` entries do not
+copy it into candidate workspaces.
 
-This module is the shared version of the pattern already proven in
-``benchmarks/StructuralOptimization/TopologyOptimization/verification/evaluator.py``
-(the only benchmark that got it right) with the three-layer result validation
-from ``benchmarks/Robotics/PIDTuning/frontier_eval/evaluator.py``.
-
-The Python helper uses the standard library and bubblewrap for namespaces.
-It sits outside any benchmark directory so that
-a ``copy_files.txt`` of ``.`` never drags it into the sandbox where a candidate
-could rewrite it.
-
-Invariants that any caller must preserve (each is a hole found in a real audit):
-1. Do all imports *before* calling run_candidate_isolated. Your scoring logic
-   and every dependency must be resident in this process before the candidate
-   ever runs. The candidate shares the filesystem with this process, so if you
-   import the scorer from a path it can write to *after* it runs, you are
-   loading code it just wrote.
-2. The candidate delivers a *solution*, not a *score*. The score must be
-   recomputed here from the returned data. Never trust a field the candidate
-   reports (an eval once directly adopted ``submission["summary"]["score"]``).
-3. A non-zero return code is always a failure. A surviving submission.json does
-   not excuse a crash (one evaluator recorded the return code but kept scoring
-   anyway).
+Caller requirements
+-------------------
+1. Import scoring code and its dependencies before executing candidate code.
+   Compatibility mode shares host files, so later imports from writable paths
+   can read files modified by a candidate.
+2. Recompute scores from validated solution data in the scorer. Candidate
+   score fields, callables and validation verdicts are not authoritative.
+3. Reject crashes, timeouts and malformed output even if a result file exists.
 
 Isolation modes
 ---------------
-Every candidate has its own PID namespace, so descendants are terminated even
-if they detach with setsid. Pass readonly_paths to additionally hide the host
-filesystem and disable networking. Only the runtime, staged workdir and those
-explicit input paths are then visible. The compatibility mode without that
-argument still shares host files; it must not be used to protect secret data.
-An outer container containing both scorer and candidate does not replace this
+Each candidate has its own PID namespace, including detached descendants.
+Passing ``readonly_paths`` also restricts filesystem visibility to the runtime,
+staged workspace and explicit inputs, and disables networking. Without that
+argument, compatibility mode shares host files and does not protect private
+data. A container containing both scorer and candidate does not replace this
 inner boundary. Linux user namespaces and bubblewrap are required.
-
 """
 
 from __future__ import annotations

@@ -1,21 +1,12 @@
-"""Scorer-owned problem definition for Holographic H3 (multispectral focusing).
+"""Scorer-owned problem definition for multispectral focusing.
 
-This file used to be ``make_default_spec()`` inside ``baseline/init.py``: the
-*candidate* declared the wavelengths, the per-wavelength target coordinates and
-the target spectral power ratios, and was then graded against its own
-declaration. Moving it here makes the problem fixed for every submission.
-
-It also pins the *design variable* for this task. The old baseline built
-``PolychromaticPhaseModulator(Parameter(...))`` with the required refractive
-index argument missing, which raises ``TypeError`` on the installed torchoptics
-(>=1.0) -- the task could not run at all. The physical variable is now stated
-explicitly: a real thickness profile ``t(x, y)`` per layer, of a medium with a
-fixed refractive index, which imprints the wavelength-dependent phase
+Wavelengths, target coordinates and spectral power ratios are fixed here. Each
+modulator layer has a real thickness profile ``t(x, y)`` and a fixed refractive
+index. Its wavelength-dependent phase is
 
     phi(x, y; lambda) = 2*pi/lambda * (n - 1) * t(x, y)
 
-That dispersion is what makes this a *shared-hardware* problem rather than four
-independent single-wavelength holograms.
+The same thickness maps are evaluated at every wavelength.
 """
 
 from __future__ import annotations

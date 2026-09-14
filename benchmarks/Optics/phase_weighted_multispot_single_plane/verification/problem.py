@@ -1,13 +1,8 @@
 #!/usr/bin/env python
-"""Scorer-owned problem definition for Task 01 (hard weighted multi-spot).
+"""Scorer-owned problem definition for phase weighted multispot single plane.
 
-Everything here used to live in ``baseline/init.py`` -- the file the candidate
-is allowed to rewrite. That meant the candidate authored its own aperture, its
-own spot grid and its own target weights, and the validator then graded the
-candidate against the candidate's own statement of the problem.
-
-The definition now lives on the scoring side and is shipped *to* the candidate
-as read-only input files. The candidate's only output is a phase map.
+The aperture, spot grid and target weights
+are defined here and supplied to the candidate as problem inputs.
 """
 
 from __future__ import annotations

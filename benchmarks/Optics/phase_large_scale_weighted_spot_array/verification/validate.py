@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """Validation for Task 04 -- large weighted spot array, score in [0, 100].
 
-Scoring contract (rewritten after the isolation audit)
-------------------------------------------------------
+Scoring contract
+----------------
 1. ``verification/problem.py`` authors the aperture, spot grid and weights.
 2. The candidate runs as a subprocess in a throwaway directory and writes
    ``submission.json`` containing only its phase map.

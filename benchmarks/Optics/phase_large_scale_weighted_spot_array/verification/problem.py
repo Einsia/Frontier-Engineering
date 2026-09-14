@@ -1,9 +1,8 @@
 #!/usr/bin/env python
-"""Scorer-owned problem definition for Task 04 (large-scale weighted spot array).
+"""Scorer-owned problem definition for phase large scale weighted spot array.
 
-The aperture, the 8x8 spot grid and the weight vector used to be authored by
-``baseline/init.py`` -- the candidate stated the requirement it was then graded
-against. They are authored here now and shipped to the candidate read-only.
+The aperture, 8x8 spot grid and target weights
+are defined here and supplied to the candidate as problem inputs.
 """
 
 from __future__ import annotations

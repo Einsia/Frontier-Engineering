@@ -1,19 +1,9 @@
-"""Verification script for Holographic H4: polarization multiplexing.
+"""Evaluator for holographic polarization multiplexing.
 
-Contract (changed -- see ``benchmarks/_shared/optics_holographic.py``):
-
-* the problem definition lives in ``verification/problem_spec.py``, not in the
-  candidate;
-* the candidate runs as its own process and returns only the decision variables
-  -- the Jones ``phase_x`` / ``phase_y`` map of each layer -- in ``submission.npz``;
-* this file builds both polarised inputs, runs the propagation, builds both
-  target maps, and computes every metric.
-
-The old evaluator ran *no physics at all*: it read ``output_field_x``,
-``output_field_y``, ``target_map_x`` and ``target_map_y`` from the candidate's
-return value and compared them against each other. A submission could therefore
-hand back any pair it liked, including two identical arrays. Only float arrays
-cross the boundary now, and both sides of every comparison are built here.
+The scorer loads the problem from ``verification/problem_spec.py``. The
+candidate runs in a subprocess and returns Jones phase_x and phase_y maps
+in ``submission.npz``. The scorer validates those arrays and constructs
+both polarized inputs, propagated fields, target maps and metrics.
 """
 
 from __future__ import annotations

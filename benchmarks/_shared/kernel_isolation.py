@@ -1,39 +1,10 @@
 """Scorer-side orchestration for the KernelEngineering benchmarks.
 
-Why this exists
----------------
-The three kernel benchmarks used to be scored like this: the evaluator ran
-``verification/eval.py`` in a subprocess, that subprocess did
-``from baseline.submission import custom_kernel``, and everything that decided
-the score -- the reference implementation, the tolerance comparison, the clock,
-and the log file the evaluator parsed -- lived in the same process as the
-candidate. Three consequences, all of them exploitable with a few lines:
-
-1. ``POPCORN_FD`` names an inherited, writable fd. A candidate could write
-   ``check: pass`` and ``benchmark.0.mean: 1.0`` into it at import time and
-   ``os._exit(0)`` before a kernel ever ran.
-2. ``check_implementation`` was an ordinary module attribute; replacing it with
-   ``lambda *_: ''`` made every output correct.
-3. ``time.perf_counter_ns`` / ``torch.cuda.Event`` were equally replaceable, so
-   the reported latency -- which *is* the score, ``1e9 / geom_mean_ns`` -- was
-   whatever the candidate wanted.
-
-The contract implemented here
------------------------------
-Two child processes, started in this order and never merged:
-
-* the **trusted worker** holds only benchmark-owned code. It builds the inputs,
-  keeps the authoritative copy in its own memory, and verifies candidate outputs
-  against its own reference implementation with the benchmark's own tolerances.
-* the **candidate worker** holds the candidate. It receives an input, runs the
-  kernel, and hands back an output tensor and a duration. It never decides
-  anything.
-
-This process (the scorer) holds the score. It computes it from the trusted
-worker's verdict and its own elapsed time through output delivery. Candidate
-kernel timings are diagnostics only. Every output is verified against the
-reference; equal outputs are permitted when the reference permits them.
-
+The trusted worker creates inputs and checks candidate outputs against the
+benchmark reference with the task's tolerances. The candidate worker receives
+inputs and returns output tensors. The scorer combines the trusted verdicts
+with elapsed time measured through output delivery; candidate-reported kernel
+timings are diagnostics only.
 """
 
 from __future__ import annotations
@@ -336,16 +307,9 @@ class _Worker:
 def _build_env(cfg: KernelTaskConfig, role: str) -> dict[str, str]:
     env = os.environ.copy()
     env["PYTHONDONTWRITEBYTECODE"] = "1"
-    # Deliberately NOT set here: OMP_WAIT_POLICY. Making the idle worker's
-    # threads sleep instead of spin looks like the right way to keep the two
-    # processes from competing, and it is not: measured on the CPU stand-in,
-    # OMP_WAIT_POLICY=PASSIVE alone slowed the kernel under test from 182us to
-    # 1056us (5.8x), because every parallel region then pays a thread wake-up.
-    # Contention is handled by suspending the other worker outright while a
-    # batch is timed (see _Worker.pause).
-    # POPCORN_FD is what the old design handed the candidate: an inherited,
-    # writable fd whose contents were parsed straight into the score. Nothing
-    # reads it any more, but it must not be inherited either.
+    # Leave OMP_WAIT_POLICY unchanged: waking sleeping threads adds overhead
+    # to parallel regions. Suspend the other worker during timed batches instead.
+    # Do not inherit local kernel-tool log descriptors or seed controls.
     env.pop("POPCORN_FD", None)
     env.pop("POPCORN_SEED", None)
     if role == "candidate":

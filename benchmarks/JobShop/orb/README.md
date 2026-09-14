@@ -49,7 +49,7 @@ A compact and controlled 10x10 family, often used for reproducible algorithmic s
 
 ```bash
 # The baseline is driven by the evaluator, which runs it in a subprocess.
-# It no longer loads instances itself; to run it by hand, hand it one instance:
+# To run the baseline directly, pass one instance:
 #   python JobShop/orb/baseline/init.py --instance-json /path/to/instance.json
 python JobShop/orb/verification/evaluate.py --max-instances 2 --reference-time-limit 5
 ```

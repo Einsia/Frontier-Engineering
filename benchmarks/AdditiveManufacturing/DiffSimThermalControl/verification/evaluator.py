@@ -1,22 +1,9 @@
-"""Evaluator for the AdditiveManufacturing/DiffSimThermalControl benchmark.
+"""Evaluator for the DiffSimThermalControl benchmark.
 
-Isolation contract
-------------------
-The candidate used to be ``exec_module``-d straight into this process, which put
-the scorer, the canonical simulator and the candidate's arbitrary module-level
-code in one namespace. A candidate could therefore rebind
-``canonical.simulate``/``project_params``, tamper with the ``simulate_fn``
-closure cell that counts its budget, or mutate the loaded case list.
-
-Now:
-
-* everything this file needs is imported *before* the candidate ever runs;
-* the candidate runs in a throw-away subprocess driven by the trusted
-  ``verification/candidate_runner.py`` and returns only data
-  (control knots + a call count) via ``submission.json``;
-* the scorer validates that data and recomputes *every* scored quantity --
-  loss, feasibility, temperatures -- with its own pristine ``canonical``
-  module. Nothing the candidate reports is adopted as a score.
+Scoring dependencies are imported before candidate execution. The candidate
+runs in a subprocess and returns control knots and a call count through
+``submission.json``. The scorer validates that data and recomputes loss,
+feasibility and temperatures with its own canonical simulator.
 """
 
 from __future__ import annotations

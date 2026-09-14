@@ -1,9 +1,4 @@
-# Explicit whitelist. `.` used to copy the whole benchmark directory into the
-# sandbox the candidate runs in; naming the entries keeps stale
-# `verification/outputs/` artifacts and `__pycache__` trees out of the copy.
-# The candidate itself never runs in this tree -- validate.py executes it in a
-# throwaway directory (see benchmarks/Optics/_shared/phase_common.py) -- so
-# verification/ is present only for the scorer.
+# Copy task inputs and scorer files without generated outputs or caches.
 README.md
 README_zh-CN.md
 Task.md

@@ -333,20 +333,12 @@ def _default_failed_task_result(task_id: str, reason: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Authenticated result channel (file, not stdout)
+# Per-run result channel
+# Results are written to --result-out with a token supplied by the parent over
+# stdin. The child consumes the token before importing task modules. Candidate
+# stdout is diagnostic output and does not supply the result record.
+# This token is an integrity check, not an OS isolation boundary.
 # ---------------------------------------------------------------------------
-#
-# Per-task results used to travel back as "the last JSON object printed on the
-# child's stdout". Sub-tasks CY_03 and WJ_01 execute candidate-supplied source
-# by design, so that channel was writable by the candidate: printing a perfect
-# result and calling os._exit(0) was enough to overwrite the real one.
-#
-# Results now travel through a file named by `--result-out`, wrapped in a
-# one-shot token that the parent hands to the child over *stdin* (never argv,
-# never the environment -- `/proc/self/environ` keeps a snapshot that survives
-# `os.environ.pop`). The child consumes stdin before any task module is
-# imported, so candidate code cannot recover the token and cannot mint an
-# acceptable result file.
 
 _RESULT_TOKEN: str | None = None
 

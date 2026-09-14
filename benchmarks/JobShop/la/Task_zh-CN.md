@@ -34,9 +34,8 @@
 - `duration_matrix[j][k]`：工件 `j` 第 `k` 道工序的加工时间
 - `machines_matrix[j][k]`：工件 `j` 第 `k` 道工序使用的机器
 
-**不包含元数据**。`optimum`、`lower_bound`、`upper_bound` 是评分的分母，只保留在
-评测器一侧；求解器若能读到它们，就等于自己给自己判分。实例由评测器从
-`JobShop/data/benchmark_instances.json` 读取，不由候选方提供。
+实例不包含 `optimum`、`lower_bound`、`upper_bound`；这些值由评测器保留用于评分。
+实例由评测器从 `JobShop/data/benchmark_instances.json` 读取。
 
 ### 输出（概念层面）
 

@@ -47,8 +47,7 @@ def optimize_circuit(input_circuit, target, case):
 ## 执行模型
 
 `baseline/solve.py` 在独立解释器中运行。输入电路以 OpenQASM 3 传入，你返回的电路
-也会被导出为 OpenQASM 3 并由评测器重新解析后才做度量。跨越这条边界的只有电路本身，
-因此重写 `count_ops` / `depth` / `size` 不会影响分数。
+也会被导出为 OpenQASM 3，并由评测器重新解析和计算指标。
 
 ## 成本函数与归一化分数
 成本函数：

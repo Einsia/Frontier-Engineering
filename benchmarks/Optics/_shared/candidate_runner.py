@@ -1,24 +1,13 @@
 #!/usr/bin/env python3
-"""Scorer-owned bootstrap that executes an Optics ``fiber_*`` candidate.
+"""Execute an Optics ``fiber_*`` candidate in its staged workspace.
 
-This file runs *inside* the isolated sandbox created by
-``benchmarks/_shared/candidate_sandbox.py``. Its whole job is to turn the
-in-process solver contract (``fn(**scenario) -> dict of arrays``) into a
-process boundary:
+``scenario.json`` supplies keyword arguments for the entrypoint in
+``candidate_solver.py``. The result is written to ``submission.json`` as
+``{"solution": ...}``. The scorer validates every field and computes the score;
+the runner shares a process with candidate code and its output is untrusted.
 
-    cwd/scenario.json        -> kwargs for the candidate entrypoint
-    cwd/candidate_solver.py  -> the candidate (staged as an input, not a module
-                                on the task's sys.path)
-    cwd/submission.json      -> {"solution": {...}} written back to the scorer
-
-Everything the candidate can reach from here is the temporary cwd: three files
-and nothing else. In particular ``verification/oracle.py`` is not present and
-not importable, which is the point of the conversion -- an archived candidate
-did ``from oracle import select_mcs_power_oracle`` and returned the reference
-answer as its own.
-
-The runner shares a process with the candidate, so nothing it writes is
-trusted: the scorer re-validates every field and recomputes the score itself.
+The workspace does not include the verification directory. Filesystem access
+beyond that workspace depends on the sandbox mode selected by the caller.
 """
 
 from __future__ import annotations

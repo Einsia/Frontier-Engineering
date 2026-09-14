@@ -54,8 +54,7 @@ def compute_dm_commands(slopes, reconstructor, control_model, prev_commands=None
 
 ## 执行契约（候选在独立进程中运行）
 
-`verification/evaluate.py` 不再把 `baseline/init.py` import 进评分进程，而是把它
-作为独立脚本在临时目录中启动，因此候选无法观察或干预评分过程。
+`verification/evaluate.py` 在独立子进程的临时工作目录中运行 `baseline/init.py`。
 
 评测器放进该目录的输入（`problem.npz`，用
 `np.load("problem.npz", allow_pickle=False)` 读取）：

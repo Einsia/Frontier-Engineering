@@ -1,13 +1,7 @@
-"""Scorer-owned problem definition for Holographic H2 (multi-plane focusing).
+"""Scorer-owned problem definition for multi-plane focusing.
 
-This file used to be ``make_default_spec()`` inside ``baseline/init.py``: the
-*candidate* declared the observation planes, the spot coordinates and the target
-power ratios, and was then graded against its own declaration. Moving it here
-makes the problem fixed and identical for every submission.
-
-``verification/`` is read-only for candidates (see ``frontier_eval/readonly_files.txt``)
-and ``verification/evaluate.py`` imports this module *before* the candidate
-process starts.
+Observation planes, spot coordinates and target power ratios are defined here
+and loaded by the evaluator before candidate execution.
 """
 
 from __future__ import annotations

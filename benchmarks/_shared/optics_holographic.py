@@ -1,46 +1,14 @@
-"""Shared plumbing for the four Optics ``holographic_*`` diffractive-design tasks.
+"""Shared evaluation support for the four Optics ``holographic_*`` tasks.
 
-Historically each of those four evaluators asked the *candidate* for everything
-it needed to produce a score::
+The scorer owns the problem specification, optical model and metrics. The
+candidate runs in a subprocess and returns real-valued phase or thickness maps
+as arrays in ``submission.npz``. The scorer loads arrays with
+``allow_pickle=False``, validates their shape and values, constructs the optical
+system and recomputes its propagation and score.
 
-    spec   = baseline_module.make_default_spec()      # the problem definition
-    out    = result["system"].measure_at_z(...)       # the forward physics
-    target = result["target_field"]                   # the thing to match
-
-The candidate was therefore simultaneously the author of the problem, the
-simulator, and (transitively) the judge. An archived submission exploited this
-by returning a system whose ``measure_at_z`` was a lookup table::
-
-    class _LookupSystem:
-        def measure_at_z(self, input_field, z):
-            return self.outputs[z]      # == the target field it also returned
-
-"predicted" and "target" then agreed to machine precision and the run scored
-0.9999999999 while the runner-up scored 0.72.
-
-The scorer consumes only design arrays: *no callable ever crosses the
-boundary.* The scorer owns the problem specification (``verification/problem_spec.py``
-in each task), owns the optical model, and owns the metrics. The candidate runs
-alone in a subprocess and hands back one thing -- the decision variables, i.e.
-the real-valued phase/thickness maps of the modulator stack -- as plain arrays in
-an ``.npz``. The scorer then builds the modulators itself, propagates the field
-itself, and computes every number itself.
-
-A ``_LookupSystem`` cannot be expressed in that contract: an ``.npz`` holds
-arrays, ``allow_pickle=False`` rejects anything else, and ``measure_at_z`` is a
-method on an object the scorer constructs after the candidate is already dead.
-
-Invariants callers must preserve (mirrors ``candidate_sandbox``):
-
-1. Import this module, ``torch``/``torchoptics``, the task's ``problem_spec`` and
-   the reference solver before running the candidate. The candidate has a
-   restricted filesystem and cannot access the scorer or its private inputs.
-2. Never read a score, metric, loss or field out of the candidate's submission.
-   Only the decision variables are consumed, and only after ``validate_array``.
-3. A crash, a timeout, a missing/unreadable ``submission.npz`` or an array that
-   fails validation is a hard rejection: the evaluator must not write
-   ``summary.json`` and must exit non-zero, so ``frontier_eval/parse_result.py``
-   records ``combined_score = -1e18`` / ``valid = 0``.
+Callers must import scoring dependencies before running the candidate, consume
+only validated design variables, and reject crashes, timeouts and malformed
+output. Candidate-provided scores, fields and callables are not scoring inputs.
 """
 
 from __future__ import annotations
@@ -259,7 +227,7 @@ def run_candidate_arrays(
         )
 
     try:
-        # allow_pickle=False is the structural half of the fix: an object array
+        # allow_pickle=False rejects object arrays: an object array
         # (a "system", a lambda, a pickled callable) cannot survive this load.
         with np.load(io.BytesIO(run.read_output_bytes(SUBMISSION_NAME)), allow_pickle=False) as data:
             present = set(data.files)
@@ -415,11 +383,7 @@ def build_target_field(
     z: float,
     device: str,
 ):
-    """Amplitude-domain target: sum of ``sqrt(ratio) * gaussian(offset=center)``.
-
-    Kept numerically identical to the ``_build_target_field`` bodies it replaces,
-    so scores stay comparable with the historical leaderboard -- the only change
-    is *who* calls it.
+    """Build an amplitude target as ``sum(sqrt(ratio) * gaussian(center))``.
     """
     import torch  # noqa: PLC0415
     from torchoptics import Field  # noqa: PLC0415

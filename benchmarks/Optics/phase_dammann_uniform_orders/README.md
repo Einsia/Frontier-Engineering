@@ -43,11 +43,8 @@ PYTHONPATH=. python benchmarks/Optics/phase_dammann_uniform_orders/verification/
 
 Oracle = best-of(`SciPy-DE`, literature transition table).
 
-The shared scoring helpers live in `benchmarks/Optics/_shared/phase_common.py`,
-outside every benchmark directory so no `copy_files.txt` entry can pull them into
-the sandbox the candidate is dropped into.
+Shared scoring helpers are in `benchmarks/Optics/_shared/phase_common.py`.
 
-`baseline/init.py` is not importable as a solver API any more: `validate.py` runs it
-as a subprocess in a throwaway directory and reads only `submission.json`. Running it
-by hand therefore needs a directory containing `problem.json` / `problem.npz`; the
-simplest way to exercise it is to run the validator.
+`validate.py` runs `baseline/init.py` in a subprocess with a temporary working
+directory and reads `submission.json`. Standalone execution requires a directory
+containing `problem.json` and `problem.npz`; running the validator prepares these inputs.

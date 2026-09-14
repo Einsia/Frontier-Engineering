@@ -92,17 +92,10 @@ def score_solution(solution_cst: dict[int, int]):
 
 
 class _Validation:
-    """Strict, scorer-owned checks on the candidate's reported CST.
+    """Validate the candidate's reported CST values.
 
-    The historical exploit here was a ``dict`` subclass that used
-    ``inspect.stack()`` to hand back a compliant CST to the SLA check and a
-    more aggressive CST to the cost function -- one "solution" wearing two
-    faces. Running the candidate in a subprocess and reading back only JSON
-    already makes that attack impossible (JSON has no notion of a class or a
-    call stack); what remains here is normalizing the parsed JSON into a
-    plain ``{int: int}`` dict (JSON object keys are always strings) and
-    bounding the values so a candidate cannot smuggle in a CST that blows up
-    or dominates ``net_lead_time``.
+    Normalize JSON object keys into a plain ``{int: int}`` dictionary and enforce
+    bounds before computing net lead time and cost.
     """
 
     def __init__(self) -> None:

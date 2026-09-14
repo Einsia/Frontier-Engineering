@@ -1,17 +1,10 @@
 #!/usr/bin/env python
-"""Validation for Task 02 -- hard Fourier pattern holography, score in [0, 100].
+"""Validate Fourier pattern holography and report a score in [0, 100].
 
-Scoring contract (rewritten after the isolation audit)
-------------------------------------------------------
-1. ``verification/problem.py`` authors the aperture and the target pattern.
-   The archived 99.99998936 run redefined ``target_amp`` in its own
-   ``build_problem`` as the far field of a flat-phase aperture and then returned
-   an all-zero phase; that is now impossible, because the target arrives from
-   here as a read-only input.
-2. The candidate runs as a subprocess in a throwaway directory and writes
-   ``submission.json`` containing only its phase map.
-3. Propagation, NMSE, energy-in-target, dark suppression and the score are all
-   recomputed here from ``verification/metrics.py``.
+The scorer supplies the aperture and target pattern. The candidate runs in a
+subprocess and returns its phase map in ``submission.json``. The scorer then
+computes propagation, NMSE, energy in target, dark suppression and the score
+using ``verification/metrics.py``.
 """
 
 from __future__ import annotations

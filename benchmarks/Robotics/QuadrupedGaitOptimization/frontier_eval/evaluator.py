@@ -1,64 +1,13 @@
-"""Hardened unified evaluator for Robotics/QuadrupedGaitOptimization.
+"""Evaluator for quadruped gait optimization.
 
-What was wrong
---------------
-The candidate was already run as a subprocess, but the scoring code and the
-simulated world were fetched *after* it had had a turn on the same filesystem::
+The scorer snapshots verification code and reference assets before candidate
+execution and loads the simulator from that private tree. The candidate runs
+in a subprocess and returns eight finite, non-boolean gait parameters within
+the trusted bounds. The MuJoCo rollout checks roll, pitch, torque and minimum
+progress, then scores distance divided by duration.
 
-    proc = subprocess.run([sys.executable, sandbox_program], ...)   # candidate
-    ...
-    eval_path = (benchmark_dir / "verification" / "evaluator.py").resolve()
-    spec.loader.exec_module(module)                                 # scorer
-    raw_speed = float(module.evaluate(sandbox_submission))
-
-``benchmark_dir`` comes from ``FRONTIER_ENGINEERING_ROOT``, which the harness
-points at the real repository, and the whole environment was passed straight
-through to the child. That is invariant 1 of ``benchmarks/_shared/candidate_sandbox``
-violated, and both consequences were confirmed exploitable against the old file:
-
-1. **Scorer loaded from a path the candidate had just written.** A candidate
-   whose body was ``(repo/.../verification/evaluator.py).write_text(
-   "def evaluate(p): return 999.0")`` plus a junk ``{"junk": 1}`` submission was
-   graded by its own code: ``combined_score`` 0.022154337029966706 (honest
-   baseline, 0.0222 m/s) -> **999.0**.
-2. **The graded instance was supplied by the candidate.** ``evaluate()`` resolves
-   ``references/gait_config.json`` and ``references/ant.xml`` from its own
-   ``__file__``, i.e. re-reads them at scoring time. Rewriting ``gait_config.json``
-   so ``ranges`` is unbounded and ``torque_limit`` / ``pitch_roll_limit_rad`` /
-   ``min_distance_m`` are disabled, then submitting out-of-range gait parameters
-   (``step_frequency=3.0``, ``step_length=5.0``), measured **0.5866806310579801**
-   m/s against the same trusted simulator code -- a 26x inflation with no change
-   to the scorer at all. ``ant.xml`` is the same class of hole: the candidate can
-   redefine the robot it is graded on.
-
-The fix
--------
-* A *private* copy of ``verification/`` and ``references/`` is staged, and the
-  trusted scorer is exec_module'd from that copy (mujoco and numpy included),
-  **before** the candidate is started. Because the trusted module resolves its
-  config and its model relative to ``__file__``, importing it from the private
-  tree pins both to bytes captured ahead of the candidate. The candidate is never
-  told where that tree is.
-* The candidate runs via ``candidate_sandbox.run_candidate_isolated``: its own
-  process, a scrubbed environment (no ``FRONTIER_ENGINEERING_ROOT``), resource
-  limits and a hard timeout. It never enters this process, so it cannot rebind
-  the rollout.
-* The eight gait parameters are re-validated here, on the scorer's side, against
-  the trusted ranges, with an explicit finite/non-bool check ahead of the
-  interval test -- ``lo <= NaN <= hi`` is False, so NaN was already rejected, but
-  by accident rather than on purpose.
-
-Deliberately unchanged: ``verification/evaluator.py`` is byte-for-byte the same
-file. The MuJoCo rollout, the PD controller, the roll/pitch and torque gates, the
-minimum-progress gate and the ``speed = distance / duration`` objective all still
-live there and are still the only thing that produces a number. An honest
-candidate's score is bit-identical to the pre-hardening value in this
-environment (0.022154337029966706 for ``baseline/solution.py``; note that
-``baseline/result_log.txt`` records 0.02215433702997223, a ~2.5e-13 drift from a
-different mujoco build that predates this change).
-
-Not fixed here, reported instead: the scenario is fixed and unseeded, so a
-candidate can overfit the single rollout completely.
+The task uses one fixed, unseeded scenario, so it does not measure generalization
+to other rollouts. Filesystem visibility depends on the sandbox mode.
 """
 
 from __future__ import annotations
@@ -76,9 +25,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-# The pre-hardening evaluator reported 0.0 for an unusable run, and 0.0 is what
-# the trusted evaluator itself returns for every hard-constraint violation. It is
-# kept verbatim so hardening moves no published number, honest or otherwise.
+# Invalid runs receive 0.0, matching hard-constraint failures in the simulator.
 INVALID_COMBINED_SCORE = 0.0
 
 TASK_NAME = "QuadrupedGaitOptimization"
@@ -301,10 +248,8 @@ def evaluate(program_path: str, *, repo_root: Path | None = None):
                 },
                 expected_outputs=("submission.json",),
                 timeout_s=timeout_s,
-                # Copy into the sandbox: keeps sys.path[0] and __file__ inside a
-                # directory holding nothing but the candidate and its own copies
-                # of the references. Matches the pre-hardening contract, where
-                # the candidate ran from a scratch dir containing only itself.
+                # Stage the candidate with its own reference copies so its
+                # default import path points at that temporary workspace.
                 copy_into_workdir=True,
                 env_allowlist=CANDIDATE_ENV_ALLOWLIST,
                 rlimits=CANDIDATE_RLIMITS,

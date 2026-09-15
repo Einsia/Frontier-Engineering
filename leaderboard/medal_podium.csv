@@ -1,7 +1,7 @@
 Task,Baseline,Gold,Gold_model,Silver,Silver_model,Bronze,Bronze_model
 Aerodynamics_CarAerodynamicsSensing,0.9617,0.9632,deepseek-v3.2/gemini-3.1-pro-preview/qwen3-coder-next,0.9632,deepseek-v3.2/gemini-3.1-pro-preview/qwen3-coder-next,0.9632,deepseek-v3.2/gemini-3.1-pro-preview/qwen3-coder-next
 Astrodynamics_MannedLunarLanding,4577.437,6839.0331,glm-5,6660.942428,gpt-5.4,6079.2455,deepseek-v3.2
-ComputerSystems_MallocLab,28,96.0,claude-opus-4.6,86.0,glm-5,57.0,grok-4.20
+ComputerSystems_MallocLab,28.145172775318017,84.05590296956399,claude-opus-4.6,68.13746400834182,glm-5,50.18820374517181,gemini-3.1-pro-preview
 Cryptographic_AES-128,7.5209,39.824967043300866,gpt-5.4,12.4591,deepseek-v3.2,11.8617,claude-opus-4.6
 Cryptographic_SHA-256,9.8274,26.34045367870492,gpt-5.4,17.2504,grok-4.20,16.7955,claude-opus-4.6
 Cryptographic_SHA3-256,16.0932,37.44512785396786,gpt-5.4,18.3478,seed-2.0-pro,17.5778,glm-5

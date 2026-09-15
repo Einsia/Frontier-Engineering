@@ -36,9 +36,9 @@ diagnostics are on the [website leaderboard](https://lab.einsia.ai/frontier-eng/
 | 1 | claude-opus-4.6 | 0.533 | 0.501 | 14 | 15 | 3 |
 | 2 | gpt-5.4 | 0.454 | 0.267 | 18 | 4 | 2 |
 | 3 | glm-5 | 0.347 | 0.300 | 7 | 8 | 12 |
-| 4 | gemini-3.1-pro-preview | 0.277 | 0.267 | 7 | 7 | 4 |
+| 4 | gemini-3.1-pro-preview | 0.284 | 0.300 | 7 | 7 | 5 |
 | 5 | deepseek-v3.2 | 0.269 | 0.299 | 6 | 6 | 8 |
-| 6 | grok-4.20 | 0.227 | 0.200 | 6 | 5 | 4 |
+| 6 | grok-4.20 | 0.220 | 0.167 | 6 | 5 | 3 |
 | 7 | seed-2.0-pro | 0.206 | 0.100 | 6 | 4 | 3 |
 | 8 | qwen3-coder-next | 0.170 | 0.066 | 5 | 3 | 3 |
 

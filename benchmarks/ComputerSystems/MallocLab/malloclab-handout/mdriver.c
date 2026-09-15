@@ -132,72 +132,6 @@ static void unix_error(char *msg);
 static void malloc_error(int tracenum, int opnum, char *msg);
 static void app_error(char *msg);
 
-/*******************************************************************
- * Authenticated result channel
- *
- * The score used to travel to the grader over stdout, which mm.c --
- * linked into this very binary -- can write to. A single extra
- * printf("Score = ... = 100/100") after ours was a perfect score,
- * because the parser takes the last matching line.
- *
- * So the grader now generates a per-run token, hands it to us on stdin,
- * and reads the result from the file named by -o. Anything not carrying
- * the token is not a result. main() consumes and closes stdin before it
- * touches the allocator, so no code reachable from mm_init/mm_malloc/
- * mm_free/mm_realloc can obtain it.
- *
- * Known limit: a __attribute__((constructor)) in mm.c runs before main()
- * and can read stdin first. read_run_token() then sees an empty stdin and
- * aborts the run, so that attempt is loud rather than silent -- but a
- * candidate that re-supplies the token on fd 0 defeats this. Closing that
- * properly needs the allocator out of the driver's address space, which
- * this benchmark's premise does not allow. See README.
- *******************************************************************/
-static char run_token[128];
-
-static void read_run_token(void) {
-  size_t n;
-
-  if (fgets(run_token, (int)sizeof(run_token), stdin) == NULL) {
-    fprintf(stderr,
-            "ERROR: no run token on stdin. The grader supplies one; if it is "
-            "missing here it was consumed before main() ran.\n");
-    exit(2);
-  }
-  n = strlen(run_token);
-  while (n > 0 && (run_token[n - 1] == '\n' || run_token[n - 1] == '\r'))
-    run_token[--n] = '\0';
-  if (n == 0) {
-    fprintf(stderr, "ERROR: empty run token on stdin.\n");
-    exit(2);
-  }
-  /* Nothing downstream needs stdin; take it away so mm.c cannot re-read it. */
-  if (freopen("/dev/null", "r", stdin) == NULL)
-    fclose(stdin);
-}
-
-static void write_result_file(const char *path, double p1, double p2,
-                              double score, int numcorrect, int num_tracefiles,
-                              int errors) {
-  FILE *f = fopen(path, "w");
-  if (f == NULL) {
-    fprintf(stderr, "ERROR: cannot open result file %s: %s\n", path,
-            strerror(errno));
-    exit(2);
-  }
-  fprintf(f,
-          "{\"run_token\": \"%s\", \"util_points\": %.6f, \"thru_points\": "
-          "%.6f, \"score_100\": %.6f, \"testcases_passed\": %d, "
-          "\"testcases_total\": %d, \"errors\": %d}\n",
-          run_token, p1 * 100.0, p2 * 100.0, score, numcorrect, num_tracefiles,
-          errors);
-  if (fclose(f) != 0) {
-    fprintf(stderr, "ERROR: cannot write result file %s: %s\n", path,
-            strerror(errno));
-    exit(2);
-  }
-}
-
 /**************
  * Main routine
  **************/
@@ -215,26 +149,16 @@ int main(int argc, char **argv) {
   int team_check = 1; /* If set, check team structure (reset by -a) */
   int run_libc = 0;   /* If set, run libc malloc (set by -l) */
   int autograder = 0; /* If set, emit summary info for autograder (-g) */
-  char *result_path = NULL; /* -o: authenticated result file for the grader */
 
   /* temporaries used to compute the performance index */
   double secs, ops, util, avg_mm_util, avg_mm_throughput, p1, p2, score;
   int numcorrect;
 
   /*
-   * Take the run token off stdin before anything else. This must stay the
-   * first statement in main(): everything after it may reach mm.c.
-   */
-  read_run_token();
-
-  /*
    * Read and interpret the command line arguments
    */
-  while ((c = getopt(argc, argv, "f:t:o:hvVgal")) != EOF) {
+  while ((c = getopt(argc, argv, "f:t:hvVgal")) != EOF) {
     switch (c) {
-    case 'o': /* Write the authenticated result record here */
-      result_path = optarg;
-      break;
     case 'g': /* Generate summary info for the autograder */
       autograder = 1;
       break;
@@ -475,14 +399,6 @@ int main(int argc, char **argv) {
     printf("correct:%d\n", numcorrect);
     printf("score:%.0f\n", score);
   }
-
-  /*
-   * The number above is for humans. The grader reads this file, and scores
-   * nothing if it is absent or does not carry the run token.
-   */
-  if (result_path != NULL)
-    write_result_file(result_path, p1, p2, score, numcorrect, num_tracefiles,
-                      errors);
 
   exit(0);
 }
@@ -1082,16 +998,13 @@ void malloc_error(int tracenum, int opnum, char *msg) {
  * usage - Explain the command line arguments
  */
 static void usage(void) {
-  fprintf(stderr,
-          "Usage: mdriver [-hvVal] [-f <file>] [-t <dir>] [-o <file>]\n");
+  fprintf(stderr, "Usage: mdriver [-hvVal] [-f <file>] [-t <dir>]\n");
   fprintf(stderr, "Options\n");
   fprintf(stderr, "\t-a         Don't check the team structure.\n");
   fprintf(stderr, "\t-f <file>  Use <file> as the trace file.\n");
   fprintf(stderr, "\t-g         Generate summary info for autograder.\n");
   fprintf(stderr, "\t-h         Print this message.\n");
   fprintf(stderr, "\t-l         Run libc malloc as well.\n");
-  fprintf(stderr,
-          "\t-o <file>  Write the authenticated result record here.\n");
   fprintf(stderr, "\t-t <dir>   Directory to find default traces.\n");
   fprintf(stderr, "\t-v         Print per-trace performance breakdowns.\n");
   fprintf(stderr, "\t-V         Print additional debug info.\n");

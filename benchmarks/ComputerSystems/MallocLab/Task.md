@@ -113,9 +113,9 @@ The `memlib.c` package simulates a memory system for the dynamic memory allocato
 
 * Interface functions in `mm.c` must not be modified.
 
-* `mm.c` must not read standard input.
+* Official scoring provides no file, network, process, standard-input, or clock interfaces.
 
-* System library functions must not be called.
+* System allocation functions (`malloc`, `free`, `realloc`, `sbrk`, `mmap`) must not be called; obtain heap space through `mem_sbrk`. The runtime supports `memcpy`, `memmove`, `memset`, `memcmp`, and `strlen`.
 
 * Global or static composite data structures, such as arrays, structures, trees, or lists, must not be defined in the `mm.c` program. However, global scalar variables, such as integers, floating-point numbers, and pointers, can be declared in `mm.c`.
 
@@ -123,16 +123,17 @@ The `memlib.c` package simulates a memory system for the dynamic memory allocato
 
 ## Scoring Criteria
 
-The evaluator reads the result file written by `mdriver`. The allocator and
-driver execute in the same process and share an address space.
+Official scoring uses a Wasm64 allocator and a trusted host driver. The host owns the traces, heap high-water mark, and score, and checks allocation bounds, alignment, overlap, and preserved data. Each passing trace is independently executed and validated ten times; throughput uses the median allocator-call time measured by the host. Compilation, runtime initialization, and host payload checks are excluded from call time. Failed traces contribute no utilization or completed operations.
+
+See the task README for the scoring command. Native `mdriver` remains a local debugging tool; its timings are not directly comparable to isolated-runtime scores.
 
 * Space Utilization: The ratio between the maximum amount of memory used by the program and the maximum heap size used by the allocator; the optimal ratio is 1.
 
 * Throughput: Kops (kilo operations per second)
 
-* Scoring Formula: $$P = wU + (1 - w)\min(1, \frac{T}{T_{libc}})$$
+* Scoring Formula: $$P = 100\left(wU + (1-w)\min(1,T/T_{ref})\right)m/N$$
 
-* where w is space utilization, and $T_{libc}$ is throughput. $T_{libc}$ is the throughput of libc malloc tested by the teaching assistant on the course cluster. The specific value is based on `AVG_LIBC_THRUPUT` in `config.h`. A balance needs to be considered when optimizing space utilization and throughput.
+* Here $w=0.6$, $N=11$, $m$ is the number of passing traces, and $U$ is mean utilization across all traces (zero for failed traces). $T$ is completed operations divided by the sum of median call times for passing traces. The fixed reference cap is $T_{ref}=10{,}000{,}000$ operations/second. It is a score normalization constant, not a fresh measurement of native libc performance.
 
 ## Some Suggestions
 

@@ -1,0 +1,38 @@
+{
+  "baseline": "LRU (CacheLib LruAllocator default)",
+  "command": "{python} baseline/solution.py {problem}",
+  "graded_workload": {
+    "combined_score": 0.2662958338063344,
+    "command": "{python} verification/evaluator.py {candidate} {problem}",
+    "metrics": {
+      "baseline_hit_rate_lru": 0.2662958338063344,
+      "capacity_objects": 417,
+      "hit_rate": 0.2662958338063344,
+      "hits": 11729,
+      "lookups": 44045,
+      "misses": 32316,
+      "offline_optimum_hit_rate": 0.43246679532296517
+    },
+    "valid": true
+  },
+  "reference_policies_on_the_graded_workload_at_the_graded_capacity": {
+    "fifo_hit_rate": 0.26398002043364743,
+    "lru_2q_hit_rate": 0.28348280168009987,
+    "lru_hit_rate": 0.2662958338063344,
+    "offline_optimum_hit_rate": 0.43246679532296517
+  },
+  "visible_workload": {
+    "cache_size": 422,
+    "distinct_keys": 21143,
+    "exit_code": 0,
+    "hit_rate": 0.264167254362,
+    "hits": 11612,
+    "illegal": null,
+    "lookups": 43957,
+    "miss_ratio": 0.735832745638,
+    "misses": 32345,
+    "runtime_seconds": 0.129,
+    "sha256": "5503257dbd9d73c455754c6caebef8409cecf17188dfef2cad195acfdb8715d1",
+    "trace": "traces/kvcache_202206_traces_1.csv"
+  }
+}

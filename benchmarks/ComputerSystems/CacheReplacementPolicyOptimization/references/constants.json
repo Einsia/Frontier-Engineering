@@ -1,0 +1,77 @@
+{
+  "task": "CacheReplacementPolicyOptimization",
+  "domain": "ComputerSystems",
+  "description": "Design and ship an ONLINE cache replacement (eviction) policy for a DRAM object cache that replays a real Meta production kvcache trace published for CacheBench, and beat CacheLib's default LRU on HIT RATE at a fixed cache capacity.",
+
+  "score": {
+    "name": "hit_rate",
+    "definition": "hits / lookups on the held-out workload at the frozen capacity",
+    "range": [0.0, 1.0],
+    "external_basis": "CacheBench reports cache hit ratio; the cache literature reports the complement (miss ratio). No composite weights, bonuses or penalties are used.",
+    "invalid_sentinel": -1e18
+  },
+
+  "workload": {
+    "family": "CacheLib workload sharing bucket (Meta published cache traces for CacheBench)",
+    "agent_visible": {
+      "shipped_path": "traces/kvcache_202206_traces_1.csv",
+      "published_file": "pub/kvcache/202206/kvcache_traces_1.csv",
+      "source": "https://cachelib-workload-sharing.s3.amazonaws.com/pub/kvcache/202206/kvcache_traces_1.csv",
+      "byte_range": "bytes=0-1048575",
+      "bytes": 1048554,
+      "sha256": "5503257dbd9d73c455754c6caebef8409cecf17188dfef2cad195acfdb8715d1",
+      "rows": 44379,
+      "lookups": 43957,
+      "distinct_keys": 21143
+    },
+    "evaluator_only": {
+      "shipped_path": "verification/heldout/kvcache_202206_traces_2.csv",
+      "published_file": "pub/kvcache/202206/kvcache_traces_2.csv",
+      "source": "https://cachelib-workload-sharing.s3.amazonaws.com/pub/kvcache/202206/kvcache_traces_2.csv",
+      "byte_range": "bytes=0-1048575",
+      "bytes": 1048570,
+      "sha256": "f2d3b494b166199543ef02aaf98185de5d818d07ce0f0b677f77254003f77bfa",
+      "rows": 44414,
+      "lookups": 44045,
+      "distinct_keys": 20881
+    },
+    "published_object_identity": {
+      "kvcache_traces_1.csv": {"bytes": 4892102575, "etag": "3841ff06e9706c30e65c72e3b9e38263-292", "last_modified": "2023-02-09T21:38:58.000Z"},
+      "kvcache_traces_2.csv": {"bytes": 4814294537, "etag": "7516698ebd6864fac8cfcdd3ba640071-287", "last_modified": "2023-02-09T21:38:58.000Z"}
+    }
+  },
+
+  "replay_semantics": {
+    "generator": "cachebench replay (cachelib/cachebench/workload/KVReplayGenerator.h)",
+    "columns": "key,op,size,op_count,key_size (KVReplayGenerator.h: 'Default order is key,op,size,op_count,key_size,ttl')",
+    "ignore_op_count": true,
+    "ignore_op_count_basis": "cachelib/cachebench/util/Config.h:275-276 ('ignore opCount and does not repeat operations'), parsed at util/Config.cpp:61",
+    "lookups": "CacheBench enableLookaside semantics ('follow get misses with a set', Config.h:271) = the classic reference-stream model: every reference is a cache lookup and a miss loads the object",
+    "skip_delete_ops": "DELETE rows are excluded deterministically (the frozen canonical protocol has no delete channel); count recorded per workload",
+    "model": "full associativity, unit-size objects, one resident victim per overflow, no lenient fallback"
+  },
+
+  "capacity": {
+    "capacity_objects": 417,
+    "capacity_fraction": 0.02,
+    "working_set_objects": 20881,
+    "definition": "cache can hold at most cache_size resident objects",
+    "fraction_basis": "documented cache-size sweep values (libCacheSim plot_mrc_size --sizes=0.001,...,0.4; cachesim ... 0.001,0.01,0.1,0.2)",
+    "selection_criterion": "the documented fraction with the largest LRU -> offline-optimum headroom on this workload (0.166171 hits, vs 0.136724 at 0.01 and 0.149938 at 0.05)",
+    "cachebench_equivalent_field": "cache_config.cacheSizeMB (byte capacity; not transferable to a sampled prefix - CacheLib documents resource scaling for reduced traces)"
+  },
+
+  "reference_policies": {
+    "lru_hits": 11729,
+    "fifo_hits": 11627,
+    "lru_2q_hits": 12486,
+    "offline_optimum_hits": 19048,
+    "baseline": "LRU (CacheLib LruAllocator default)",
+    "offline_optimum_note": "Belady 1966; a bound only, never a submission"
+  },
+
+  "protocol": "FE-BATCH-JSON-STDIO-V1",
+  "evaluator_entry_point": "{python} verification/evaluator.py {candidate} {problem}",
+  "baseline_entry_point": "{python} baseline/solution.py {problem}",
+  "agent_editable_file": "policy.py"
+}

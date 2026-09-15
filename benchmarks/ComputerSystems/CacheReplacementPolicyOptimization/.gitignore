@@ -1,0 +1,8 @@
+# Keep the frozen real trace data. The repository root .gitignore excludes
+# `*.csv` (whitelisting only `leaderboard/*.csv`), but both traces below are
+# sha256-checked by verification/evaluator.py and must ship verbatim.
+!traces/*.csv
+!verification/heldout/*.csv
+
+__pycache__/
+*.pyc

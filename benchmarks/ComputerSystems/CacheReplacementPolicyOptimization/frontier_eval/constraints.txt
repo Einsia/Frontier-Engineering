@@ -1,0 +1,20 @@
+CacheReplacementPolicyOptimization constraints:
+1) Only policy.py may be edited, and only inside its EVOLVE-BLOCK region.
+2) The submission is a single online replacement policy: the victim chosen at
+   access i may depend only on accesses 0..i of that run.
+3) The workload (traces/kvcache_202206_traces_1.csv), the cache capacity, the
+   evaluator (verification/), the reference model, the baseline and this file
+   are frozen and must not be modified, re-read or regenerated.
+4) The graded workload is a different real trace of the same family that the
+   agent never receives: it is delivered to the submission only as the
+   instance's key list at run time. Hard-coding keys or a trace cannot help.
+5) The submission prints exactly one JSON object on stdout and exits 0
+   (FE-BATCH-JSON-STDIO-V1). stdin is closed; no files other than argv[1] may
+   be read; no network, no subprocesses, no wall-clock, no randomness.
+6) The evaluator replays the submission under the frozen model: a hit may not
+   evict, a miss on a full cache must evict exactly one resident key, and the
+   submission is re-run on the first half of the same run, where it must make
+   exactly the same decisions (an online policy does).
+7) The hit rate may not exceed the offline optimum (Belady 1966); doing so is
+   rejected, not rewarded.
+8) Standard library only; deterministic; policy.py at most 64 KiB.

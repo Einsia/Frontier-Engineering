@@ -1,5 +1,1 @@
-run_meta.txt
-make_clean.log
-make.log
-mdriver.stdout.txt
-mdriver.stderr.txt
+malloc_details.json

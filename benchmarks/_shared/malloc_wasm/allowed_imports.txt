@@ -1,0 +1,5 @@
+mem_sbrk
+mem_heap_lo
+mem_heap_hi
+mem_heapsize
+mem_pagesize

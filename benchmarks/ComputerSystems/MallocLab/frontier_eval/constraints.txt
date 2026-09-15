@@ -8,9 +8,10 @@ MallocLab UnifiedTask constraints:
 3) Do not modify benchmark runner files (`mdriver.c`, trace files, build scripts).
    These are enforced read-only and fingerprinted; changing one invalidates the run.
 4) Candidate should target correctness first, then optimize throughput/utilization.
-5) Evaluator compiles with `make` and runs `./mdriver -V -o <result file>`.
-6) The score is read from the result file mdriver writes, NOT from its stdout.
-   The record only counts if it carries the per-run token the grader hands
-   mdriver on stdin. Printing a `Score = ... = N/100` line yourself does
-   nothing; consuming stdin before mdriver's main() reads it aborts the run
-   with a zero. mm.c must not read stdin.
+5) Official evaluation compiles C to Wasm64 with 64-bit pointers and size_t.
+   The host owns the 20 MiB simulated heap limit, correctness checks and timers.
+6) Obtain heap space through mem_sbrk. System malloc/free/realloc/sbrk/mmap
+   and file, process, network, standard-input or clock interfaces are unavailable.
+7) Preserve data across realloc and do not overwrite other live allocations.
+   A trusted host computes scores from validated operations; candidate output
+   is not a scoring channel. Native mdriver is for local debugging only.

@@ -1,0 +1,64 @@
+=======================================================================================
+                     Bookshelf Format for FPGA Placement
+=======================================================================================
+
+This document explains the differences (new features) of FPGA placement bookshelf format.
+
+1. Library cell (.lib file):
+  - Each instance has a corresponding master library cell. It is defined in nodes file;
+  - All library cells are defined in design.lib, a new addition to bookshelf format;
+
+2. PIN:
+  - All pins are defined in library file (.lib) cell section;
+  - Each instance has the same number of pins as defined in its master cell;
+  - Not all the pins of an instance are used. Some are left unconnected;
+  - Library file defines certain attributes associated with pins: direction, clock, and control;
+  - Each net is a collection of pins, as specified in nets file;
+
+3. Layout file (.scl file)
+  - Layout file is re-defined to accomodate FPGA placement;
+  - There are two section in layout file: site definition section and site map section;
+  - SITE definition speicifies available resources (LUT/FF/RAMB/DSP) that can be placed in one site;
+  - RESOURCES specifies cell names that correspond to certain resource;
+  - SITEMAP specifies the two-dimension array of sites for the entire device/chip:
+
+4. Placement file (.pl file)
+  - The location of an instance has three fields: x-coord, y-coord (to determine the SITE) and BEL (index within the SITE);
+  - In released benchmarks, placement file only contains locations of fixed instances (IBUF/OBUF/BUFGCE etc);
+    These instances' locations, including BEL numbers, are not allowed to change during placement;
+  - Placer's output placement file should contain locations of all instances;
+  - The following diagram shows the BEL number for LUTs/FFs placed inside a SLICE SITE:
+      ==========================
+      |   LUT 15   |   FF 15   |  
+      --------------------------
+      |   LUT 14   |   FF 14   |  
+      --------------------------
+      |   LUT 13   |   FF 13   |  
+      --------------------------
+      |   LUT 12   |   FF 12   |  
+      --------------------------
+      |   LUT 11   |   FF 11   |  
+      --------------------------
+      |   LUT 10   |   FF 10   |  
+      --------------------------
+      |   LUT  9   |   FF  9   |  
+      --------------------------
+      |   LUT  8   |   FF  8   |  
+      --------------------------
+      |   LUT  7   |   FF  7   |  
+      --------------------------
+      |   LUT  6   |   FF  6   |  
+      --------------------------
+      |   LUT  5   |   FF  5   |  
+      --------------------------
+      |   LUT  4   |   FF  4   |  
+      --------------------------
+      |   LUT  3   |   FF  3   |  
+      --------------------------
+      |   LUT  2   |   FF  2   |  
+      --------------------------
+      |   LUT  1   |   FF  1   |  
+      --------------------------
+      |   LUT  0   |   FF  0   |  
+      ==========================
+

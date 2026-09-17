@@ -1,0 +1,7 @@
+WakeSteeringControl constraints:
+1) Only modify the EVOLVE block in `scripts/init.py`.
+2) Keep the `yaw_policy()` signature unchanged and return shape `(n_conditions, n_turbines)`.
+3) Return only finite yaw angles in `[-25, 25]` degrees.
+4) Keep the policy deterministic and complete within the candidate timeout.
+5) Do not modify task, reference, or verification files; unified evaluation checks them as read-only.
+6) Maximize weighted farm-energy gain while limiting yaw effort and directional discontinuity.

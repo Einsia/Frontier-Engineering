@@ -1,0 +1,20 @@
+{
+  "floris_version": "4.6.6",
+  "turbine_model": "nrel_5MW",
+  "layout_rotor_diameters": [
+    [0.0, 0.0],
+    [5.0, 0.0],
+    [10.0, 0.0],
+    [0.0, 5.0],
+    [5.0, 5.0],
+    [10.0, 5.0],
+    [0.0, 10.0],
+    [5.0, 10.0],
+    [10.0, 10.0]
+  ],
+  "yaw_min_deg": -25.0,
+  "yaw_max_deg": 25.0,
+  "candidate_timeout_s": 5.0,
+  "yaw_effort_coefficient": 0.01,
+  "smoothness_coefficient": 0.002
+}

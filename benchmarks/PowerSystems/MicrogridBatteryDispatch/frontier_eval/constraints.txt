@@ -1,0 +1,6 @@
+MicrogridBatteryDispatch constraints:
+1) Modify only scripts/init.py.
+2) Keep dispatch_action(state) as the public entrypoint.
+3) Return one finite float: positive for discharge kW, negative for charge kW.
+4) Do not use external packages, file I/O, network access, or randomness.
+5) Keep EVOLVE-BLOCK markers intact and place editable policy logic inside them.

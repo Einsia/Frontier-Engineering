@@ -82,7 +82,11 @@ Frontier-Eng 目前已覆盖以下领域的任务。每个任务均配有可运�
       <td>C++ SHA3-256 吞吐量（OpenSSL 验证）</td>
     </tr>
     <tr>
-      <td rowspan="3"><b>CommunicationEngineering</b></td>
+      <td rowspan="4"><b>CommunicationEngineering</b></td>
+      <td><code>AdaptiveLinkScheduling</code></td>
+      <td>在队列、时延、公平性与功率预算约束下进行下行资源块调度、MCS 与功率控制</td>
+    </tr>
+    <tr>
       <td><code>LDPCErrorFloor</code></td>
       <td>使用 importance sampling 针对 trapping sets 估计 LDPC 码 error floor</td>
     </tr>
@@ -303,7 +307,11 @@ Frontier-Eng 目前已覆盖以下领域的任务。每个任务均配有可运�
       <td>基于 pyMOTO 的 2D 梁拓扑优化（SIMP + OC/MMA），体积分数约束</td>
     </tr>
     <tr>
-      <td rowspan="6"><b>Robotics</b></td>
+      <td rowspan="7"><b>Robotics</b></td>
+      <td><code>AGVWarehouseRouting</code></td>
+      <td>考虑巷道障碍、拥堵与转向成本的仓储 AGV 拣货顺序优化</td>
+    </tr>
+    <tr>
       <td><code>DynamicObstacleAvoidanceNavigation</code></td>
       <td>在动态环境中控制差分轮机器人从起点到终点</td>
     </tr>
@@ -342,9 +350,13 @@ Frontier-Eng 目前已覆盖以下领域的任务。每个任务均配有可运�
       <td>使用 importance sampling 估计 Hamming(127,120) 的 BER</td>
     </tr>
     <tr>
-      <td><b>PowerSystems</b></td>
+      <td rowspan="2"><b>PowerSystems</b></td>
       <td><code>EV2GymSmartCharging</code></td>
       <td>上游对齐的电动车智能充电调度</td>
+    </tr>
+    <tr>
+      <td><code>MicrogridBatteryDispatch</code></td>
+      <td>在太阳能预测、分时电价、需量电费与退化成本下优化商业微电网电池调度</td>
     </tr>
     <tr>
       <td><b>AdditiveManufacturing</b></td>

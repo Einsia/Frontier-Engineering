@@ -19,6 +19,10 @@ Communication engineering tasks involve optimizing various aspects of communicat
 
 ## Subtask Index
 
+- `AdaptiveLinkScheduling/`: Optimize downlink resource-block scheduling, MCS selection, and transmit power under queue, channel, latency, fairness, and power-budget constraints.
+  - `frontier_eval` task name: `task=unified task.benchmark=CommunicationEngineering/AdaptiveLinkScheduling`
+  - quick run: `python -m frontier_eval task=unified task.benchmark=CommunicationEngineering/AdaptiveLinkScheduling algorithm.iterations=0`
+
 - `LDPCErrorFloor/`: Estimate error floor for LDPC codes using importance sampling to handle rare trapping set events.
   - `frontier_eval` task name: `ldpc_error_floor`
   - quick run: `python -m frontier_eval task=ldpc_error_floor algorithm.iterations=0`
@@ -30,4 +34,3 @@ Communication engineering tasks involve optimizing various aspects of communicat
 - `PMDSimulation/`: Simulate Polarization Mode Dispersion (PMD) in optical fiber systems using importance sampling for rare outage events.
   - `frontier_eval` task name: `pmd_simulation`
   - quick run: `python -m frontier_eval task=pmd_simulation algorithm.iterations=0`
-

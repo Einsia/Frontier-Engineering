@@ -1,0 +1,6 @@
+AGVWarehouseRouting constraints:
+1) Modify only scripts/init.py.
+2) Keep plan_order(instance) as the public entrypoint.
+3) Return a permutation containing every pick id exactly once.
+4) Do not use external packages, file I/O, network access, or randomness.
+5) Keep EVOLVE-BLOCK markers intact and place editable routing logic inside them.

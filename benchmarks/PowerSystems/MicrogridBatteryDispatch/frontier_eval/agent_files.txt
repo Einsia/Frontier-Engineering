@@ -1,0 +1,5 @@
+README.md
+Task.md
+scripts/init.py
+verification/evaluator.py
+frontier_eval/constraints.txt

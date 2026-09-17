@@ -1,0 +1,13 @@
+
+# Temp working directories
+temp/
+
+# Debug/fix scripts
+_fix_*.py
+_check_*.py
+_debug_*.py
+
+# Evaluation artifacts
+artifacts.json
+metrics.json
+

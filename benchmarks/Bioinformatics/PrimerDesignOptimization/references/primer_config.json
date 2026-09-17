@@ -1,0 +1,97 @@
+{
+  "template": {
+    "name": "synthetic_target_001",
+    "sequence": "AAGTAAAGGCTAGTGCCCGACAAAGCGATTGTTGGGATTGTACTTGTCGGCAACGTTCCAAACGTATGGAGGACGGGTAACGTCGGGCTAATGAATTAAGGAGCATGTAGTGCGCAGAGA",
+    "description": "A 120 bp synthetic DNA template for PCR primer design optimization."
+  },
+  "amplicon": {
+    "start_index": 20,
+    "end_index": 99,
+    "strand": "forward"
+  },
+  "scoring_weights": {
+    "tm_score": 1.0,
+    "gc_content_score": 0.8,
+    "length_score": 0.5,
+    "gc_clamp_score": 0.6,
+    "self_complementarity_score": 0.7,
+    "pair_complementarity_score": 0.7,
+    "repeat_score": 0.4,
+    "hairpin_score": 0.5,
+    "mononucleotide_run_score": 0.3,
+    "product_length_score": 0.2
+  },
+  "constraints": {
+    "primer_length": {
+      "min": 18,
+      "max": 25
+    },
+    "gc_content": {
+      "min": 40.0,
+      "max": 60.0
+    },
+    "melting_temperature": {
+      "min": 50.0,
+      "max": 58.0,
+      "optimal": 55.0
+    },
+    "tm_difference_max": 3.0,
+    "gc_clamp": {
+      "required": true,
+      "max_gc_in_last_5": 4
+    },
+    "self_complementarity_max": 6,
+    "pair_complementarity_max": 6,
+    "max_repeat_length": 4,
+    "max_poly_x_run": 4,
+    "max_hairpin_stem": 8
+  },
+  "thermodynamic": {
+    "monovalent_cation_concentration": 50.0,
+    "divalent_cation_concentration": 2.0,
+    "dntp_concentration": 0.8,
+    "dna_concentration": 50.0,
+    "salt_correction_formula": "santalucia",
+    "thermodynamic_table": "breslauer",
+    "nearest_neighbor_params": {
+      "enthalpy_kcal": {
+        "AA/TT": -7.9,
+        "AT/TA": -7.2,
+        "TA/AT": -7.2,
+        "CA/GT": -8.5,
+        "GT/CA": -8.5,
+        "CT/GA": -7.8,
+        "GA/CT": -7.8,
+        "CG/GC": -10.6,
+        "GC/CG": -10.6,
+        "GG/CC": -8.0,
+        "CC/GG": -8.0
+      },
+      "entropy_cal": {
+        "AA/TT": -22.2,
+        "AT/TA": -20.4,
+        "TA/AT": -21.3,
+        "CA/GT": -22.7,
+        "GT/CA": -22.7,
+        "CT/GA": -21.0,
+        "GA/CT": -21.0,
+        "CG/GC": -27.2,
+        "GC/CG": -27.2,
+        "GG/CC": -19.9,
+        "CC/GG": -19.9
+      }
+    }
+  },
+  "optimization": {
+    "population_size": 100,
+    "generations": 50,
+    "mutation_rate": 0.1,
+    "crossover_rate": 0.8,
+    "tournament_size": 3,
+    "elite_ratio": 0.1
+  },
+  "product_length": {
+    "preferred_min": 80,
+    "preferred_max": 120
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "final_score": 0.462081,
+  "valid": true,
+  "failure_reason": "",
+  "sub_scores": {
+    "length_score": 1.0,
+    "gc_content_score": 0.5,
+    "tm_score": 0.12969333333333324,
+    "gc_clamp_score": 0.5,
+    "self_complementarity_score": 0.4166666666666667,
+    "pair_complementarity_score": 0.5,
+    "repeat_score": 0.125,
+    "hairpin_score": 0.625,
+    "mononucleotide_run_score": 0.33333333333333337,
+    "product_length_score": 1.0
+  },
+  "weighted_scores": {
+    "length_score": 0.5,
+    "gc_content_score": 0.4,
+    "tm_score": 0.12969333,
+    "gc_clamp_score": 0.3,
+    "self_complementarity_score": 0.29166667,
+    "pair_complementarity_score": 0.35,
+    "repeat_score": 0.05,
+    "hairpin_score": 0.3125,
+    "mononucleotide_run_score": 0.1,
+    "product_length_score": 0.2
+  },
+  "total_weight": 5.7
+}

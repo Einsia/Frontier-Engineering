@@ -1,0 +1,12 @@
+{
+  "template": {
+    "name": "hidden_gc_balanced_001",
+    "sequence": "GATTGGGCTTGAGCCCTCTGGCCCGGAATTAGGTCTGTTATGCGTTTGACTTGTCATTAGCCGTATGTCATGTATTTTGGTGAATACGACGGCCCAGCCTGATCTGCTTCGGTAACTCGACTTTGGTGTAATACTCTGCA",
+    "description": "Hidden validation template with balanced GC content (~50%)"
+  },
+  "amplicon": {
+    "start_index": 20,
+    "end_index": 120,
+    "strand": "forward"
+  }
+}

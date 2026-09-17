@@ -351,5 +351,10 @@ Frontier-Eng 目前已覆盖以下领域的任务。每个任务均配有可运�
       <td><code>DiffSimThermalControl</code></td>
       <td>基于可微仿真的增材制造工艺优化</td>
     </tr>
+    <tr>
+      <td><b>VehicleRouting</b></td>
+      <td><code>CVRP</code></td>
+      <td>容量约束车辆路径：单一仓库、同型车队、每客户服务一次且不超容量，最小化总距离</td>
+    </tr>
   </tbody>
 </table>

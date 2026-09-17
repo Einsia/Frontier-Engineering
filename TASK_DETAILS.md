@@ -351,5 +351,10 @@ We welcome new engineering problem ideas — even without complete verification 
       <td><code>DiffSimThermalControl</code></td>
       <td>Process optimization in additive manufacturing via differentiable simulation</td>
     </tr>
+    <tr>
+      <td><b>VehicleRouting</b></td>
+      <td><code>CVRP</code></td>
+      <td>Capacitated VRP: route a homogeneous fleet from a single depot, every customer served once within capacity, minimize total distance</td>
+    </tr>
   </tbody>
 </table>

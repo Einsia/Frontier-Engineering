@@ -1,0 +1,9 @@
+UnifiedTask constraints:
+1) Only modify `baseline/solver.py`, and only inside the EVOLVE-BLOCK-START / EVOLVE-BLOCK-END region.
+2) Preserve the public entrypoint `solve(instance)` and its output contract (a list of routes; each route is a list of customer ids 1..n, depot implicit at both ends).
+3) Do not modify benchmark assets, documentation, verification code, runtime helpers, tests, data files, or `frontier_eval/` metadata.
+4) Never read `data/reference.json` and never import or call the reference solver (`verification/ref_solver.py`); both are the scoring baseline and are off-limits.
+5) Do not hardcode solutions per instance name: evaluation includes held-out instances you have never seen, so your solver must be a general algorithm.
+6) Your solver must always produce a valid solution: every customer served exactly once, every route within capacity, no crashing, no timeouts. Invalid output scores 0 and marks the run invalid.
+7) Prioritize validity and correctness before optimization.
+8) The evaluator statically checks violations of 1/4/5 (markers, forbidden references, absolute paths, per-instance hardcoding) and runs a determinism probe (the candidate must produce identical output on the same instance across two runs); any violation scores 0.

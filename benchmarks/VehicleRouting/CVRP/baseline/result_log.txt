@@ -1,0 +1,61 @@
+CVRP baseline evaluation log
+=============================
+Solver : baseline/solver.py (random-order cheapest insertion, seed 42)
+Evaluator : verification/evaluator.py (stdlib only)
+Date   : 2026-08-10
+Command: python verification/evaluator.py baseline/solver.py
+
+combined_score: 54.69
+valid: 1.0
+  OK  VRP-19-2: score=68.00
+  OK  VRP-21-3: score=71.55
+  OK  VRP-22-4: score=66.17
+  OK  VRP-32-5: score=49.19
+  OK  VRP-37-6: score=60.18
+  OK  VRP-45-6: score=55.47
+  OK  VRP-45-7: score=57.07
+  OK  VRP-48-7: score=48.49
+  OK  VRP-54-8: score=48.45
+  OK  VRP-55-8: score=47.15
+  OK  VRP-60-10: score=45.67
+  OK  VRP-60-9: score=49.67
+  OK  VHO-22-3: score=51.85
+  OK  VHO-24-3: score=56.64
+  OK  VHO-27-4: score=58.49
+  OK  VHO-29-4: score=52.86
+  OK  VHO-33-5: score=59.13
+  OK  VHO-36-5: score=56.53
+  OK  VHO-39-6: score=63.98
+  OK  VHO-43-6: score=54.66
+  OK  VHO-47-7: score=53.07
+  OK  VHO-51-7: score=44.03
+  OK  VHO-55-8: score=50.00
+  OK  VHO-58-9: score=44.27
+wall time: 2.5s
+
+Notes
+-----
+* 24 instances = 12 public (data/instances/, VRP-*) + 12 held-out
+  (data/instances_heldout/, VHO-*). Held-out instances are scored at
+  evaluation time only and never shown to agents.
+* Reference distances are precomputed by verification/ref_solver.py
+  (deterministic, seeds (123, 2024, 7)) into data/reference.json.
+* The candidate subprocess runs without FRONTIER_EVAL_UNIFIED_* and
+  reference-distance env vars, and the evaluator statically rejects
+  candidates that reference verification code, reference.json, absolute
+  paths, or per-instance hardcoded routes (see check_candidate).
+
+Multi-seed statistics (verification/multiseed_stat.py)
+-------------------------------------------------------
+The released evaluation set is fixed, so the (deterministic) baseline scores
+identically on it. To report a multi-seed distribution, this script derives
+fresh instance sets from three seeds (generate_instances generate_instance
+seed=...) and computes each set's reference distances on the fly.
+
+Command: python verification/multiseed_stat.py --seeds 111 222 333
+
+seed 111: combined=57.24
+seed 222: combined=59.86
+seed 333: combined=56.09
+multi-seed: mean=57.73 std=1.58 min=56.09 max=59.86 seeds=[111, 222, 333]
+

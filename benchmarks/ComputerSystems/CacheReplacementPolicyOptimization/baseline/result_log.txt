@@ -1,0 +1,19 @@
+CacheReplacementPolicyOptimization baseline
+policy            : LRU (CacheLib LruAllocator default)
+command           : {python} baseline/solution.py {problem}
+
+visible workload  : traces/kvcache_202206_traces_1.csv (real Meta kvcache trace, CacheLib published)
+                    sha256 5503257dbd9d73c455754c6caebef8409cecf17188dfef2cad195acfdb8715d1
+                    lookups=43957 distinct_keys=21143 cache_size=422
+                    exits 0, hits=11612 misses=32345 hit_rate=0.264167254362 miss_ratio=0.735832745638
+                    illegal_evictions=None, runtime=0.129s
+
+graded workload   : evaluator-only real trace (see docs/PROVENANCE.md section 2)
+                    evaluator: {python} verification/evaluator.py {candidate} {problem}
+                    valid=True combined_score=0.266295833806 (hit rate)
+
+reference replays on the graded workload at the graded capacity (frozen):
+  LRU          0.266296  (hits 11729)
+  FIFO         0.263980  (hits 11627)
+  LRU-2Q       0.283483  (hits 12486)
+  offline opt  0.432467  (hits 19048)  <- bound only, never a submission

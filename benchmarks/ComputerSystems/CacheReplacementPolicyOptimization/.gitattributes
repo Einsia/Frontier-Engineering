@@ -1,0 +1,4 @@
+# The two trace files are sha256-checked by verification/evaluator.py.
+# Store and check them out verbatim (no end-of-line conversion) so the
+# digests recorded in references/constants.json hold on every platform.
+*.csv -text

@@ -1,0 +1,5 @@
+# Derived from this benchmark's frozen contract (references/constants.json).
+# No pip-installable dependency is declared: the evaluator, the baseline and the
+# reference model run on the Python standard library only.
+# There is no Docker / system-toolchain requirement: this is a pure-Python
+# trace-driven simulation of a cache replacement policy.

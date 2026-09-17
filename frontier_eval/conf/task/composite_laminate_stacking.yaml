@@ -1,0 +1,6 @@
+name: unified
+benchmark: StructuralOptimization/CompositeLaminateStacking
+
+runtime:
+  env:
+    PYTHONUTF8: "1"

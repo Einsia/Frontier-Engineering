@@ -286,7 +286,7 @@ We welcome new engineering problem ideas — even without complete verification 
       <td>JSSP YN family (Yamada and Nakano 1992)</td>
     </tr>
     <tr>
-      <td rowspan="4"><b>StructuralOptimization</b></td>
+      <td rowspan="5"><b>StructuralOptimization</b></td>
       <td><code>ISCSO2015</code></td>
       <td>Minimize weight of 45-bar 2D truss under stress / displacement constraints</td>
     </tr>
@@ -301,6 +301,10 @@ We welcome new engineering problem ideas — even without complete verification 
     <tr>
       <td><code>PyMOTOSIMPCompliance</code></td>
       <td>pyMOTO-based 2D beam topology optimization (SIMP + OC/MMA) under a volume-fraction constraint</td>
+    </tr>
+    <tr>
+      <td><code>CompositeLaminateStacking</code></td>
+      <td>Optimize balanced, symmetric 48-ply composite laminates for buckling and maximum-strain failure across ten plate cases</td>
     </tr>
     <tr>
       <td rowspan="6"><b>Robotics</b></td>

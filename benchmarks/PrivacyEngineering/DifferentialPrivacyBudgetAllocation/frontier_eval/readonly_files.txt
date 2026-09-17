@@ -1,0 +1,8 @@
+baseline/
+data/
+reference/
+references/
+verification/docker/
+verification/evaluator.py
+verification/problem.py
+verification/process_runner.py

@@ -1,0 +1,12 @@
+{
+  "citation_only": true,
+  "final_url": "https://www.cis.upenn.edu/~aaroth/Papers/privacybook.pdf",
+  "id": "src-a2b0f1538ad8494f",
+  "license": "citation-only",
+  "location": "sources/src-a2b0f1538ad8494f.raw",
+  "origin": "https://www.cis.upenn.edu/~aaroth/Papers/privacybook.pdf",
+  "publishable": true,
+  "retrieved_at": "2026-07-30T15:35:02.704493+00:00",
+  "sha256": "a2b0f1538ad8494fab07a93d328c33c2da7575ed57ecdc7a895e1b35d8379923",
+  "title": "The Algorithmic Foundations of Differential Privacy"
+}

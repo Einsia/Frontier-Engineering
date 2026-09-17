@@ -1,0 +1,175 @@
+api_version: benchgen/v1
+benchmark_id: PrivacyEngineering/DifferentialPrivacyBudgetAllocation
+title: Differential Privacy Budget Allocation for Business Analytics
+summary: Allocate a fixed differential-privacy budget across analytics queries with
+  heterogeneous sensitivity, business value, population coverage, fairness requirements,
+  and estimation-accuracy needs. Candidate solutions return a structured per-query
+  budget allocation that is checked against deterministic benchmark instances generated
+  from fixed seeds.
+archetype: structured-solution
+candidate:
+  path: scripts/init.py
+  function: solve
+  input_schema:
+    type: object
+    additionalProperties: false
+    required:
+    - queries
+    - epsilon_total
+    - fairness
+    properties:
+      queries:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          required:
+          - id
+          - sensitivity
+          - business_value
+          - population_coverage
+          - epsilon_min
+          - epsilon_max
+          - max_error
+          - group
+          properties:
+            id:
+              type: string
+            sensitivity:
+              type: number
+              minimum: 0
+            business_value:
+              type: number
+              minimum: 0
+            population_coverage:
+              type: number
+              minimum: 0
+            epsilon_min:
+              type: number
+              minimum: 0
+            epsilon_max:
+              type: number
+              minimum: 0
+            max_error:
+              type: number
+              minimum: 0
+            group:
+              type: string
+      epsilon_total:
+        type: number
+        minimum: 0
+      fairness:
+        type: object
+        additionalProperties: false
+        required:
+        - max_group_error_ratio
+        properties:
+          max_group_error_ratio:
+            type: number
+            minimum: 1
+  output_schema:
+    type: object
+    additionalProperties: false
+    required:
+    - allocations
+    properties:
+      allocations:
+        type: object
+        additionalProperties: true
+  timeout_s: 10.0
+  max_output_bytes: 1048576
+instances:
+  generator_module: verification.problem
+  public_seeds:
+  - 104729
+  - 130363
+  - 155921
+  - 181081
+  evaluation_seeds:
+  - 210001
+  - 210013
+  - 210031
+  - 210049
+  - 210067
+  - 210089
+  - 210103
+  - 210113
+  - 210131
+  - 210151
+  instances_per_seed: 1
+design:
+  problem_setting: offline_batch
+  arrival_model: All analytics-query portfolios are generated deterministically from
+    fixed seeds before solving. A candidate receives a complete static instance containing
+    query sensitivities, business values, population coverage, group memberships,
+    bounds, fairness thresholds, accuracy requirements, and total budget, then returns
+    one structured allocation for that instance.
+  objective_rationale: The primary objective is appropriate because privacy budget
+    is a scarce resource and the economically relevant decision is the feasible allocation
+    that preserves the most weighted analytics utility while controlling estimation
+    error. Accuracy and fairness are hard feasibility requirements so the objective
+    cannot trade them away beyond accepted policy limits.
+  literature_alignment: The supplied brief aligns with differential-privacy budget-allocation
+    work at the level of allocating limited privacy loss across multiple analytics
+    queries and recomputing privacy loss and error from first principles. This benchmark
+    differs by making the task an offline batch portfolio optimization problem with
+    explicit business values, population coverage, fairness constraints, and a structured
+    candidate output rather than an interactive privacy accountant or a single-query
+    mechanism design task.
+objective:
+  raw_metric: 'Verifier-owned positive raw utility: 1.0 plus the sum over queries
+    of business_value * population_coverage * log1p(epsilon) minus deterministic error
+    penalties, evaluated only after all feasibility checks pass.'
+  direction: maximize
+  aggregation: mean
+  normalization: log2_baseline_ratio
+  invalid_score: -1.0e+18
+baseline:
+  module: baseline.heuristic
+  callable: solve
+reference:
+  module: reference.exact
+  callable: solve
+runtime:
+  isolation: docker
+  docker_image: python:3.12.11-slim-bookworm@sha256:519591d6871b7bc437060736b9f7456b8731f1499a57e22e6c285135ae657bf7
+  timeout_s: 130.0
+  cpus: 1.0
+  memory_mb: 512
+  pids_limit: 128
+  network_disabled: true
+provenance:
+  sources:
+  - id: src-ae0a3959eced952d
+    title: 'NIST SP 800-226: Guidelines for Evaluating Differential Privacy Guarantees'
+    location: references/citations/src-ae0a3959eced952d.json
+    sha256: ae0a3959eced952d197762f882be99e4736b00517dd138e501d5280d721cfacb
+    license: citation-only
+    retrieved_at: '2026-07-30T15:35:02.425841+00:00'
+    origin: https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-226.pdf
+    final_url: https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-226.pdf
+    citation_only: true
+    publishable: true
+  - id: src-a2b0f1538ad8494f
+    title: The Algorithmic Foundations of Differential Privacy
+    location: references/citations/src-a2b0f1538ad8494f.json
+    sha256: a2b0f1538ad8494fab07a93d328c33c2da7575ed57ecdc7a895e1b35d8379923
+    license: citation-only
+    retrieved_at: '2026-07-30T15:35:02.704493+00:00'
+    origin: https://www.cis.upenn.edu/~aaroth/Papers/privacybook.pdf
+    final_url: https://www.cis.upenn.edu/~aaroth/Papers/privacybook.pdf
+    citation_only: true
+    publishable: true
+  data_license: CC0-1.0
+  generated_from_seeds: true
+frontier:
+  enabled: true
+  domain: PrivacyEngineering
+  task: DifferentialPrivacyBudgetAllocation
+  languages:
+  - en
+  - zh-CN
+calibration:
+  minimum_reference_score: 0.05
+  deterministic_tolerance: 1.0e-12
+  unified_score_tolerance: 1.0e-09

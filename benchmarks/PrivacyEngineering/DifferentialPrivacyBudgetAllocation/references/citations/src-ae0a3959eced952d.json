@@ -1,0 +1,12 @@
+{
+  "citation_only": true,
+  "final_url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-226.pdf",
+  "id": "src-ae0a3959eced952d",
+  "license": "citation-only",
+  "location": "sources/src-ae0a3959eced952d.raw",
+  "origin": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-226.pdf",
+  "publishable": true,
+  "retrieved_at": "2026-07-30T15:35:02.425841+00:00",
+  "sha256": "ae0a3959eced952d197762f882be99e4736b00517dd138e501d5280d721cfacb",
+  "title": "NIST SP 800-226: Guidelines for Evaluating Differential Privacy Guarantees"
+}

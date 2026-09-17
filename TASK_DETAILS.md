@@ -204,13 +204,17 @@ We welcome new engineering problem ideas — even without complete verification 
       <td>Polarization-multiplexed holography</td>
     </tr>
     <tr>
-      <td rowspan="2"><b>ComputerSystems</b></td>
+      <td rowspan="3"><b>ComputerSystems</b></td>
       <td><code>MallocLab</code></td>
       <td>High-performance C memory allocator (utilization &amp; throughput)</td>
     </tr>
     <tr>
       <td><code>DuckDBWorkloadOptimization</code></td>
       <td>Index / materialized-view selection and query rewriting on official DuckDB workloads</td>
+    </tr>
+    <tr>
+      <td><code>EdgeServiceReplicaPlacement</code></td>
+      <td>Dynamic edge-service replica placement and routing under workload bursts, failures, and link degradation</td>
     </tr>
     <tr>
       <td><b>EngDesign</b></td>

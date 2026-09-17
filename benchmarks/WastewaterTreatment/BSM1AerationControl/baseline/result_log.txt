@@ -1,0 +1,24 @@
+Direct command:
+python verification/evaluator.py scripts/init.py --metrics-out metrics.json --artifacts-out artifacts.json
+
+Environment:
+Windows 11, Python 3.12.13, CPU-only
+
+Result:
+=== BSM1 Aeration Control ===
+scenario=dry score=53.457 eqi=5488.86 ae=3341.39 violations=0.011330
+scenario=rain score=44.609 eqi=7535.45 ae=3341.39 violations=0.025575
+scenario=storm score=48.513 eqi=6780.93 ae=3341.39 violations=0.017011
+---
+completed_scenarios: 3/3
+diagnostic_score: 47.7973
+combined_score: 47.7973
+
+Regression:
+python -m unittest discover -s verification -p "test_*.py" -v
+Ran 12 tests in 3.266s
+OK
+
+Unified evaluation:
+python -m frontier_eval task=unified task.benchmark=WastewaterTreatment/BSM1AerationControl algorithm=openevolve algorithm.iterations=0
+combined_score=47.7973, valid=1.0000, completed_scenarios=3.0000, benchmark_returncode=0.0000

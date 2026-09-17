@@ -1,0 +1,63 @@
+{
+  "benchmark": "BSM1AerationControl",
+  "source": {
+    "iwa_page": "https://iwa-mia.org/benchmarking/",
+    "iwa_report": "https://iwa-mia.org/wp-content/uploads/2019/04/BSM_TG_Tech_Report_no_1_BSM1_General_Description.pdf",
+    "validation_implementation": "https://github.com/fau-evt/bsm2-python",
+    "validation_license": "BSD-3-Clause"
+  },
+  "simulation": {
+    "days": 14.0,
+    "evaluation_start_day": 7.0,
+    "step_minutes": 15.0,
+    "sensor_noise_seed": 1729,
+    "sensor_noise_std": {
+      "dissolved_oxygen": 0.025,
+      "nitrate": 0.025,
+      "ammonium": 0.04
+    }
+  },
+  "scenarios": [
+    {"scenario_id": "dry", "weather": "dry"},
+    {"scenario_id": "rain", "weather": "rain"},
+    {"scenario_id": "storm", "weather": "storm"}
+  ],
+  "action": {
+    "kla_min_per_day": 0.0,
+    "kla_max_per_day": 360.0,
+    "qintr_min_m3_per_day": 0.0,
+    "qintr_max_m3_per_day": 92230.0,
+    "kla_max_change_per_step": 120.0,
+    "qintr_max_change_per_step": 30000.0
+  },
+  "reference_action": {
+    "kla3_per_day": 240.0,
+    "kla4_per_day": 240.0,
+    "kla5_per_day": 84.0,
+    "internal_recycle_m3_per_day": 55338.0
+  },
+  "limits": {
+    "ammonium_gN_per_m3": 4.0,
+    "total_nitrogen_gN_per_m3": 18.0,
+    "cod_gCOD_per_m3": 100.0,
+    "tss_gSS_per_m3": 30.0,
+    "bod5_gBOD_per_m3": 10.0
+  },
+  "scoring": {
+    "eqi_scale": 6000.0,
+    "aeration_energy_scale": 5000.0,
+    "pumping_energy_scale": 1200.0,
+    "mixing_energy_scale": 600.0,
+    "switching_exponent": 4.0,
+    "violation_exponent": 6.0,
+    "objective_weights": {
+      "quality": 0.45,
+      "aeration": 0.20,
+      "pumping": 0.10,
+      "mixing": 0.10,
+      "smoothness": 0.15
+    },
+    "mean_weight": 0.75,
+    "worst_case_weight": 0.25
+  }
+}

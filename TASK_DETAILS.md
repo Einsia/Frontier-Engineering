@@ -351,5 +351,10 @@ We welcome new engineering problem ideas — even without complete verification 
       <td><code>DiffSimThermalControl</code></td>
       <td>Process optimization in additive manufacturing via differentiable simulation</td>
     </tr>
+    <tr>
+      <td><b>WastewaterTreatment</b></td>
+      <td><code>BSM1AerationControl</code></td>
+      <td>Feedback control of activated-sludge aeration and internal recycle across dry, rain, and storm operation</td>
+    </tr>
   </tbody>
 </table>

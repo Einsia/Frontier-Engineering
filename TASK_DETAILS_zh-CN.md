@@ -351,5 +351,10 @@ Frontier-Eng 目前已覆盖以下领域的任务。每个任务均配有可运�
       <td><code>DiffSimThermalControl</code></td>
       <td>基于可微仿真的增材制造工艺优化</td>
     </tr>
+    <tr>
+      <td><b>WastewaterTreatment</b></td>
+      <td><code>BSM1AerationControl</code></td>
+      <td>在旱天、降雨和暴雨工况下反馈控制活性污泥曝气与内回流</td>
+    </tr>
   </tbody>
 </table>

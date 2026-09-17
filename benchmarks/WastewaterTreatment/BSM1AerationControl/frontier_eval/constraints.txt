@@ -1,0 +1,9 @@
+BSM1 aeration-control constraints:
+1) Edit only `scripts/init.py` inside the EVOLVE-BLOCK markers.
+2) Keep `reset_controller(scenario) -> None` and `control(observation) -> dict` working.
+3) Return exactly the four finite numeric fields documented in Task.md.
+4) Keep each KLa in [0, 360]/day and internal recycle in [0, 92230] m3/day.
+5) Respect per-step slew limits: 120/day for each KLa and 30000 m3/day for recycle.
+6) Reset all candidate-owned state before each dry, rain, or storm scenario.
+7) Keep the controller deterministic, self-contained, and within the 0.10-second call limit.
+8) Do not read, write, import, or modify evaluator, model, result, or environment-secret files.

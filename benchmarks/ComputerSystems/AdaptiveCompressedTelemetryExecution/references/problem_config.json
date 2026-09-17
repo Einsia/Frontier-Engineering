@@ -1,0 +1,56 @@
+{
+  "benchmark_id": "adaptive_compressed_telemetry_execution",
+  "evaluation_seed": 20260713,
+  "schema": [
+    {"column": 0, "id": "timestamp_ns", "description": "event timestamp in Unix nanoseconds"},
+    {"column": 1, "id": "service_id", "description": "numeric service or tenant identifier"},
+    {"column": 2, "id": "severity", "description": "OpenTelemetry-style severity number"},
+    {"column": 3, "id": "duration_us", "description": "request or operation duration in microseconds"},
+    {"column": 4, "id": "payload_bytes", "description": "event payload size in bytes"}
+  ],
+  "execution": {
+    "block_rows": 4096,
+    "warmup_rounds": 2,
+    "measured_rounds": 7,
+    "compile_timeout_s": 60,
+    "run_timeout_s": 30,
+    "source_limit_bytes": 1000000,
+    "memory_limit_mb": 1024,
+    "max_processes": 64,
+    "max_encoded_ratio": 2.0
+  },
+  "pricing": {
+    "storage_dollars_per_gib_month": 0.023,
+    "cpu_dollars_per_core_hour": 0.10,
+    "description": "Public scenario coefficients, not a claim about any specific vendor price"
+  },
+  "scenarios": [
+    {
+      "id": "steady_api_traffic",
+      "pattern": "steady",
+      "rows": 262144,
+      "seed": 1103,
+      "monthly_full_decodes": 80.0,
+      "monthly_query_batches": 240.0,
+      "description": "Low-cardinality services, regular timestamps, mostly informational traffic"
+    },
+    {
+      "id": "bursty_multitenant_observability",
+      "pattern": "bursty",
+      "rows": 262144,
+      "seed": 2207,
+      "monthly_full_decodes": 24.0,
+      "monthly_query_batches": 120.0,
+      "description": "Rotating hot tenants, burst boundaries, higher cardinality, and local incidents"
+    },
+    {
+      "id": "incident_distribution_shift",
+      "pattern": "incident",
+      "rows": 262144,
+      "seed": 3301,
+      "monthly_full_decodes": 8.0,
+      "monthly_query_batches": 40.0,
+      "description": "A workload whose service, severity, latency, and payload distributions shift during an incident"
+    }
+  ]
+}

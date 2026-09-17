@@ -1,0 +1,16 @@
+AdaptiveCompressedTelemetryExecution constraints:
+1) Only modify code between `// EVOLVE-BLOCK-START` and
+   `// EVOLVE-BLOCK-END` in `scripts/init.cpp`; marker lines must remain intact.
+2) Preserve the three function signatures declared in `verification/codec_api.h`:
+   `encode_block`, `decode_block`, and `query_block`.
+3) Encoded blocks must be self-contained. Do not use external files, network access,
+   subprocesses, process-global source data, or pointers embedded in encoded bytes.
+4) Decoding must reproduce all five uint64 columns exactly, and all four query kinds
+   must implement the inclusive semantics documented in `Task.md`.
+5) Candidate source must stay below 1,000,000 bytes. Each encoded block must stay
+   below the configured size bound, and each timed process has a 1 GiB address-space
+   limit and a single pinned CPU.
+6) Use self-contained C++20 and compiler-provided intrinsics only. No external
+   libraries, downloaded assets, accelerators, or services are available.
+7) Do not modify the API, driver, evaluator, configuration, baseline, documentation,
+   or `frontier_eval` metadata; these paths are checked read-only.

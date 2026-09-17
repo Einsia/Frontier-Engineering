@@ -1,0 +1,10 @@
+README.md
+Task.md
+scripts/init.cpp
+verification/codec_api.h
+verification/benchmark_driver.cpp
+verification/evaluator.py
+verification/test_evaluator.py
+baseline/solution.cpp
+references/problem_config.json
+frontier_eval/constraints.txt

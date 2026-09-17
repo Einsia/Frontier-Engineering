@@ -1,0 +1,17 @@
+README.md
+README_zh-CN.md
+Task.md
+Task_zh-CN.md
+references/
+verification/
+verification/evaluator.py
+frontier_eval/run_eval.sh
+frontier_eval/constraints.txt
+frontier_eval/eval_command.txt
+frontier_eval/eval_cwd.txt
+frontier_eval/initial_program.txt
+frontier_eval/candidate_destination.txt
+frontier_eval/agent_files.txt
+frontier_eval/copy_files.txt
+frontier_eval/readonly_files.txt
+frontier_eval/artifact_files.txt

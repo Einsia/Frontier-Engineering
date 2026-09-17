@@ -1,0 +1,19 @@
+SecurityConstrainedDispatch released baseline
+
+PGLib release: v23.07
+Cases: case24_ieee_rts, case57_ieee, case73_ieee_rts
+Scenarios: 12
+Runtime: Python 3.12.3, NumPy 1.26.4, SciPy 1.12.0, PYPOWER 5.1.19
+
+valid: 1.0
+combined_score: 71.27192438899405
+mean_scenario_score: 74.1901194445309
+worst_scenario_score: 62.5173392223835
+feasible_fraction: 1.0
+scenarios_feasible: 12.0
+scenarios_total: 12.0
+observed_runtime_s: 0.2758505344390869
+
+For comparison, the frozen per-scenario AC-OPF dispatches evaluated under the
+same composite cost-and-security score achieved 78.00215115798889. This is a
+diagnostic upper reference, not a claimed global optimum of the composite score.

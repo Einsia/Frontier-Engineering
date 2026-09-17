@@ -1,0 +1,8 @@
+SecurityConstrainedDispatch unified constraints:
+1) Only modify optimization logic inside `scripts/init.py` between `EVOLVE-BLOCK-START` and `EVOLVE-BLOCK-END`.
+2) Keep the public function signature `solve(case)` and return `pg_mw` plus `vg_pu`, each with one finite value per generator.
+3) Respect generator P/Q limits, bus voltage limits, branch RATE_A limits, and branch angle-difference limits in all normal and N-1 scenarios.
+4) Generators connected to the same bus must use the same voltage setpoint.
+5) Keep the policy deterministic and return within two seconds per scenario.
+6) Do not read or write files, launch subprocesses, access the network, or inspect verifier/reference internals from `solve`.
+7) Do not modify files under `verification/`, `references/`, or `frontier_eval/`.

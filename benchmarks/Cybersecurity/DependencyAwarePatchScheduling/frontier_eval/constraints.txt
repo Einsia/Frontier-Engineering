@@ -1,0 +1,350 @@
+Dependency-Aware Cybersecurity Patch Scheduling constraints:
+1) Candidate file is `scripts/init.py` and must expose `solve(instance)`.
+2) Candidate input must match this JSON Schema:
+{
+  "additionalProperties": false,
+  "properties": {
+    "assets": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "exclusive_change": {
+            "type": "boolean"
+          },
+          "maintenance_windows": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "end_slot": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "start_slot": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "start_slot",
+                "end_slot"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "asset_id",
+          "exclusive_change",
+          "maintenance_windows"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "horizon": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "instance_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "patches": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "affected_asset_ids": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "covered_vulnerability_ids": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "duration": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "patch_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "prerequisite_patch_ids": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "resource_demands": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "resource_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "units": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "resource_id",
+                "units"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "rollback_impact_microunits": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "rollback_probability_ppm": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "service_demands": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "downtime_units": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "service_id": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "service_id",
+                "downtime_units"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "patch_id",
+          "duration",
+          "prerequisite_patch_ids",
+          "affected_asset_ids",
+          "covered_vulnerability_ids",
+          "resource_demands",
+          "service_demands",
+          "rollback_probability_ppm",
+          "rollback_impact_microunits"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "probability_scale": {
+      "enum": [
+        1000000
+      ],
+      "type": "integer"
+    },
+    "resources": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "capacity_by_slot": {
+            "items": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "resource_id": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "resource_id",
+          "capacity_by_slot"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "services": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "downtime_budget": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "downtime_capacity_by_slot": {
+            "items": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "loss_microunits_by_slot": {
+            "items": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "maintenance_windows": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "end_slot": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "start_slot": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "start_slot",
+                "end_slot"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "service_id": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "service_id",
+          "maintenance_windows",
+          "downtime_capacity_by_slot",
+          "downtime_budget",
+          "loss_microunits_by_slot"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "tier": {
+      "enum": [
+        "small",
+        "medium",
+        "large"
+      ],
+      "type": "string"
+    },
+    "vulnerabilities": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "criticality_ppm": {
+            "maximum": 1000000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "exploit_probability_ppm_by_slot": {
+            "items": {
+              "maximum": 1000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "impact_microunits": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "vulnerability_id": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "vulnerability_id",
+          "asset_id",
+          "impact_microunits",
+          "criticality_ppm",
+          "exploit_probability_ppm_by_slot"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "instance_id",
+    "tier",
+    "horizon",
+    "probability_scale",
+    "assets",
+    "services",
+    "resources",
+    "vulnerabilities",
+    "patches"
+  ],
+  "type": "object"
+}
+3) Candidate output must match this JSON Schema:
+{
+  "additionalProperties": false,
+  "properties": {
+    "schedule": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "patch_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "start_slot": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "patch_id",
+          "start_slot"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schedule"
+  ],
+  "type": "object"
+}
+4) Every hard constraint is recomputed by the frozen verifier.
+5) Candidate timeout is 30 seconds per instance.
+6) Candidate output is limited to 1000000 bytes.
+7) Read-only benchmark assets include verification/, baseline/, reference/, data/, and references/.
+8) Publish evaluation requires Docker image `python:3.12.11-slim-bookworm@sha256:519591d6871b7bc437060736b9f7456b8731f1499a57e22e6c285135ae657bf7`; candidate and verifier
+   run in separate network-disabled, non-root containers.
+9) Frontier unified must use its process isolation mode because the benchmark evaluator owns the
+   inner candidate/verifier containers; do not wrap this evaluator in another Docker runtime.

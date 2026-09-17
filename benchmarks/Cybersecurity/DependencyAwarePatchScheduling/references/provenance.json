@@ -1,0 +1,31 @@
+{
+  "benchmark_id": "Cybersecurity/DependencyAwarePatchScheduling",
+  "data_license": "CC0-1.0",
+  "generated_from_seeds": true,
+  "sources": [
+    {
+      "citation_only": true,
+      "final_url": "https://doi.org/10.6028/NIST.SP.800-40r4",
+      "id": "src-03966d08d77b4404",
+      "license": "citation-only",
+      "location": "references/citations/src-03966d08d77b4404.json",
+      "origin": "https://doi.org/10.6028/NIST.SP.800-40r4",
+      "publishable": true,
+      "retrieved_at": "2026-07-29T03:54:39.026947+00:00",
+      "sha256": "03966d08d77b4404e360aef7e96f902f2abbd3f9c6736bdce085d55ba2eda8b0",
+      "title": "NIST SP 800-40 Rev. 4: Guide to Enterprise Patch Management Planning"
+    },
+    {
+      "citation_only": true,
+      "final_url": "https://www.cisa.gov/news-events/directives/bod-22-01-reducing-significant-risk-known-exploited-vulnerabilities",
+      "id": "src-106e8a33951b796b",
+      "license": "citation-only",
+      "location": "references/citations/src-106e8a33951b796b.json",
+      "origin": "https://www.cisa.gov/news-events/directives/bod-22-01-reducing-significant-risk-known-exploited-vulnerabilities",
+      "publishable": true,
+      "retrieved_at": "2026-07-29T03:54:39.285584+00:00",
+      "sha256": "106e8a33951b796b337077a1016723812b4fde6eee09056df0a5104fb8771744",
+      "title": "CISA Binding Operational Directive 22-01"
+    }
+  ]
+}

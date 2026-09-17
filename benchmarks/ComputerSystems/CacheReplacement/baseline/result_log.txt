@@ -1,0 +1,53 @@
+# CacheReplacement Baseline Test Results
+# Generated: 2026-07-15  (fresh run after all fixes)
+#
+# This file records the local test results of the LRU baseline
+# policy (replacement/my_policy.cc default implementation).
+# Score should be 1.0 (LRU vs LRU — baseline self-test).
+
+## Environment
+- Host: macOS 14.5 (Apple Silicon M3)
+- Python: 3.12.7
+- Compiler: Apple Clang 16 (C++17, via Xcode)
+- ChampSim commit: 51588e1d6f97875fe8de1a3621d28668bff83fcf
+- Evaluator: verification/evaluator.py v1.0.0
+
+## Quick Mode Results
+- Mode: quick (3 traces)
+- Traces: 605.mcf_s-665B, 625.x264_s-18B, 607.cactuBSSN_s-2421B
+- Warmup: 10M instructions | Simulation: 20M instructions
+- Total runtime: 1882.3s
+- Compile time: 7.1s
+- Simulation time: 931.3s
+
+## Score
+- Score: 1.0  (baseline LRU vs LRU = 1.0)
+- Valid: true
+- Traces completed: 3/3
+
+## Per-Trace Results
+See baseline/artifacts.json for complete per-trace IPC data.
+
+## Baseline LRU IPC (Quick Mode)
+See references/generated_baseline.json for cached values.
+
+## Validation Tests
+All 10 Layer-1 static validation tests pass:
+  1. Normal LRU policy          PASS
+  2. Forbidden header <iostream> PASS
+  3. rand() usage               PASS
+  4. fopen() file I/O           PASS
+  5. Dynamic container           PASS
+  6. new operator               PASS
+  7. mt19937 randomness         PASS
+  8. system() call              PASS
+  9. Missing EVOLVE-BLOCK-END   PASS
+  10. Budget exceeded            PASS
+
+## Reproducibility Notes
+- ChampSim is pinned to commit 51588e1d via git checkout
+- vcpkg dependencies managed via submodule (pinned)
+- verify_trace.xz is a fixed file (75 KB, ~25s quick validation)
+- Trace checksums are verified via data/checksums.txt (SHA256)
+- Docker image uses pinned Ubuntu 22.04 + gcc-13 + cmake 3.22
+- On macOS, evaluator auto-detects vcpkg include path in _build_champsim()

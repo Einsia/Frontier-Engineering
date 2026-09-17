@@ -1,0 +1,13 @@
+Task.md
+Task_zh-CN.md
+scripts/init.py
+verification/evaluator.py
+data/raw_task.json
+data/pdbs/1ubq.pdb
+data/pdbs/1bdd.pdb
+data/pdbs/1enh.pdb
+data/pdbs/8uzl.pdb
+references/params/TRF.params
+references/params/TRF.sdf
+references/params/GENERATE.md
+references/constants.json

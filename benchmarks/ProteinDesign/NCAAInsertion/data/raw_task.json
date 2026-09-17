@@ -1,0 +1,42 @@
+{
+  "task_name": "ncaa_insertion_demo",
+  "description": "Insert TRF (1-formyl-tryptophan), a non-canonical amino acid, into the core of multiple protein scaffolds and redesign surrounding residues.",
+  "energy_function": "ref2015",
+  "ncaa_params": {
+    "code": "TRF",
+    "parent_residue": "TRP",
+    "file": "references/params/TRF.params",
+    "description": "N1-formyl-tryptophan - a tryptophan derivative with a formyl group at the indole N1 position"
+  },
+  "proteins": [
+    {
+      "id": "1ubq",
+      "pdb": "data/pdbs/1ubq.pdb",
+      "trf_position": 4,
+      "design_positions": [2, 4, 6, 8, 10, 12, 14, 16],
+      "description": "Ubiquitin - 76 residue eukaryotic regulatory protein"
+    },
+    {
+      "id": "1bdd",
+      "pdb": "data/pdbs/1bdd.pdb",
+      "trf_position": 3,
+      "design_positions": [3, 5, 7, 9, 11, 13, 15, 17],
+      "description": "Protein G B1 domain - 56 residue immunoglobulin-binding domain"
+    },
+    {
+      "id": "1enh",
+      "pdb": "data/pdbs/1enh.pdb",
+      "trf_position": 5,
+      "design_positions": [3, 5, 7, 9, 11, 13, 15, 17],
+      "description": "Engrailed homeodomain - 54 residue DNA-binding domain"
+    },
+    {
+      "id": "8uzl",
+      "pdb": "data/pdbs/8uzl.pdb",
+      "trf_position": 58,
+      "chain": "A",
+      "design_positions": [48, 50, 52, 54, 56, 58, 60, 62, 64, 66, 68, 70, 72, 74],
+      "description": "Designed transmembrane beta-barrel TMB10_163 - de novo protein (Baker lab, Science 2024)"
+    }
+  ]
+}

@@ -11,6 +11,7 @@
 | 任务 | 描述 |
 |------|------|
 | [FixedBackboneDesign](FixedBackboneDesign/Task_zh-CN.md) | 固定骨架蛋白质序列设计优化 |
+| [NCAAInsertion](NCAAInsertion/Task_zh-CN.md) | 非规范氨基酸（TRF）插入设计 |
 
 ## 环境配置
 
@@ -23,11 +24,22 @@ docker pull rosettacommons/rosetta:serial
 快捷运行命令：
 
 ```bash
+# FixedBackboneDesign (Case A)
 python -m frontier_eval \
   task=unified \
   task.benchmark=ProteinDesign/FixedBackboneDesign \
   task.runtime.isolation_mode=docker \
   task.runtime.docker_image=rosettacommons/rosetta:serial \
+  algorithm=openevolve \
+  algorithm.iterations=0
+
+# NCAAInsertion (Case B)
+python -m frontier_eval \
+  task=unified \
+  task.benchmark=ProteinDesign/NCAAInsertion \
+  task.runtime.isolation_mode=docker \
+  task.runtime.docker_image=rosettacommons/rosetta:serial \
+  task.runtime.python_path=python3 \
   algorithm=openevolve \
   algorithm.iterations=0
 ```

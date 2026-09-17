@@ -1,0 +1,8 @@
+1) Only modify `scripts/init.py` — it is the ONLY editable file.
+2) Keep CLI contract unchanged: the candidate must accept `--prepared-input` and `--solution-output`.
+3) Output must be a PDB file with TRF (1-formyl-tryptophan) inserted at the specified position.
+4) The TRF residue must be at the position specified in raw_task.json (trf_position).
+5) Surrounding design positions should be optimized to accommodate the TRF insertion.
+6) Do NOT modify the backbone coordinates (fixed-backbone design).
+7) Only use TRF for the specified NCAA position; use standard 20 AAs for other design positions.
+8) Optimize Rosetta total_score (lower is better).

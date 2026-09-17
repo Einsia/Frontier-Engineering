@@ -1,0 +1,20 @@
+NCAAInsertion baseline (RestrictToRepacking only) result log
+============================================================
+Date: 2026-07-14
+Evaluator: verification/evaluator.py
+Candidate: scripts/init.py (baseline: RestrictToRepacking, no AA changes)
+Runtime: Docker (rosettacommons/rosetta:serial)
+
+Results:
+--------
+valid:             1.0
+trf_present:       1.0
+n_proteins:        4
+n_successful:      4
+combined_score:    0.023
+
+Per-protein:
+  1ubq: valid=True, TRF=True, energy improved -161.6 -> -165.3 (+3.6)
+  1bdd: valid=True, TRF=True, energy improved 499.9 -> 498.7 (+1.2)
+  1enh: valid=True, TRF=True, energy changed 138.8 -> 138.9 (-0.1)
+  8uzl: valid=True, TRF=True, energy improved 2097.3 -> 2041.8 (+55.5)

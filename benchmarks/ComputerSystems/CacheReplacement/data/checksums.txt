@@ -1,0 +1,14 @@
+# CacheReplacement — Trace SHA256 checksums
+# Generated: 2026-07-15
+# Download: bash data/download_traces.sh
+# Verify:   cd data/traces && sha256sum -c ../checksums.txt
+ac576730cff4f13d70384dff1939da83250bc0e3de1d9d994fdc637fd1b7cf4d  600.perlbench_s-210B.champsimtrace.xz
+a32be73c53946748a1393cca4999f374c5d9d3737a414437d81bb20ed6311bd5  602.gcc_s-734B.champsimtrace.xz
+107f5d325cb4f02a144657883176767fbe3153911e37e955201fff1fc6474594  603.bwaves_s-3699B.champsimtrace.xz
+b7bef3f68180923fa4b88e1e8a6749487beef99099efce78500a03e3a3e8334e  605.mcf_s-665B.champsimtrace.xz
+ae2cf28160028687bd3bdecf9135aeace9553b506d731230176087e1cee26559  607.cactuBSSN_s-2421B.champsimtrace.xz
+03f8b049cfedf871715493513f505a726194fd09f10b0177f04113be80bead18  621.wrf_s-575B.champsimtrace.xz
+e2782e14cff1fe6c2968f7527aaa4d5172eabc77a56e656cd6773c79696ee4ef  625.x264_s-18B.champsimtrace.xz
+a4bf5970bf96d95e35007af9772989c4eaffb9312146f0bc6a13919270400e56  631.deepsjeng_s-928B.champsimtrace.xz
+2377f1d782da5f4c158265d3a2379338903e15a56ce0aab013032539c181a82a  654.roms_s-842B.champsimtrace.xz
+69b5c7c62231b4b116c6a49674e65af9d19ec3fd7bb6157c735d114c23e420ef  657.xz_s-3167B.champsimtrace.xz

@@ -1,0 +1,13 @@
+CertifiedAIGResynthesis constraints:
+1) Only modify code between the EVOLVE-BLOCK markers in `scripts/init.cpp`.
+2) Preserve `optimize(certified_aig::Optimizer&)` and the immutable C++ shell.
+3) Propose rewrites through `try_rewrite` or `replace`; the evaluator accepts only
+   certificates that its independent Python checker can replay exactly.
+4) Each cut has at most 8 leaves, 16 divisors, and 64 new AND nodes. Respect all
+   public process, certificate, rewrite, and graph-size budgets in `Task.md`.
+5) Optimize reachable AND area and depth across all circuit families. A locally
+   smaller tree can still lose through DAG fanout, reconvergence, or depth.
+6) Do not modify documentation, baseline, references, verification, or
+   `frontier_eval` metadata. These paths are checked read-only.
+7) Use only the fixed C++17 standard-library environment. No downloads, network,
+   external solvers, containers, GPUs, or vendor EDA tools are available.

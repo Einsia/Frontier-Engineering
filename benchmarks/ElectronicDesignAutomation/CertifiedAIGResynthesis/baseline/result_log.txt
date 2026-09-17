@@ -1,0 +1,57 @@
+CertifiedAIGResynthesis baseline validation
+Date: 2026-07-17
+
+Host
+  OS: Linux 5.15.0-153-generic x86_64
+  CPU: 2 x AMD EPYC 7313 (32 physical / 64 logical cores total)
+  Python: 3.10.12
+  Compiler: g++ 11.4.0
+  Candidate process cap: RLIMIT_NPROC=64 where supported
+  GPU/container/external solver: not used
+
+Direct command (from task directory)
+  python verification/evaluator.py scripts/init.cpp \
+    --metrics-out metrics.json --artifacts-out artifacts.json
+
+Direct metrics
+  valid: 1.0
+  combined_score: 1.0
+  partial_combined_score: 1.0
+  runtime_s: 3.584659181535244
+  scenario_count: 5
+  successful_scenario_count: 5
+  failed_scenario_count: 0
+  baseline_total_area: 6610
+  candidate_total_area: 6610
+  baseline_mean_depth: 108.6
+  candidate_mean_depth: 108.6
+  checked_truth_rows: 1546
+
+Per-workload frozen starter result
+  ripple_adder_96:       area=934,  depth=222, rewrites=28
+  barrel_shifter_64:    area=1153, depth=18,  rewrites=176
+  priority_arbiter_128: area=359,  depth=128, rewrites=44
+  packet_classifier_48x12: area=926, depth=83, rewrites=181
+  crc32_update_64:      area=3238, depth=92,  rewrites=221
+
+Unified command (from repository root)
+  .venvs/frontier-eval-driver/bin/python -m frontier_eval \
+    task=unified \
+    task.benchmark=ElectronicDesignAutomation/CertifiedAIGResynthesis \
+    algorithm=openevolve \
+    algorithm.iterations=0
+
+Unified result
+  exit code: 0
+  valid: 1.0
+  combined_score: 1.0
+  evaluator runtime_s: 3.1896
+  read-only/copy/process-isolation path: passed
+
+Development headroom check
+  A temporary candidate adding only same-arm mux elimination was independently
+  replayed by the same evaluator. It scored 1.1367188441269405, reduced total
+  live ANDs from 6610 to 5893, and reduced mean depth from 108.6 to 97.6. Its
+  minimum per-workload score was 1.0705928226806747. This candidate is not the
+  committed starter; the measurement confirms optimization headroom in every
+  frozen workload before more advanced cut synthesis or divisor reuse.

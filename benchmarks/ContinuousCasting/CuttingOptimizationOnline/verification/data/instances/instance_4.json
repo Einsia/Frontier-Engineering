@@ -1,0 +1,53 @@
+{
+ "seed": 4,
+ "anomaly_seed": 100004,
+ "process": {
+  "v": 1.0,
+  "tc": 3,
+  "tr": 1,
+  "buffer_len": 60.0,
+  "scrap_len": 0.8,
+  "reveal_lead": 10.0
+ },
+ "cast": {
+  "total_length": 118.25,
+  "t_cast": 238.25
+ },
+ "customer": {
+  "target": 8.5,
+  "target_min": 8.0,
+  "target_max": 9.0
+ },
+ "limits": {
+  "min_basic": 4.8,
+  "max_basic": 12.6,
+  "min_process": 8.0,
+  "max_process": 11.6
+ },
+ "defects": [
+  [
+   9.89,
+   10.69
+  ],
+  [
+   24.89,
+   25.69
+  ],
+  [
+   31.28,
+   32.08
+  ],
+  [
+   39.15,
+   39.95
+  ],
+  [
+   63.81,
+   64.61
+  ],
+  [
+   108.41,
+   109.21
+  ]
+ ]
+}

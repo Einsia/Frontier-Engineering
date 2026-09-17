@@ -1,0 +1,42 @@
+{
+ "seed": 1004,
+ "process": {
+  "speed": 1.0,
+  "cut_time": 3,
+  "return_time": 1,
+  "buffer_len": 60.0,
+  "scrap_len": 0.8
+ },
+ "billet": {
+  "total_length": 121.1
+ },
+ "customer": {
+  "target": 11.1,
+  "target_min": 10.6,
+  "target_max": 11.6
+ },
+ "defects": [
+  [
+   11.5,
+   12.3
+  ],
+  [
+   42.6,
+   43.4
+  ],
+  [
+   90.3,
+   91.1
+  ],
+  [
+   105.6,
+   106.4
+  ]
+ ],
+ "limits": {
+  "min_basic": 4.8,
+  "max_basic": 12.6,
+  "min_process": 8.0,
+  "max_process": 11.6
+ }
+}

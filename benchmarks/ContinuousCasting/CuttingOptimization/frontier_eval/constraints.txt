@@ -1,0 +1,19 @@
+UnifiedTask constraints:
+1) Only modify `baseline/solver.py`, and only inside the EVOLVE-BLOCK-START / EVOLVE-BLOCK-END region.
+2) Preserve the public contract: run as `python baseline/solver.py <instance.json>`, print a single JSON object
+   `{"cuts": [c1, c2, ...]}` to stdout -- one cut length per piece, with the concatenation summing to
+   `total_length` (the whole steel billet, including any 0.8 m scrap segments that must be cut out).
+3) Do not modify benchmark assets, documentation, verification code, instance data, or `frontier_eval/` metadata.
+4) Your output must always be a valid cutting plan. Every cut must be in [4.8, 12.6] metres (or be exactly
+   a 0.8 m scrap-segment piece); the cuts must align to both ends of every scrap segment (scrap segments are
+   fixed waste, they must be isolated); and the sum must equal the billet length. Malformed output,
+   out-of-range cuts, unaligned cuts, crashes, or timeouts score 0 for that instance (the simulator
+   validates every plan).
+5) You may import `verification/simulator.py` (read-only) to evaluate candidate plans while searching,
+   but the plan you finally print must come from your own algorithm. You may NOT import or read
+   `verification/generator.py`, `verification/ref_solver.py`, or `verification/evaluate.py`.
+6) Prioritize validity before optimization. The solver is given a fixed time budget per instance
+   (default 60s); keep it fast enough, or your plan is discarded.
+7) Objective: minimize total scrap length first; among equal-scrap plans, make each shipped piece as close
+   to the customer target length as possible. Score = mean material utilization over instances (0-100,
+   higher is better), which equals 100 * (billet_length - scrap) / billet_length averaged.

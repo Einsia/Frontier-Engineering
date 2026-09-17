@@ -347,6 +347,15 @@ We welcome new engineering problem ideas — even without complete verification 
       <td>Upstream-aligned EV smart charging scheduling</td>
     </tr>
     <tr>
+      <td rowspan="2"><b>ContinuousCasting</b></td>
+      <td><code>CuttingOptimization</code></td>
+      <td>Cut a continuously cast billet into pieces to minimize scrapped length and match a customer target (offline; the optimum is reachable)</td>
+    </tr>
+    <tr>
+      <td><code>CuttingOptimizationOnline</code></td>
+      <td>Online (closed-loop) cutting where 0.8 m scrap segments are revealed only within a reveal horizon — info asymmetry empirically keeps agents below the clairvoyant optimum (observed, not a proven lower bound)</td>
+    </tr>
+    <tr>
       <td><b>AdditiveManufacturing</b></td>
       <td><code>DiffSimThermalControl</code></td>
       <td>Process optimization in additive manufacturing via differentiable simulation</td>

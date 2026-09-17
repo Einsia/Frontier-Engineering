@@ -1,0 +1,31 @@
+ContinuousCasting / CuttingOptimization — baseline & reference scores (8 fixed instances)
+
+Evaluation entry: verification/evaluate.py baseline/solver.py
+Metric: material utilization = 100*(S - scrap)/S, averaged over instances (higher is better).
+Reference DP: verification/ref_solver.py (1-D partition, stdlib only).
+
+Instance set: data/instances/instance_1.json .. instance_8.json (seed-fixed).
+Mean billet length S = 94.4 m; difficulty easy/medium/hard; 0..6 defects; target window +/- 0.5 m.
+
+Per-instance (S, ref_util, base_util, ref_scrap, base_scrap):
+  i1  S= 68.9  ref= 95.79  base= 87.08  ref_scrap=  2.90  base_scrap=  8.90
+  i2  S= 50.2  ref= 88.84  base= 69.32  ref_scrap=  5.60  base_scrap= 15.40
+  i3  S=106.2  ref= 91.81  base= 75.71  ref_scrap=  8.70  base_scrap= 25.80
+  i4  S= 71.8  ref= 75.21  base= 50.14  ref_scrap= 17.80  base_scrap= 35.80
+  i5  S= 86.0  ref= 92.44  base= 69.77  ref_scrap=  6.50  base_scrap= 26.00
+  i6  S=139.7  ref= 86.97  base= 76.16  ref_scrap= 18.20  base_scrap= 33.30
+  i7  S=121.1  ref= 89.43  base= 72.83  ref_scrap= 12.80  base_scrap= 32.90
+  i8  S=111.3  ref= 89.31  base= 78.89  ref_scrap= 11.90  base_scrap= 23.50
+
+Summary:
+  baseline (equal-split, not target-aware): mean utilization = 72.49, mean scrap = 25.20 m
+  reference DP (optimal within model):      mean utilization = 88.72, mean scrap = 10.55 m
+  mean headroom (ref_util - base_util)      = 16.24 utilization points  (reference beats baseline by this much)
+
+Every instance has headroom >= 0.1 m of scrap (generator enforces this via _interesting_ok),
+so naive equal-splitting is always strictly beatable by target-aware optimization.
+
+Agent scores (fixed 8 instances, unified low-reasoning via reasoning proxy):
+  openevolve (10 generations)          = 88.72   (run 20260903_130517) == reference DP
+  ShinkaEvolve (15 generations)        = 88.43   (run 20260904_182017) near-optimum
+  AB-MCTS (15 iterations)              = 72.49   (run 20260904_183826) == baseline (did not improve)

@@ -1,0 +1,28 @@
+CuttingOptimizationOnline — baseline & reference scores (8 fixed instances, online closed-loop).
+Final config: reveal_lead = 10.0 (hidden anomalies → genuine online info asymmetry).
+
+Metric: material utilization = 100*(S - scrap)/S, averaged over instances (higher better).
+Reference (clairvoyant DP, sees all defects) = theoretical ceiling.
+Baseline (fixed-target greedy) = floor.
+
+  baseline  = 52.4
+  reference (clairvoyant, all-foresight) = 76.4   <- ceiling an online agent cannot reach
+
+Agent scores (unified low-reasoning via proxy, 15 generations each, 3 runs per framework):
+
+  Framework    | run1  | run2  | run3  | mean ± std
+  -------------|-------|-------|-------|-----------
+  openevolve   | 69.48 | 70.10 | 70.10 | 69.89 ± 0.36
+  shinkaevolve | 70.06 | 71.18 | 70.10 | 70.45 ± 0.64
+  abmcts       | 72.31 | 70.10 | 70.45 | 70.95 ± 1.19
+
+  All 9 runs: mean 70.43 ± 0.83.
+
+Key finding: every run is below the clairvoyant ceiling (76.4) and above baseline (52.4) —
+the hidden-anomaly info asymmetry keeps online agents from the full-information optimum
+consistently across all three frameworks. This is the key difference vs the offline task
+(where openevolve reaches the offline optimum exactly = 88.72).
+
+Frameworks were run with the OpenAI-compatible reasoning-control proxy at REASONING_MODE=low;
+ShinkaEvolve additionally needs the hydra override `llm.api_base=http://127.0.0.1:8765/v1`
+(its .env override otherwise makes it bypass the proxy and return empty content).

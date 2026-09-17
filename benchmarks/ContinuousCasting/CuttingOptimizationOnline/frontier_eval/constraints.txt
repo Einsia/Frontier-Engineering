@@ -1,0 +1,22 @@
+UnifiedTask constraints (online cutting, closed-loop):
+1) Only modify `baseline/solver.py`, and only inside the EVOLVE-BLOCK-START / EVOLVE-BLOCK-END region.
+2) Public contract: the evaluator drives you on a timeline. It calls `python baseline/solver.py <state.json>`
+   and expects a single JSON object {"piece_length": L} on stdout, where L is a cut length in
+   [limits.min_basic, limits.max_basic] (metres) for the NEXT piece starting at state.cut_pos.
+   You are invoked once per cutting decision, in order, and receive only the defects that have
+   ALREADY been revealed (state.visible_defects). You CANNOT see future defects — that is the
+   core of the online task. State fields: cut_pos, total_length, target/target_min/target_max,
+   limits, reveal_lead, visible_defects, committed (the lengths already cut).
+3) Do not modify benchmark assets, documentation, verification code, instance data, or `frontier_eval/` metadata.
+4) Every returned L must be a valid cut. Malformed output, non-numeric/infinite L, crashes, or timeouts
+   cause that decision to fall back and score worse. The final plan is validated against the FULL
+   (hidden) defect set: any piece overlapping a 0.8 m scrap segment is fully scrapped (contamination),
+   pieces < 8.0 m are fully scrapped, pieces above target_max incur excess scrap, and target-fit is
+   measured by |min(piece, target_max) - target|.
+5) You may import `verification/simulator.py` (read-only) to evaluate candidate decisions while searching,
+   but the decision you print must come from your own algorithm. You may NOT import or read
+   `verification/generator.py`, `verification/ref_solver.py`, or `verification/evaluate.py`.
+6) Objective: minimize total scrap first (contaminated + short + over-window), then make shipped pieces
+   close to the target. Score = mean material utilization 100*(total_length - scrap)/total_length over
+   instances (0-100, higher is better). Because you cannot see the future, a clairvoyant reference
+   solver (which sees all defects) is the theoretical ceiling and is unreachable by an optimal online agent.

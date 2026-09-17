@@ -1,0 +1,2 @@
+# The evaluator uses only the Python standard library.
+# Runtime requirement: Python >= 3.10 (no third-party dependencies).

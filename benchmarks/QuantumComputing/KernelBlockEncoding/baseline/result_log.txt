@@ -1,0 +1,35 @@
+KernelBlockEncoding frozen starter reference
+============================================
+
+Command:
+  python verification/evaluator.py scripts/init.cpp \
+    --metrics-out metrics.json --artifacts-out artifacts.json
+
+Environment:
+  Linux 5.15 x86_64
+  Python 3.10.12
+  g++ 11.4.0
+  AMD EPYC 7313 host
+
+Summary:
+  valid=1.0
+  combined_score=1.0
+  partial_combined_score=1.0
+  scenario_count=6
+  successful_scenario_count=6
+  failed_scenario_count=0
+  checked_matrix_entries=8448
+  total_rotations=6936
+  total_cnots=7788
+  evaluator_wall_s=2.748
+
+Per workload (epsilon, error upper bound, alpha, RY, oracle CNOT, objective):
+  clustered_rbf_16       0.1055240631  0.0433050655  16  236   256   66724
+  anisotropic_rbf_32     0.0925254822  0.0662628832  32  896  1016  507160
+  polynomial_gram_32     0.0619373322  0.0455802581  32  946  1020  533320
+  rational_quadratic_32  0.1412220001  0.1033587668  32  930  1018  524920
+  walk_feature_gram_32   0.1810274124  0.0784774292  32  144   292   87160
+  multiscale_rbf_64      0.1095294952  0.0768379219  64  3784  4096  4264464
+
+Times are descriptive rather than scored. The score uses only independently
+reconstructed block error, normalization, and frozen logical circuit resources.

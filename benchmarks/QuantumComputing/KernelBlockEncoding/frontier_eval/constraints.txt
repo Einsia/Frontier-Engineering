@@ -1,0 +1,14 @@
+KernelBlockEncoding constraints:
+1) Only modify code between the EVOLVE-BLOCK markers in `scripts/init.cpp`.
+2) Preserve `optimize(kernel_block_encoding::Construction&)` and the immutable C++ shell.
+3) Commit one sparse FABLE angle vector through the provided runtime. The independent
+   evaluator reconstructs the encoded matrix and ignores candidate-reported metrics.
+4) Every scenario must meet its Frobenius block-error budget. This also guarantees
+   that spectral block error is no larger than the same public epsilon.
+5) Optimize normalization-weighted compiled cost across all kernel families. Basis
+   compression can lose if it increases alpha; local angle magnitude is not the
+   same as global matrix-error sensitivity.
+6) Do not modify documentation, baseline, references, verification, or
+   `frontier_eval` metadata. These paths are checked read-only.
+7) Use only the fixed C++17 standard-library environment. No downloads, network,
+   external solvers, quantum SDKs, simulators, containers, or GPUs are available.

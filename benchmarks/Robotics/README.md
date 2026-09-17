@@ -12,6 +12,7 @@ This domain contains robotics control and planning tasks for unified evaluation.
 - `QuadrupedGaitOptimization`
 - `RobotArmCycleTimeOptimization`
 - `UAVInspectionCoverageWithWind`
+- `WarehouseRobotRouting`
 
 ### Unified quick runs
 
@@ -20,3 +21,4 @@ This domain contains robotics control and planning tasks for unified evaluation.
 - `QuadrupedGaitOptimization`: `.venvs/frontier-eval-driver/bin/python -m frontier_eval task=unified task.benchmark=Robotics/QuadrupedGaitOptimization task.runtime.env_name=frontier-v1-main algorithm.iterations=0`
 - `RobotArmCycleTimeOptimization`: `.venvs/frontier-eval-driver/bin/python -m frontier_eval task=unified task.benchmark=Robotics/RobotArmCycleTimeOptimization task.runtime.env_name=frontier-v1-main algorithm.iterations=0`
 - `UAVInspectionCoverageWithWind`: `python -m frontier_eval task=unified task.benchmark=Robotics/UAVInspectionCoverageWithWind algorithm.iterations=0`
+- `WarehouseRobotRouting`: `python -m frontier_eval task=unified task.benchmark=Robotics/WarehouseRobotRouting task.runtime.isolation_mode=process algorithm=openevolve algorithm.iterations=0`

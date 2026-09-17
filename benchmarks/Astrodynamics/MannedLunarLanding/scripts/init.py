@@ -7,7 +7,7 @@
 
 import numpy as np
 from scipy.integrate import solve_ivp
-from scipy.optimize import minimize, minimize_scalar, differential_evolution
+from scipy.optimize import differential_evolution, least_squares, minimize, minimize_scalar, root
 
 # ==================== 常数定义 ====================
 class CONST:
@@ -54,23 +54,174 @@ def all_dynamics(t, y):
 # ==================== 补给飞船（L1 Lyapunov轨道）====================
 class SupplyShip:
     """L1附近Lyapunov周期轨道上的补给飞船"""
-    # TODO
 
-# ==================== 轨道传播工具 ====================
-def propagate_LEO(state_old, dt, t_old):
-    """在LEO上传播（简化为圆轨道）"""
-    pos_E = VEC_RE
-    dr = state_old[0:2] - pos_E
-    r_mag = np.linalg.norm(dr)
-    v_iner = state_old[2:4] + np.array([-dr[1], dr[0]])
-    n = np.sqrt((1 - CONST.mu) / r_mag**3)
-    d_theta = n * dt
-    R = np.array([[np.cos(d_theta), -np.sin(d_theta)],
-                  [np.sin(d_theta), np.cos(d_theta)]])
-    dr_new = R @ dr
-    v_new = R @ v_iner
-    state_new = np.concatenate([dr_new + pos_E, v_new - np.array([-dr_new[1], dr_new[0]])])
-    return state_new, t_old + dt
+    # 验证器中使用的参考种子；通过 shooting 做周期修正，避免纯硬编码。
+    _VY0_SEED = 0.357451232635779
+    _PERIOD_SEED = 3.323077527968701
+
+    def __init__(self, x0=0.8, rtol=1e-12, atol=1e-12):
+        self.x0 = float(x0)
+        self.rtol = float(rtol)
+        self.atol = float(atol)
+
+        self.initial_state, self.period = self._solve_periodic_orbit()
+        self.half_period = 0.5 * self.period
+        self.solution = self._integrate_one_period()
+        self.closure_error = self._compute_closure_error()
+
+    def _state0_from_vy(self, vy0):
+        return np.array([self.x0, 0.0, 0.0, float(vy0)], dtype=float)
+
+    def _half_period_residual(self, variables):
+        vy0, half_period = variables
+        if half_period <= 0.0:
+            return np.array([1e3, 1e3], dtype=float)
+
+        state0 = self._state0_from_vy(vy0)
+        sol = solve_ivp(
+            all_dynamics,
+            [0.0, half_period],
+            state0,
+            method="DOP853",
+            rtol=self.rtol,
+            atol=self.atol,
+        )
+        state_half = sol.y[:, -1]
+        return np.array([state_half[1], state_half[2]], dtype=float)
+
+    def _solve_periodic_orbit(self):
+        seed = np.array([self._VY0_SEED, 0.5 * self._PERIOD_SEED], dtype=float)
+        guesses = (
+            seed,
+            np.array([0.35, 1.65], dtype=float),
+            np.array([0.38, 1.55], dtype=float),
+        )
+
+        best_result = None
+        best_residual = np.inf
+
+        for guess in guesses:
+            result = root(self._half_period_residual, guess, method="hybr", tol=1e-13)
+            residual = self._half_period_residual(result.x)
+            residual_norm = float(np.linalg.norm(residual))
+
+            if residual_norm < best_residual:
+                best_result = result
+                best_residual = residual_norm
+
+            if result.success and residual_norm < 1e-10:
+                break
+
+        if best_result is None or best_residual > 1e-8:
+            raise RuntimeError(f"无法求解补给飞船周期轨道，残差={best_residual:.3e}")
+
+        vy0, half_period = best_result.x
+        period = 2.0 * float(half_period)
+        return self._state0_from_vy(vy0), period
+
+    def _integrate_one_period(self):
+        return solve_ivp(
+            all_dynamics,
+            [0.0, self.period],
+            self.initial_state,
+            method="DOP853",
+            rtol=self.rtol,
+            atol=self.atol,
+            dense_output=True,
+        )
+
+    def _compute_closure_error(self):
+        final_state = self.solution.y[:, -1]
+        return float(np.linalg.norm(final_state - self.initial_state))
+
+    def get_state(self, t):
+        t_mod = float(np.mod(t, self.period))
+        if np.isclose(t_mod, 0.0, atol=1e-14) or np.isclose(t_mod, self.period, atol=1e-14):
+            return self.initial_state.copy()
+        return np.asarray(self.solution.sol(t_mod), dtype=float)
+
+    def get_position_velocity(self, t):
+        state = self.get_state(t)
+        return state[:2], state[2:]
+
+    def sample_trajectory(self, num_points=400):
+        ts = np.linspace(0.0, self.period, int(num_points))
+        states = np.asarray(self.solution.sol(ts), dtype=float).T
+        return ts, states
+
+# ==================== 轨道与质量工具 ====================
+def propagate_cr3bp(state0, dt, dense_output=False, events=None):
+    return solve_ivp(
+        all_dynamics,
+        [0.0, float(dt)],
+        np.asarray(state0, dtype=float),
+        method="DOP853",
+        rtol=1e-13,
+        atol=1e-13,
+        dense_output=dense_output,
+        events=events,
+    )
+
+
+def build_leo_departure_state(theta, post_velocity=None):
+    r_leo = CONST.h_LEO + CONST.Re_norm
+    pos = VEC_RE + np.array([r_leo * np.cos(theta), r_leo * np.sin(theta)])
+    u_tan = np.array([-np.sin(theta), np.cos(theta)])
+    v_circ = np.sqrt((1 - CONST.mu) / r_leo)
+    vel_pre = v_circ * u_tan - np.array([-pos[1], pos[0]])
+    if post_velocity is None:
+        vel_post = vel_pre.copy()
+    else:
+        vel_post = np.asarray(post_velocity, dtype=float)
+    state_pre = np.concatenate([pos, vel_pre])
+    state_post = np.concatenate([pos, vel_post])
+    return state_pre, state_post, vel_post - vel_pre
+
+
+def build_tangential_departure_state(theta, dv_tan):
+    r_leo = CONST.h_LEO + CONST.Re_norm
+    pos = VEC_RE + np.array([r_leo * np.cos(theta), r_leo * np.sin(theta)])
+    u_tan = np.array([-np.sin(theta), np.cos(theta)])
+    v_circ = np.sqrt((1 - CONST.mu) / r_leo)
+    vel_post = (v_circ + dv_tan) * u_tan - np.array([-pos[1], pos[0]])
+    return build_leo_departure_state(theta, post_velocity=vel_post)
+
+
+def build_validator_leo_state(theta=0.0):
+    """构造验证器期望的标准LEO状态。"""
+    r_leo = CONST.h_LEO + CONST.Re_norm
+    pos = VEC_RE + r_leo * np.array([np.cos(theta), np.sin(theta)])
+    v_circ = np.sqrt((1 - CONST.mu) / r_leo)
+    vel = (v_circ - r_leo) * np.array([-np.sin(theta), np.cos(theta)])
+    return np.concatenate([pos, vel])
+
+
+def build_llo_state(phi, prograde=True):
+    r_llo = CONST.h_LLO + CONST.Rm_norm
+    dr = r_llo * np.array([np.cos(phi), np.sin(phi)])
+    u_tan = np.array([-np.sin(phi), np.cos(phi)])
+    if not prograde:
+        u_tan = -u_tan
+    vel_inertial = np.sqrt(CONST.mu / r_llo) * u_tan
+    vel_synodic = vel_inertial - np.array([-dr[1], dr[0]])
+    return np.concatenate([VEC_RM + dr, vel_synodic])
+
+
+def get_moon_relative_inertial_velocity(state):
+    dr = state[0:2] - VEC_RM
+    return state[2:4] + np.array([-dr[1], dr[0]])
+
+
+def lunar_phase_from_state(state):
+    dr = state[0:2] - VEC_RM
+    return float(np.arctan2(dr[1], dr[0]))
+
+
+def is_lunar_prograde(state):
+    dr = state[0:2] - VEC_RM
+    v_inertial = get_moon_relative_inertial_velocity(state)
+    return float(dr[0] * v_inertial[1] - dr[1] * v_inertial[0]) >= 0.0
+
 
 def propagate_LLO(state_old, dt, t_old):
     """在LLO上传播"""
@@ -89,276 +240,498 @@ def propagate_LLO(state_old, dt, t_old):
     state_new = np.concatenate([dr_new + pos_M, v_new - np.array([-dr_new[1], dr_new[0]])])
     return state_new, t_old + dt
 
-# ==================== 主程序 ====================
 
-print("=" * 60)
-print("地月转移轨道优化 - 当前方案：基础版（无补给）")
-print("=" * 60)
+def compute_launch_mass(state_post):
+    x_rel = state_post[0] + CONST.mu
+    y_rel = state_post[1]
+    v_ix = state_post[2] - y_rel
+    v_iy = state_post[3] + x_rel
+    c3 = ((v_ix**2 + v_iy**2) * CONST.VU**2) - 2 * CONST.mu_e / (np.sqrt(x_rel**2 + y_rel**2) * CONST.LU)
+    return c3, 25000.0 - 1000.0 * c3
 
-# 初始化补给飞船（虽然暂时不用，但计算出来供参考）
-try:
-    supply_ship = SupplyShip()
-    print("✓ 补给飞船轨道已计算（本次未使用）")
-except Exception as e:
-    print(f"⚠ 补给飞船计算失败: {e}")
-    supply_ship = None
 
-# ==================== TLI参数优化 ====================
-print("\n[1/6] 优化TLI参数...")
+def fuel_after_impulse(fuel_before, payload_mass, dv_vec):
+    mass_before = CONST.M_dry + payload_mass + fuel_before
+    mass_after = mass_before * np.exp(-(np.linalg.norm(dv_vec) * CONST.VU) / CONST.Ce_km_s)
+    return mass_after - CONST.M_dry - payload_mass
 
-# 当前策略：降低dv1以降低C3，增加M0
-dv1 = 3.082  # VU - 经过优化的值
-dt1 = 3.2
-target_moon = CONST.Rm_norm + CONST.h_LLO
 
-# 网格搜索最佳出发相位角
-def flyby_error(th, dv, T_max, r_target):
-    if hasattr(th, '__iter__'):
-        th = th[0]
+def fuel_before_impulse(fuel_after, payload_mass, dv_vec):
+    ratio = np.exp(-(np.linalg.norm(dv_vec) * CONST.VU) / CONST.Ce_km_s)
+    return (CONST.M_dry + payload_mass + fuel_after) / ratio - CONST.M_dry - payload_mass
+
+
+def choose_two_refuel_plan(M0, dv_loi_vec, dv_tei_vec, fuel_after_loi_target=10.0):
+    launch_fuel = 0.0
+    payload = M0 - CONST.M_dry - launch_fuel
+    if payload < 0.0:
+        raise RuntimeError("发射质量不足以携带干重")
+
+    fuel_before_loi = fuel_before_impulse(fuel_after_loi_target, payload, dv_loi_vec)
+    fuel_after_loi = fuel_after_impulse(fuel_before_loi, payload, dv_loi_vec)
+    fuel_before_tei = fuel_before_impulse(CONST.M_return_fuel, 0.0, dv_tei_vec)
+    fuel_after_tei = fuel_after_impulse(fuel_before_tei, 0.0, dv_tei_vec)
+
+    if fuel_before_loi < -1e-9 or fuel_before_tei < -1e-9:
+        raise RuntimeError("补给规划失败：出现负燃料需求")
+
+    return (
+        launch_fuel,
+        payload,
+        max(0.0, fuel_before_loi),
+        max(0.0, fuel_after_loi),
+        max(0.0, fuel_before_tei),
+        max(0.0, fuel_after_tei),
+    )
+
+
+def append_event_row(data, event, t, state, dv_vec, fuel_mass, payload_mass):
+    state = np.asarray(state, dtype=float)
+    dv_vec = np.asarray(dv_vec, dtype=float)
+    data.append([
+        int(event),
+        float(t),
+        float(state[0]),
+        float(state[1]),
+        float(state[2]),
+        float(state[3]),
+        float(dv_vec[0]),
+        float(dv_vec[1]),
+        float(fuel_mass),
+        float(payload_mass),
+    ])
+
+
+def append_two_row_coast(data, t0, state0, t1, state1, fuel_mass, payload_mass):
+    append_event_row(data, 0, t0, state0, np.zeros(2), fuel_mass, payload_mass)
+    append_event_row(data, 0, t1, state1, np.zeros(2), fuel_mass, payload_mass)
+
+
+def append_two_row_maneuver(data, t, state_pre, state_post, dv_vec, fuel_before, fuel_after, payload_mass):
+    append_event_row(data, -1, t, state_pre, np.zeros(2), fuel_before, payload_mass)
+    append_event_row(data, -1, t, state_post, dv_vec, fuel_after, payload_mass)
+
+
+def append_two_row_rendezvous(data, t, state_supply, fuel_before, fuel_after, payload_mass):
+    append_event_row(data, 5, t, state_supply, np.zeros(2), fuel_before, payload_mass)
+    append_event_row(data, 5, t, state_supply, np.zeros(2), fuel_after, payload_mass)
+
+
+def solve_seed_direct_transfer(target_moon):
+    dv1 = 3.082
+    dt1 = 3.2
+    # 来自上一版可运行轨迹的稳定出发角；这里只作为 patch solver 的初值来源。
+    theta_opt = -2.369557
+    state_depart_pre, state_depart_post, dv_depart_vec = build_tangential_departure_state(theta_opt, dv1)
+
+    def event_moon_arrival(t, y):
+        return np.linalg.norm(y[0:2] - VEC_RM) - target_moon
+
+    event_moon_arrival.terminal = True
+    sol_to_moon = propagate_cr3bp(state_depart_post, dt1 * 1.5, dense_output=True, events=event_moon_arrival)
+    if sol_to_moon.t_events[0].size == 0:
+        raise RuntimeError("基线种子轨道未到达月球目标半径")
+
+    t_arrival = float(sol_to_moon.t_events[0][0])
+    state_arrival = np.asarray(sol_to_moon.y_events[0][0], dtype=float)
+
+    dr = state_arrival[0:2] - VEC_RM
+    r_mag = np.linalg.norm(dr)
+    u_rad = dr / r_mag
+    u_tan = np.array([-u_rad[1], u_rad[0]])
+    if np.dot(get_moon_relative_inertial_velocity(state_arrival), u_tan) < 0:
+        u_tan = -u_tan
+    vel_loi = np.sqrt(CONST.mu / r_mag) * u_tan - np.array([-dr[1], dr[0]])
+    state_loi = state_arrival.copy()
+    state_loi[2:4] = vel_loi
+
+    return {
+        "theta": theta_opt,
+        "t_depart": 0.0,
+        "state_depart_pre": state_depart_pre,
+        "state_depart_post": state_depart_post,
+        "dv_depart_vec": dv_depart_vec,
+        "to_moon_solution": sol_to_moon,
+        "t_arrival": t_arrival,
+        "state_arrival": state_arrival,
+        "state_loi": state_loi,
+    }
+
+
+def find_seed_supply_match(seed_transfer, supply_ship):
+    ts = np.linspace(0.05, seed_transfer["t_arrival"], 500)
+    seed_states = np.asarray(seed_transfer["to_moon_solution"].sol(ts), dtype=float).T
+    supply_states = np.asarray([supply_ship.get_state(t) for t in ts], dtype=float)
+    pos_error = np.linalg.norm(seed_states[:, 0:2] - supply_states[:, 0:2], axis=1)
+    vel_error = np.linalg.norm(seed_states[:, 2:4] - supply_states[:, 2:4], axis=1)
+    scores = pos_error + 0.2 * vel_error
+    best_idx = int(np.argmin(scores))
+    return {
+        "t_match": float(ts[best_idx]),
+        "seed_state": seed_states[best_idx],
+        "supply_state": supply_states[best_idx],
+        "score": float(scores[best_idx]),
+    }
+
+
+def solve_patch_to_supply(supply_ship, seed_transfer):
     r_leo = CONST.h_LEO + CONST.Re_norm
-    v_circ = np.sqrt((1 - CONST.mu) / r_leo)
-    v_dep = v_circ + dv
-    pos = VEC_RE + np.array([r_leo * np.cos(th), r_leo * np.sin(th)])
-    u_tan = np.array([-np.sin(th), np.cos(th)])
-    vel = v_dep * u_tan - np.array([-pos[1], pos[0]])
-    sol = solve_ivp(all_dynamics, [0, T_max], np.concatenate([pos, vel]),
-                    method='RK45', rtol=1e-9, atol=1e-9)
-    pos_M = VEC_RM
-    dists = np.sqrt((sol.y[0, :] - pos_M[0])**2 + (sol.y[1, :] - pos_M[1])**2)
-    return abs(np.min(dists) - r_target)
+    seed_match = find_seed_supply_match(seed_transfer, supply_ship)
 
-# 网格搜索
-best_th = -2.44
-best_err = 1e10
-for th_init in np.linspace(-2.6, -2.2, 15):
-    err = flyby_error(th_init, dv1, dt1*1.5, target_moon)
-    if err < best_err:
-        best_err = err
-        best_th = th_init
+    def earth_orbit_radius_error(t_rv):
+        state_rv = supply_ship.get_state(t_rv)
+        state_back = np.asarray(propagate_cr3bp(state_rv, -t_rv).y[:, -1], dtype=float)
+        radius = np.linalg.norm(state_back[0:2] - VEC_RE)
+        return abs(radius - r_leo), state_back
 
-# 精细优化
-result = minimize(lambda th: flyby_error(th, dv1, dt1*1.5, target_moon),
-                 best_th, method='Nelder-Mead',
-                 options={'xatol': 1e-14, 'fatol': 1e-14})
-th1 = result.x[0] if hasattr(result.x, '__iter__') else result.x
-print(f"  dv1={dv1:.6f} VU, th1={th1:.6f} rad")
+    t_center = seed_match["t_match"]
+    t_grid = np.linspace(max(0.08, t_center - 0.30), t_center + 0.30, 120)
+    best_t = None
+    best_state = None
+    best_err = np.inf
+    for t_rv in t_grid:
+        err, state_back = earth_orbit_radius_error(t_rv)
+        if err < best_err:
+            best_t = float(t_rv)
+            best_state = state_back
+            best_err = float(err)
 
-# ==================== TLI执行 ====================
-print("\n[2/6] 执行TLI并进行地月转移...")
+    result = minimize_scalar(
+        lambda t: earth_orbit_radius_error(float(t))[0],
+        bounds=(max(0.05, best_t - 0.02), best_t + 0.02),
+        method="bounded",
+        options={"xatol": 1e-12},
+    )
+    tof = float(result.x)
+    best_err, best_state = earth_orbit_radius_error(tof)
+    if best_err > 1e-7:
+        raise RuntimeError(f"无法求解 Earth->Supply patch，轨道半径误差={best_err:.3e}")
 
-t0 = 0.0
-r_leo = CONST.h_LEO + CONST.Re_norm
-v_circ = np.sqrt((1 - CONST.mu) / r_leo)
-v_dep = v_circ + dv1
+    theta = float(np.arctan2(best_state[1] - VEC_RE[1], best_state[0] - VEC_RE[0]))
+    state_depart_pre, _, dv_depart_vec = build_leo_departure_state(theta, post_velocity=best_state[2:4])
+    state_depart_post = best_state.copy()
+    sol_to_supply = propagate_cr3bp(state_depart_post, tof, dense_output=True)
+    state_rv = np.asarray(sol_to_supply.y[:, -1], dtype=float)
+    return {
+        "theta": float(theta),
+        "t_rv": float(tof),
+        "state_depart_pre": state_depart_pre,
+        "state_depart_post": state_depart_post,
+        "dv_depart_vec": dv_depart_vec,
+        "state_rv": state_rv,
+        "solution": sol_to_supply,
+    }
 
-pos_E = VEC_RE
-pos_1 = pos_E + np.array([r_leo * np.cos(th1), r_leo * np.sin(th1)])
-u_tan = np.array([-np.sin(th1), np.cos(th1)])
-vel_pre = v_circ * u_tan - np.array([-pos_1[1], pos_1[0]])
-vel_post = v_dep * u_tan - np.array([-pos_1[1], pos_1[0]])
-dv1_vec = vel_post - vel_pre
 
-# 地月转移
-def event_moon_arrival(t, y):
-    r = np.linalg.norm(y[0:2] - VEC_RM)
-    return r - target_moon
-event_moon_arrival.terminal = True
+def solve_patch_supply_to_llo(supply_ship, rendezvous_patch, seed_transfer):
+    phi_seed = lunar_phase_from_state(seed_transfer["state_loi"])
+    tof_seed = max(0.08, seed_transfer["t_arrival"] - rendezvous_patch["t_rv"])
+    supply_state = rendezvous_patch["state_rv"]
+    prograde_seed = is_lunar_prograde(seed_transfer["state_loi"])
+    candidate_solutions = []
 
-sol_tli = solve_ivp(all_dynamics, [0, dt1*1.5], np.concatenate([pos_1, vel_post]),
-                   method='RK45', rtol=1e-13, atol=1e-13,
-                   events=event_moon_arrival)
+    for prograde in (prograde_seed, not prograde_seed):
+        bounds_lower = np.array([0.05, -np.pi], dtype=float)
+        bounds_upper = np.array([3.0, np.pi], dtype=float)
+        guess_bank = (
+            np.array([tof_seed, phi_seed], dtype=float),
+            np.array([max(0.08, tof_seed * 0.8), phi_seed - 0.15], dtype=float),
+            np.array([tof_seed + 0.10, phi_seed + 0.15], dtype=float),
+            np.array([0.25, np.pi], dtype=float),
+        )
 
-if sol_tli.t_events[0].size == 0:
-    raise ValueError('未到达月球')
+        def residual(variables):
+            tof, phi = variables
+            target_state = build_llo_state(phi, prograde=prograde)
+            state_back = np.asarray(propagate_cr3bp(target_state, -tof).y[:, -1], dtype=float)
+            return state_back[0:2] - supply_state[0:2]
 
-t_arr_M = t0 + sol_tli.t_events[0][0]
-state_arr_M = sol_tli.y_events[0][0]
-print(f"  到达月球: {t_arr_M*CONST.TU/86400:.2f}天")
+        best_result = None
+        best_norm = np.inf
+        for guess in guess_bank:
+            guess = np.clip(guess, bounds_lower, bounds_upper)
+            result = least_squares(
+                residual,
+                guess,
+                bounds=(bounds_lower, bounds_upper),
+                xtol=1e-12,
+                ftol=1e-12,
+                gtol=1e-12,
+                max_nfev=400,
+            )
+            residual_norm = float(np.linalg.norm(result.fun))
+            if residual_norm < best_norm:
+                best_result = result
+                best_norm = residual_norm
+            if result.success and residual_norm < 1e-9:
+                break
 
-# ==================== LOI ====================
-print("\n[3/6] 执行LOI进入月球轨道...")
+        if best_result is None or best_norm > 1e-7:
+            continue
 
-pos_M = VEC_RM
-dr = state_arr_M[0:2] - pos_M
-r_act = np.linalg.norm(dr)
-v_circ_m = np.sqrt(CONST.mu / r_act)
-u_rad = dr / r_act
-u_tan_m = np.array([-u_rad[1], u_rad[0]])
+        tof, phi = best_result.x
+        target_state = build_llo_state(phi, prograde=prograde)
+        state_back = np.asarray(propagate_cr3bp(target_state, -tof).y[:, -1], dtype=float)
+        dv_sep_vec = state_back[2:4] - supply_state[2:4]
+        state_post_sep = supply_state.copy()
+        state_post_sep[2:4] = state_post_sep[2:4] + dv_sep_vec
+        sol_to_llo = propagate_cr3bp(state_post_sep, tof, dense_output=True)
+        state_llo = np.asarray(sol_to_llo.y[:, -1], dtype=float)
+        candidate_solutions.append({
+            "prograde": prograde,
+            "phi": float(phi),
+            "t_arrival": rendezvous_patch["t_rv"] + float(tof),
+            "state_pre_sep": supply_state.copy(),
+            "state_post_sep": state_post_sep,
+            "dv_sep_vec": dv_sep_vec,
+            "state_llo": state_llo,
+            "solution": sol_to_llo,
+        })
 
-if np.dot(state_arr_M[2:4] + np.array([-dr[1], dr[0]]), u_tan_m) < 0:
-    u_tan_m = -u_tan_m
+    if not candidate_solutions:
+        raise RuntimeError("无法求解 Supply->LLO patch")
 
-vel_loi = v_circ_m * u_tan_m - np.array([-dr[1], dr[0]])
-dv2_vec = vel_loi - state_arr_M[2:4]
-dv2_mag = np.linalg.norm(dv2_vec)
+    return min(candidate_solutions, key=lambda item: np.linalg.norm(item["dv_sep_vec"]))
 
-state_loi = state_arr_M.copy()
-state_loi[2:4] = vel_loi
-print(f"  LOI dv={dv2_mag*CONST.VU:.6f} km/s")
 
-# ==================== 月面停留 ====================
-print("\n[4/6] 月面停留...")
-
-# 优化停留时间（在约束范围3-10天内）
-dt_stay_days = 9.0  # 接近上限
-dt_stay = dt_stay_days * 86400 / CONST.TU
-
-state_pre_tei, t_dep = propagate_LLO(state_loi, dt_stay, t_arr_M)
-print(f"  停留时间: {dt_stay_days:.2f}天")
-
-# ==================== TEI优化 ====================
-print("\n[5/6] 优化TEI参数...")
-
-def compute_return_altitude(dv3):
-    """计算给定dv3下的返回高度"""
-    dr_dep = state_pre_tei[0:2] - pos_M
+def compute_return_altitude(state_pre_tei, dv3):
+    dr_dep = state_pre_tei[0:2] - VEC_RM
     u_tan_dep = np.array([-dr_dep[1], dr_dep[0]]) / np.linalg.norm(dr_dep)
-
-    if np.dot(state_pre_tei[2:4] + np.array([-dr_dep[1], dr_dep[0]]), u_tan_dep) < 0:
+    if np.dot(get_moon_relative_inertial_velocity(state_pre_tei), u_tan_dep) < 0:
         u_tan_dep = -u_tan_dep
 
     dv3_vec = dv3 * u_tan_dep
     state_post = state_pre_tei.copy()
     state_post[2:4] = state_post[2:4] + dv3_vec
+    sol = propagate_cr3bp(state_post, 6.0, dense_output=True)
 
-    sol = solve_ivp(all_dynamics, [0, 6.0], state_post,
-                   method='DOP853', rtol=1e-13, atol=1e-13, dense_output=True)
-
-    # 搜索近地点
     t_samples = np.linspace(0, sol.t[-1], 8000)
     dists = np.array([np.linalg.norm(sol.sol(t)[0:2] - VEC_RE) for t in t_samples])
-    idx_min = np.argmin(dists)
-    t_guess = t_samples[idx_min]
+    t_guess = float(t_samples[int(np.argmin(dists))])
 
     def dist_func(t):
         if t < 0 or t > sol.t[-1]:
             return 1e10
         return np.linalg.norm(sol.sol(t)[0:2] - VEC_RE)
 
-    result = minimize_scalar(dist_func,
-                            bounds=(max(0, t_guess-0.3), min(sol.t[-1], t_guess+0.3)),
-                            method='bounded', options={'xatol': 1e-12})
+    result = minimize_scalar(
+        dist_func,
+        bounds=(max(0.0, t_guess - 0.3), min(sol.t[-1], t_guess + 0.3)),
+        method="bounded",
+        options={"xatol": 1e-12},
+    )
+    altitude = (result.fun - CONST.Re_norm) * CONST.LU
+    return altitude, float(result.x), sol, dv3_vec
 
-    alt = (result.fun - CONST.Re_norm) * CONST.LU
-    return alt, result.x, sol
 
-# 搜索最优dv3
-def objective(dv3):
-    alt, _, _ = compute_return_altitude(dv3)
-    return abs(alt)  # 目标是高度为0
+def choose_fuel_plan(M0, dv_supply_vec, dv_tei_vec):
+    def final_fuel_with_plan(payload_mass, fuel_after_rv):
+        fuel_after_sep = fuel_after_impulse(fuel_after_rv, payload_mass, dv_supply_vec)
+        fuel_after_tei = fuel_after_impulse(fuel_after_sep, 0.0, dv_tei_vec)
+        return fuel_after_sep, fuel_after_tei
 
-result_dv3 = minimize_scalar(objective, bounds=(0.75, 0.85), method='bounded')
-dv3_optimal = result_dv3.x
-alt_final, t_peri, sol_tei = compute_return_altitude(dv3_optimal)
+    launch_fuel = 0.0
+    payload = M0 - CONST.M_dry - launch_fuel
+    fuel_after_sep_full, fuel_after_tei_full = final_fuel_with_plan(payload, CONST.M_fuel_max)
 
+    if fuel_after_tei_full >= CONST.M_return_fuel:
+        lo = launch_fuel
+        hi = CONST.M_fuel_max
+        for _ in range(80):
+            mid = 0.5 * (lo + hi)
+            _, fuel_after_tei_mid = final_fuel_with_plan(payload, mid)
+            if fuel_after_tei_mid >= CONST.M_return_fuel:
+                hi = mid
+            else:
+                lo = mid
+        fuel_after_rv = hi
+        fuel_after_sep, fuel_after_tei = final_fuel_with_plan(payload, fuel_after_rv)
+        return launch_fuel, payload, fuel_after_rv, fuel_after_sep, fuel_after_tei
+
+    max_launch_fuel = min(CONST.M_fuel_max, M0 - CONST.M_dry)
+    _, fuel_after_tei_max = final_fuel_with_plan(M0 - CONST.M_dry - max_launch_fuel, CONST.M_fuel_max)
+    if fuel_after_tei_max < CONST.M_return_fuel:
+        raise RuntimeError("即使在补给后装满燃料，也无法满足返回燃料约束")
+
+    lo = 0.0
+    hi = max_launch_fuel
+    for _ in range(80):
+        mid = 0.5 * (lo + hi)
+        payload_mid = M0 - CONST.M_dry - mid
+        _, fuel_after_tei_mid = final_fuel_with_plan(payload_mid, CONST.M_fuel_max)
+        if fuel_after_tei_mid >= CONST.M_return_fuel:
+            hi = mid
+        else:
+            lo = mid
+
+    launch_fuel = hi
+    payload = M0 - CONST.M_dry - launch_fuel
+    fuel_after_rv = CONST.M_fuel_max
+    fuel_after_sep, fuel_after_tei = final_fuel_with_plan(payload, fuel_after_rv)
+    return launch_fuel, payload, fuel_after_rv, fuel_after_sep, fuel_after_tei
+
+
+# ==================== 主程序 ====================
+print("=" * 60)
+print("地月转移轨道优化 - 当前方案：直达转移 + 双补给节点（Event 5）")
+print("=" * 60)
+
+t0 = 0.0
+target_moon = CONST.Rm_norm + CONST.h_LLO
+
+print("\n[1/6] 求解补给飞船轨道与直达月球转移...")
+try:
+    supply_ship = SupplyShip()
+    print(f"  补给飞船周期: {supply_ship.period:.6f} TU, 闭合误差: {supply_ship.closure_error:.3e}")
+except Exception as e:
+    raise RuntimeError(f"补给飞船轨道求解失败: {e}")
+
+direct_transfer = solve_seed_direct_transfer(target_moon)
+t_arr_M = direct_transfer["t_arrival"]
+state_arr_M = direct_transfer["state_arrival"]
+state_loi = direct_transfer["state_loi"]
+dv2_vec = state_loi[2:4] - state_arr_M[2:4]
+print(f"  到达月球: {t_arr_M * CONST.TU / 86400:.2f}天")
+print(f"  LOI dv = {np.linalg.norm(dv2_vec) * CONST.VU:.6f} km/s")
+
+print("\n[2/6] 月面停留...")
+dt_stay_days = 9.0
+dt_stay = dt_stay_days * 86400 / CONST.TU
+state_pre_tei, t_dep = propagate_LLO(state_loi, dt_stay, t_arr_M)
+print(f"  停留时间: {dt_stay_days:.2f}天")
+
+print("\n[3/6] 优化TEI参数...")
+result_dv3 = minimize_scalar(
+    lambda dv3: abs(compute_return_altitude(state_pre_tei, dv3)[0]),
+    bounds=(0.70, 0.95),
+    method="bounded",
+)
+dv3_optimal = float(result_dv3.x)
+alt_final, t_peri, sol_tei, dv3_vec = compute_return_altitude(state_pre_tei, dv3_optimal)
 print(f"  最优dv3={dv3_optimal:.6f} VU, 返回高度={alt_final:.2f} km")
 
-# ==================== 质量计算 ====================
-print("\n[6/6] 计算质量预算...")
-
-# 计算C3
-x_rel = pos_1[0] + CONST.mu
-y_rel = pos_1[1]
-v_ix = vel_post[0] - y_rel
-v_iy = vel_post[1] + x_rel
-C3 = ((v_ix**2 + v_iy**2) * CONST.VU**2) - 2*CONST.mu_e / (np.sqrt(x_rel**2 + y_rel**2) * CONST.LU)
-M0 = 25000 - 1000 * C3
-
-# 质量比
-ratio_loi = np.exp(-(dv2_mag * CONST.VU) / CONST.Ce_km_s)
-ratio_tei = np.exp(-(np.linalg.norm([0, dv3_optimal]) * CONST.VU) / CONST.Ce_km_s)
-
-# Payload计算
-M_return_wet = CONST.M_dry + CONST.M_return_fuel
-Payload = M0 * ratio_loi - (M_return_wet / ratio_tei)
-Fuel_launch = M0 - CONST.M_dry - Payload
-
-if Fuel_launch > CONST.M_fuel_max:
-    Fuel_launch = CONST.M_fuel_max
-    Payload = M0 - CONST.M_dry - Fuel_launch
-
-Fuel_after_loi = Fuel_launch - (M0 * (1 - ratio_loi))
-
+print("\n[4/6] 计算质量预算与补给方案...")
+C3, M0 = compute_launch_mass(direct_transfer["state_depart_post"])
+Fuel_launch, Payload, Fuel_before_loi, Fuel_after_loi, Fuel_before_tei, Fuel_after_tei = choose_two_refuel_plan(
+    M0,
+    dv2_vec,
+    dv3_vec,
+)
+fuel_added_loi = Fuel_before_loi - Fuel_launch
+fuel_added_tei = Fuel_before_tei - Fuel_after_loi
 print(f"  C3 = {C3:.4f} km²/s²")
 print(f"  M0 = {M0:.2f} kg")
+print(f"  Launch fuel = {Fuel_launch:.2f} kg")
 print(f"  Payload = {Payload:.2f} kg")
-print(f"  燃料消耗 = {Fuel_launch - Fuel_after_loi:.2f} kg")
+print(f"  Event 5 #1 加注 = {fuel_added_loi:.2f} kg")
+print(f"  Event 5 #2 加注 = {fuel_added_tei:.2f} kg")
+
+print("\n[5/6] 采样两个补给对接节点...")
+state_supply_loi = supply_ship.get_state(t_arr_M)
+state_supply_tei = supply_ship.get_state(t_dep)
+print(f"  对接节点 1: t = {t_arr_M * CONST.TU / 86400:.2f}天")
+print(f"  对接节点 2: t = {t_dep * CONST.TU / 86400:.2f}天")
 
 t_arr_E = t_dep + t_peri
 total_days = t_arr_E * CONST.TU / 86400
-
 print(f"\n任务总时长: {total_days:.2f}天")
 
-# ==================== 生成results.txt ====================
-print("\n生成results.txt...")
-
+print("\n[6/6] 生成results.txt...")
 data = []
 
-# Event 1: 出发前（标准LEO）
-theta_check = 0.0
-r_init_norm = CONST.Re_norm + CONST.h_LEO
-pos_check = r_init_norm * np.array([np.cos(theta_check), np.sin(theta_check)]) + VEC_RE
-v_init = np.sqrt((1 - CONST.mu) / r_init_norm)
-vel_check = (v_init - r_init_norm) * np.array([-np.sin(theta_check), np.cos(theta_check)])
+state_leo_validator = build_validator_leo_state(0.0)
 
-data.append([1, t0, pos_check[0], pos_check[1], vel_check[0], vel_check[1],
-            0, 0, Fuel_launch, Payload])
+append_event_row(
+    data,
+    1,
+    t0,
+    state_leo_validator,
+    np.zeros(2),
+    Fuel_launch,
+    Payload,
+)
+append_event_row(
+    data,
+    1,
+    t0,
+    direct_transfer["state_depart_post"],
+    direct_transfer["dv_depart_vec"],
+    Fuel_launch,
+    Payload,
+)
 
-# Event 1: TLI后
-data.append([1, t0, pos_1[0], pos_1[1], vel_post[0], vel_post[1],
-            dv1_vec[0], dv1_vec[1], Fuel_launch, Payload])
+append_two_row_coast(
+    data,
+    t0,
+    direct_transfer["state_depart_post"],
+    t_arr_M,
+    state_arr_M,
+    Fuel_launch,
+    Payload,
+)
+append_two_row_rendezvous(
+    data,
+    t_arr_M,
+    state_supply_loi,
+    Fuel_launch,
+    Fuel_before_loi,
+    Payload,
+)
+append_two_row_maneuver(
+    data,
+    t_arr_M,
+    state_arr_M,
+    state_loi,
+    dv2_vec,
+    Fuel_before_loi,
+    Fuel_after_loi,
+    Payload,
+)
+append_event_row(data, 2, t_arr_M, state_loi, np.zeros(2), Fuel_after_loi, Payload)
+append_event_row(data, 3, t_dep, state_pre_tei, np.zeros(2), Fuel_after_loi, 0.0)
 
-# Event 0: 地月转移
-data.append([0, t0, pos_1[0], pos_1[1], vel_post[0], vel_post[1], 0, 0, Fuel_launch, Payload])
-data.append([0, t_arr_M, state_arr_M[0], state_arr_M[1], state_arr_M[2], state_arr_M[3],
-            0, 0, Fuel_launch, Payload])
+append_two_row_rendezvous(
+    data,
+    t_dep,
+    state_supply_tei,
+    Fuel_after_loi,
+    Fuel_before_tei,
+    0.0,
+)
 
-# Event -1: LOI
-data.append([-1, t_arr_M, state_arr_M[0], state_arr_M[1], state_arr_M[2], state_arr_M[3],
-            0, 0, Fuel_launch, Payload])
-data.append([-1, t_arr_M, state_loi[0], state_loi[1], state_loi[2], state_loi[3],
-            dv2_vec[0], dv2_vec[1], Fuel_after_loi, Payload])
-
-# Event 2: 到达LLO
-data.append([2, t_arr_M, state_loi[0], state_loi[1], state_loi[2], state_loi[3],
-            0, 0, Fuel_after_loi, Payload])
-
-# Event 3: 离开LLO
-data.append([3, t_dep, state_pre_tei[0], state_pre_tei[1], state_pre_tei[2], state_pre_tei[3],
-            0, 0, Fuel_after_loi, 0.0])
-
-# Event -1: TEI
-dr_dep = state_pre_tei[0:2] - pos_M
-u_tan_dep = np.array([-dr_dep[1], dr_dep[0]]) / np.linalg.norm(dr_dep)
-if np.dot(state_pre_tei[2:4] + np.array([-dr_dep[1], dr_dep[0]]), u_tan_dep) < 0:
-    u_tan_dep = -u_tan_dep
-dv3_vec = dv3_optimal * u_tan_dep
 state_post_tei = state_pre_tei.copy()
 state_post_tei[2:4] = state_post_tei[2:4] + dv3_vec
+append_two_row_maneuver(
+    data,
+    t_dep,
+    state_pre_tei,
+    state_post_tei,
+    dv3_vec,
+    Fuel_before_tei,
+    Fuel_after_tei,
+    0.0,
+)
 
-data.append([-1, t_dep, state_pre_tei[0], state_pre_tei[1], state_pre_tei[2], state_pre_tei[3],
-            0, 0, Fuel_after_loi, 0.0])
-data.append([-1, t_dep, state_post_tei[0], state_post_tei[1], state_post_tei[2], state_post_tei[3],
-            dv3_vec[0], dv3_vec[1], CONST.M_return_fuel, 0.0])
-
-# Event 0: 月地转移（早期段，确保高度>400km）
 t_safe = 0.1
-state_safe = sol_tei.sol(t_safe)
-data.append([0, t_dep, state_post_tei[0], state_post_tei[1], state_post_tei[2], state_post_tei[3],
-            0, 0, CONST.M_return_fuel, 0.0])
-data.append([0, t_dep + t_safe, state_safe[0], state_safe[1], state_safe[2], state_safe[3],
-            0, 0, CONST.M_return_fuel, 0.0])
+state_safe = np.asarray(sol_tei.sol(t_safe), dtype=float)
+append_two_row_coast(
+    data,
+    t_dep,
+    state_post_tei,
+    t_dep + t_safe,
+    state_safe,
+    Fuel_after_tei,
+    0.0,
+)
 
-# Event 4: 返回地球
-state_final = sol_tei.sol(t_peri)
-data.append([4, t_arr_E, state_final[0], state_final[1], state_final[2], state_final[3],
-            0, 0, CONST.M_return_fuel, 0.0])
+state_final = np.asarray(sol_tei.sol(t_peri), dtype=float)
+append_event_row(data, 4, t_arr_E, state_final, np.zeros(2), Fuel_after_tei, 0.0)
 
-data = np.array(data)
-np.savetxt('results.txt', data, fmt=['%d'] + ['%.12e']*9, delimiter='\t')
+data = np.asarray(data, dtype=float)
+np.savetxt("results.txt", data, fmt=["%d"] + ["%.12e"] * 9, delimiter="\t")
 
 print("=" * 60)
-print(f"✓ 程序完成")
+print("✓ 程序完成")
 print(f"✓ Payload: {Payload:.2f} kg")
 print(f"✓ 任务时长: {total_days:.2f}天")
 print("=" * 60)

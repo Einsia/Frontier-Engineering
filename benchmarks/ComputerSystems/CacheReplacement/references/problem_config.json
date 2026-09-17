@@ -1,0 +1,17 @@
+{
+    "benchmark_id": "cache_replacement",
+    "benchmark_version": "1.0.0",
+    "traces": {
+        "source": "https://dpc3.compas.cs.stonybrook.edu/champsim-traces/speccpu/",
+        "quick": ["605.mcf_s-665B", "625.x264_s-18B", "607.cactuBSSN_s-2421B"],
+        "full": [
+            "603.bwaves_s-3699B", "605.mcf_s-665B", "625.x264_s-18B",
+            "654.roms_s-842B", "657.xz_s-3167B", "600.perlbench_s-210B",
+            "602.gcc_s-734B", "607.cactuBSSN_s-2421B", "621.wrf_s-575B",
+            "631.deepsjeng_s-928B"
+        ]
+    },
+    "quick": { "warmup_instructions": 10000000, "sim_instructions": 20000000, "expected_runtime_min": "<10" },
+    "full": { "warmup_instructions": 50000000, "sim_instructions": 100000000, "expected_runtime_min": "30-60" },
+    "timeout": { "compile": 300, "quick_verify": 120, "per_trace_quick": 600, "per_trace_full": 1800 }
+}

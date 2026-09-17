@@ -1,0 +1,17 @@
+{
+    "benchmark_version": "1.0.0",
+    "simulator": {
+        "name": "ChampSim",
+        "repo": "https://github.com/ChampSim/ChampSim",
+        "commit": "51588e1d6f97875fe8de1a3621d28668bff83fcf",
+        "build_command": "./config.sh <config>.json && make -j4"
+    },
+    "evaluation": {
+        "llc_size": "2 MB",
+        "llc_associativity": 16,
+        "cache_line_size": 64,
+        "num_cores": 1
+    },
+    "storage": { "budget_bytes": 65536, "validation": "approximate static check" },
+    "scoring": { "formula": "GMEAN(IPC_candidate / IPC_LRU)", "baseline_score": 1.0 }
+}

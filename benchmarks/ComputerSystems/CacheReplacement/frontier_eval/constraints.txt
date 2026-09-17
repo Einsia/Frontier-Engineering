@@ -1,0 +1,8 @@
+CacheReplacement constraints:
+1) Only modify code inside EVOLVE-BLOCK in replacement/my_policy.cc and replacement/my_policy.h.
+2) Function signatures are read-only.
+3) No dynamic memory, dynamic containers, file I/O, randomness, threading, system calls.
+4) Storage budget: ≤64 KB for EVOLVE-BLOCK member variables.
+5) Implementation must be deterministic.
+6) Baseline: LRU. Score = geometric_mean(IPC_candidate / IPC_LRU). Baseline = 1.0.
+7) Read-only: evaluator.py, baseline/*, references/*, data/ChampSim/*

@@ -1,0 +1,5 @@
+name: unified
+benchmark: ComputerSystems/IndexOptimization
+runtime:
+  isolation_mode: docker
+  docker_image: frontier-pg-index:latest

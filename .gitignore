@@ -56,3 +56,6 @@ debug-*.log
 **/outputs/
 **/artifacts/
 **/last_eval.json
+
+# IndexOptimization generated data
+benchmarks/ComputerSystems/IndexOptimization/data/tpch_sf1/tpch_sf1.dump

@@ -1,0 +1,9 @@
+data/traces/
+data/ChampSim/
+data/baseline_ipcs/
+references/generated_baseline.json
+__pycache__/
+*.pyc
+*.log
+temp/
+.DS_Store

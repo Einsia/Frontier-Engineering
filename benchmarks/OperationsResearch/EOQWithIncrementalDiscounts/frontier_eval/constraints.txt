@@ -1,0 +1,4 @@
+Edit only `scripts/init.py`.
+Modify only code between `# EVOLVE-BLOCK-START` and `# EVOLVE-BLOCK-END` in that file.
+Do not modify files under `baseline/`, `runtime/`, or `verification/`.
+Return a finite and feasible solution for every frozen case.

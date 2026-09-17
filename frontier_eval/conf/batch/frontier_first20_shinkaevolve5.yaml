@@ -1,0 +1,38 @@
+version: 1
+
+tasks:
+  - inventory_minimum_order_quantity
+  - inventory_all_units_discounts
+  - inventory_incremental_discounts
+  - inventory_poisson_service_level
+  - inventory_normal_service_level_95
+  - fisher_thompson_instance_10_dispatch_rule
+  - lawrence_instance_16_dispatch_rule
+  - fisher_thompson_instance_10_neighborhood_moves
+  - lawrence_instance_16_neighborhood_moves
+  - analytical_database_index_selection
+  - analytical_database_query_rewrite
+  - analytical_database_pre_aggregation_selection
+  - grid_obstacle_path_planning
+  - narrow_passage_path_planning
+  - multi_robot_priority_planning
+  - cantilever_topology_optimization
+  - half_beam_topology_optimization
+  - bridge_topology_optimization
+  - ship_weather_routing
+  - dynamic_current_routing
+
+algorithms:
+  - name: shinkaevolve
+    overrides:
+      - algorithm.max_generations=5
+
+common_overrides:
+  - llm.temperature=0.7
+  - llm.timeout=60
+
+run:
+  name: frontier_first20_shinkaevolve5
+  base_dir: runs/batch
+  max_parallel: 4
+  fail_fast: false

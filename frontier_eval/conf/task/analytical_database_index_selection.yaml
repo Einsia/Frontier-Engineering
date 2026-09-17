@@ -1,0 +1,8 @@
+defaults:
+  - unified
+
+benchmark: ComputerSystems/DuckDBIndexSelection
+
+runtime:
+  use_conda_run: false
+  python_path: /mnt/shared-storage-user/p1-shared/luotianwei/Frontier-Engineering/.venv/bin/python

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Frontier Benchmark Contributor"
+  short_description: "Design and add Frontier-Engineering benchmark tasks"
+  default_prompt: "Use $frontier-benchmark-contributor to turn candidate domains into implementable Frontier-Engineering benchmark tasks."

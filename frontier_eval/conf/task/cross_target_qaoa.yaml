@@ -1,0 +1,6 @@
+name: unified
+benchmark: QuantumComputing/task_03_cross_target_qaoa
+metadata_dir: frontier_eval
+
+runtime:
+  conda_env: mqt

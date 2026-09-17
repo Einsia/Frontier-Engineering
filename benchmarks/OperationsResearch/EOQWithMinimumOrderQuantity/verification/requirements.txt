@@ -1,0 +1,3 @@
+stockpyl @ git+https://github.com/LarrySnyder/stockpyl.git
+numpy
+scipy

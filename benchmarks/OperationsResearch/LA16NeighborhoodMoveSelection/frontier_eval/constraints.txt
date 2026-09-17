@@ -1,0 +1,6 @@
+Edit only `scripts/init.py`.
+Modify only code between `# EVOLVE-BLOCK-START` and `# EVOLVE-BLOCK-END` in that file.
+Do not modify files in `runtime/`, `verification/`, `references/`, or `baseline/`.
+For dispatch tasks, define `score_operation(operation, state)`.
+For neighborhood tasks, define `score_move(move, state)`.
+Return only finite scalar scores.

@@ -1,0 +1,6 @@
+name: unified
+benchmark: QuantumComputing/task_02_clifford_t_synthesis
+metadata_dir: frontier_eval
+
+runtime:
+  conda_env: mqt

@@ -1,0 +1,2 @@
+﻿# FJSP-WF Evaluator Requirements
+# Pure Python standard library only — no external dependencies required.

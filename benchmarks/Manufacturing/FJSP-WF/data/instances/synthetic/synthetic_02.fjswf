@@ -1,0 +1,18 @@
+{
+    "name": "synthetic_02",
+    "description": "Synthetic smoke-test instance: 3 jobs, 3 machines, 2 workers",
+    "num_jobs": 3,
+    "num_machines": 3,
+    "num_workers": 2,
+    "operations": [
+        {"job_id": 0, "op_idx": 0, "eligible_machines": [0, 1], "processing_times": [[4, 3], [5, 4]]},
+        {"job_id": 0, "op_idx": 1, "eligible_machines": [2], "processing_times": [[6, 5]]},
+        {"job_id": 0, "op_idx": 2, "eligible_machines": [0, 2], "processing_times": [[3, 2], [4, 3]]},
+        {"job_id": 1, "op_idx": 0, "eligible_machines": [1, 2], "processing_times": [[5, 4], [6, 5]]},
+        {"job_id": 1, "op_idx": 1, "eligible_machines": [0], "processing_times": [[7, 5]]},
+        {"job_id": 2, "op_idx": 0, "eligible_machines": [0, 1, 2], "processing_times": [[3, 2], [4, 3], [5, 4]]},
+        {"job_id": 2, "op_idx": 1, "eligible_machines": [1], "processing_times": [[4, 3]]}
+    ],
+    "worker_eligibility": [[0, 1, 2], [0, 1]],
+    "metadata": {"best_known_makespan": null, "lower_bound": null, "source": "synthetic example for smoke testing"}
+}

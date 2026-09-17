@@ -1,0 +1,1 @@
+Optimize scripts/init.py for FJSP-WF benchmark instances. Objective: minimize makespan. Keep solution as pure Python (standard library only), no external solver/library usage. Preserve expected interface used by verification/evaluator.py (e.g., solve_instance output fields). Only modify code within EVOLVE-BLOCK-START and EVOLVE-BLOCK-END markers.

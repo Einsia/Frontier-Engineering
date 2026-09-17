@@ -1,0 +1,1 @@
+{"processing_time_unit":"time units","processing_time_epsilon":1e-9,"max_machines":100,"max_workers":100,"max_jobs":100,"max_operations_per_job":50}

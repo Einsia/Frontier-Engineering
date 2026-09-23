@@ -107,7 +107,7 @@ python -m frontier_eval task=unified task.benchmark=PowerSystems/TelecomBackup a
 python -m unittest discover -s verification -p "test_*.py"
 ```
 
-43 tests across four modules (simulator / validator / evaluator / sandbox wiring): simulator
+44 tests across four modules (simulator / validator / evaluator / sandbox wiring): simulator
 correctness (manual golden cases, interval normalization, battery depletion, coverage constraint,
 determinism); validator integrity (EVOLVE-BLOCK / forbidden references / absolute paths /
 per-instance hardcoding / env stripping / determinism probe); evaluator behavior (scoring,
@@ -144,7 +144,9 @@ cross-size determinism probe (3 instances run twice) = 14 solver runs, so the wo
 `14 × 60 s = 840 s`, which exceeds 300 s — the official run must raise the cap (e.g.
 `algorithm.evaluator.timeout=1200`, as above). If the observed cap is too small the evaluator
 **shrinks the per-instance budget so the run still fits** (recording `budget_shrunk` and
-`effective_time_budget_s`) rather than being killed mid-run.
+`effective_time_budget_s`) rather than being killed mid-run. This bounds the *solver* time the
+evaluator controls; fixed overhead (instance generation, interpreter start-up) is not shrinkable,
+so with a cap far below that overhead the framework's own deadline remains the backstop.
 
 ## Time Budget Tiers (from the original problem)
 

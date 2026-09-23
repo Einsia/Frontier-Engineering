@@ -164,10 +164,14 @@ def _fit_budget(requested: float, n_runs: int) -> tuple[float, bool, float | Non
     timeout = _framework_timeout_s()
     if timeout is None or n_runs <= 0:
         return requested, False, timeout
-    available = timeout - BUDGET_RESERVE_S
-    if available <= 0:
-        # 上限比固定开销还小：用上限的一半均摊，仍然不越过该上限。
-        available = timeout / 2.0
+    # Monotonic in `timeout` and always < timeout, so `n_runs * budget` never
+    # exceeds the cap. Above 2*RESERVE keep the reserve; at or below it (a cap
+    # barely above the fixed overhead) use half the cap.
+    available = (
+        (timeout - BUDGET_RESERVE_S)
+        if timeout > 2.0 * BUDGET_RESERVE_S
+        else timeout / 2.0
+    )
     fit = available / n_runs
     if fit < requested:
         return fit, True, timeout

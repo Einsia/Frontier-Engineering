@@ -11,5 +11,5 @@ Current tasks emphasize realistic operational constraints, economic objectives, 
   - Description: upstream-aligned EV smart charging with transformer constraints in the real `EV2Gym` simulator
 - `TelecomBackup`
   - Unified benchmark: `task=unified task.benchmark=PowerSystems/TelecomBackup`
-  - Quick run: `python -m frontier_eval task=unified task.benchmark=PowerSystems/TelecomBackup algorithm.iterations=0`
+  - Quick run (official scoring uses generated instances and requires a non-public seed; the timeout is raised so the full per-instance budget fits): `TELECOM_EVAL_GENERATE_SEED=<SEED> python -m frontier_eval task=unified task.benchmark=PowerSystems/TelecomBackup algorithm.iterations=0 algorithm.evaluator.timeout=1200`
   - Description: time-sequenced on/off scheduling of telecom backup power supplies to maximize outage backup time while keeping LTE coverage >= 80%

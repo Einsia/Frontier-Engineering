@@ -1,126 +1,166 @@
-# 区域备电栅格级优化（TelecomBackup）
+# Regional Backup-Power Scheduling (TelecomBackup)
 
-## 任务概述
+## Task overview
 
-现网某片区域停电时，需要基于各基站（站点）的备电电量、功耗与覆盖关系，设置**每个电源的时序开关策略**，
-在"任意时刻良好覆盖栅格比例 ≥ 80%"的约束下，**最大化区域总备电时长**。
+When an outage hits a region, you are given each base station's (site's) backup energy, power
+draw, and coverage relationships. You must set a **time-sequenced on/off schedule for every power
+supply** that **maximizes the region's total backup time** subject to the constraint that the
+fraction of well-covered grid cells stays **≥ 80% at every moment**.
 
-本质是一个受限的调度/优化问题：覆盖约束让问题解空间巨大，因此要求在给定的求解时间预算内
-给出尽可能优的开关调度。
+This is a constrained scheduling/optimization problem: the coverage constraint makes the solution
+space enormous, so the goal is to produce the best schedule you can within a fixed solve-time
+budget.
 
-## 实例输入
+## Instance input
 
-评测会传入一个实例 JSON（路径作为命令行参数），包含：
+The evaluation passes one instance JSON (its path is a command-line argument) containing:
 
-| 字段                           | 含义                                    |
-| ---------------------------- | ------------------------------------- |
-| `grid`                       | 区域 200m×200m，栅格化为 nx×ny（默认 20×20=400） |
-| `sites`                      | 站点坐标列表（N 个）                           |
-| `groups`                     | 电源分组：每个电源管理一组站点（K 个电源，每组共享一块电池）       |
-| `battery`                    | 每块电池电量（kWh）                           |
-| `demand`                     | 每个栅格的需求（相对负载单位，0\~1）                  |
-| `pt_dbm / n_exp / threshold` | 覆盖参数：Pt=20dBm、路径损耗指数 n=6、阈值 -105dBm   |
-| `coverage_ratio`             | 覆盖约束比例 0.8                            |
-| `delta_min`                  | 时隙长度 5 分钟                             |
-| `horizon`                    | 时隙总数 96（=8 小时规划期）                     |
-| `site_cap`                   | 站点额定容量（归一化负载用）                        |
+| Field | Meaning |
+| --- | --- |
+| `seed` | The instance's generation seed (identifies the instance). |
+| `grid` | Region 200 m × 200 m, rasterised into nx × ny cells (default 20 × 20 = 400). |
+| `sites` | Site coordinates (N sites). |
+| `groups` | Power-supply grouping: each supply manages a group of sites (K supplies; each group shares one battery). |
+| `battery` | Energy per battery (kWh). |
+| `demand` | Per-cell demand (relative load unit, 0–1). |
+| `pt_dbm / n_exp / threshold` | Coverage parameters: Pt = 20 dBm, path-loss exponent n = 6, threshold −105 dBm. |
+| `coverage_ratio` | Coverage-constraint ratio, 0.8. |
+| `delta_min` | Slot length, 5 minutes. |
+| `horizon` | Total number of slots, 96 (= 8-hour planning period). |
+| `site_cap` | Site rated capacity (used to normalise load). |
 
-## 规则（评分模拟器语义）
+## Rules (scoring-simulator semantics)
 
-- **覆盖**：站点 s 对栅格 g 的电平 `P(g,s) = pt_dbm - 10*n_exp*log10(d(g,s)+1)`（dBm，d 为米）。
-  栅格接入**最强存活站点**（存活 = 所属电源开启且电池未耗尽）；栅格"良好" ⟺ 覆盖电平 > -105dBm。
-- **功耗**：站点工作功耗 `p_work_base + p_work_coef*min(load_s/site_cap, 1.0)` kW（load\_s 为其覆盖栅格需求之和，负载相关；当前实例 `p_work_base=3.0, p_work_coef=3.0`）；
-  站点静默功耗 **`p_silent`** kW（当前实例 `p_silent=0.05`；电源关闭时其下站点静默：不提供覆盖，但仍耗静默电）。功耗参数随实例提供（见实例 JSON 与 README）。
-- **负载迁移**：电源关闭 → 站点静默 → 其覆盖栅格**即时**接入最强存活站点 → 接收站点负载与功耗上升。
-- **电量**：电源 k 每时隙扣电 `Δt × Σ(站点功耗)`；电量 ≤ 0 → 该电源停服（不耗电、不覆盖）。
-- **备电时长**：从时隙 0 起模拟推进，首个"良好栅格比例 < 80%"的时隙的前一时刻即为备电终点；
-  撑满 horizon 则备电时长 = horizon×5 分钟。
+- **Coverage**: the level site *s* provides to cell *g* is
+  `P(g,s) = pt_dbm - 10*n_exp*log10(d(g,s)+1)` (dBm, *d* in metres). A cell attaches to the
+  **strongest live site** (live = its supply is on and its battery is not depleted); a cell is
+  "well covered" iff its level is > −105 dBm.
+- **Power draw**: a site's working draw is `p_work_base + p_work_coef*min(load_s/site_cap, 1.0)` kW
+  (load_s is the sum of the demands of the cells it covers, so it is load-dependent; the current
+  instances use `p_work_base=3.0, p_work_coef=3.0`). A site's silent draw is **`p_silent`** kW
+  (current instances use `p_silent=0.05`; when a supply is off its sites go silent — they provide
+  no coverage but still draw silent power). The power parameters come with each instance (see the
+  instance JSON and the README).
+- **Load migration**: turning a supply off → its sites go silent → the cells they covered
+  **immediately** attach to the strongest live site → that site's load and power draw rise.
+- **Energy**: supply *k* drains `Δt × Σ(site draws)` per slot; when its energy ≤ 0 the supply
+  stops (no draw, no coverage).
+- **Backup time**: simulate forward from slot 0; the backup endpoint is the moment just before the
+  first slot in which the fraction of well-covered cells drops below 80%. If it survives the whole
+  horizon, backup time = horizon × 5 minutes.
 
-## 决策输出（你的程序必须输出的格式）
+## Decision output (the format your program must print)
 
-运行方式：`python baseline/solver.py <instance.json>`，在 **stdout** 打印一个 JSON：
+Run as `python baseline/solver.py <instance.json>` and print a single JSON object to **stdout**:
 
 ```json
 {"on": [
-  [[0, 96]],                  // 电源 0：全程开启
-  [[0, 40], [60, 96]],        // 电源 1：0..39 与 60..95 开启
-  []                          // 电源 2：从不开启
+  [[0, 96]],                  // supply 0: on the whole time
+  [[0, 40], [60, 96]],        // supply 1: on during 0..39 and 60..95
+  []                          // supply 2: never on
 ]}
 ```
 
-- `on[k]` 是电源 k 的**开启时隙区间**列表，每个区间为半开区间 `[a, b)`（0-index，0 ≤ a ≤ b ≤ horizon）。
-- 电源 k 在时隙 s 开启 ⟺ 存在区间使 `a ≤ s < b`。相邻/重叠区间会被合并，写错顺序没关系。
-- `[[0, horizon]]` = 全程开启（最简单合法的解）；`[]` = 全程关闭。
-- **格式错误、区间越界、崩溃、超时 → 该实例得 0 分**（模拟器会验证每个调度）。
+- `on[k]` is the list of **on-interval**s for supply *k*, each a half-open interval `[a, b)`
+  (0-indexed, 0 ≤ a ≤ b ≤ horizon).
+- Supply *k* is on in slot *s* iff some interval satisfies `a ≤ s < b`. Adjacent/overlapping
+  intervals are merged, so ordering mistakes are harmless.
+- `[[0, horizon]]` = on the whole time (the simplest legal solution); `[]` = never on.
+- **Malformed output, out-of-range intervals, crashes, or timeouts → 0 points for that instance**
+  (the simulator validates every schedule).
 
-## 评测与分数
+## Evaluation and scoring
 
-- 实例池 = 固定公开实例（默认 8 个，跨规模 N=20\~40、K=6\~12）+ **运行时生成实例**（防硬编码）。
-- 分数 = 各实例备电时长的**平均值（分钟）**。
-- 每个实例给固定求解时间预算（默认 **60s**），超时判 0 分。
-- 时间预算可配置：`--time-budget 300`（10min）/ `60`（1min）/ `10`（10s），预算越紧分数通常越低。
+- Instance pool: **official** evaluation scores **only runtime-generated instances**
+  (anti-hardcoding); a `local` development mode scores the 8 committed fixed instances
+  (N = 20..40, K = 6..12).
+- Score = the **mean** backup time (minutes) over the scored instances.
+- Each instance gets a fixed solve-time budget (default **60 s**); a timeout scores 0 for it.
+- The budget is configurable: `--time-budget 300` (10 min) / `60` (1 min) / `10` (10 s) — a tighter
+  budget usually means a lower score.
 
-本地运行：
-
-```powershell
-python verification/evaluate.py baseline/solver.py            # 固定 8 实例
-python verification/evaluate.py baseline/solver.py --time-budget 10
-python verification/evaluate.py baseline/solver.py --generate-seed 42   # 固定 8 + 运行时生成 8（防硬编码）
-```
-
-框架（unified）评测时，**必须在宿主环境设置** **`TELECOM_EVAL_GENERATE_SEED`** 开启运行时生成
-（否则只有固定公开实例）：
+Local runs:
 
 ```powershell
-$env:TELECOM_EVAL_GENERATE_SEED = "<SEED>"
-python -m frontier_eval task=unified task.benchmark=PowerSystems/TelecomBackup algorithm.iterations=0 "task.runtime.shell=<path to Git Bash>"
+python verification/evaluate.py baseline/solver.py --local                              # fixed 8 instances
+python verification/evaluate.py baseline/solver.py --local --time-budget 10
+python verification/evaluate.py baseline/solver.py --local --generate-seed 42            # fixed 8 + 8 generated
 ```
 
-### 完整性 / 防作弊（威胁模型）
+For the framework (unified) evaluation, `frontier_eval/eval_command.txt` selects
+`TELECOM_EVAL_MODE=official`, so the score is computed on freshly generated instances and the
+generation seed is **mandatory** (missing → explicit error, never a silent fall-back to the public
+instances). Supply a **non-public** seed per run and raise the framework timeout so the full
+per-instance budget fits:
 
-- **运行时生成实例**：设了 `TELECOM_EVAL_GENERATE_SEED` 后，评测现场按种子生成新实例
-  （只存在于临时目录，不落仓库/沙箱），候选无法预置针对它们的解。
-- **候选环境剥离**：候选子进程的环境变量剥离 `FRONTIER_*` 与 `TELECOM_EVAL_*`，
-  封死通过宿主环境定位评测基线的侧信道。
-- **静态检查**：评分前检查 EVOLVE-BLOCK 标记与标记外代码（与初始 baseline 逐字节比对）、
-  禁 import 评测/生成模块、禁绝对路径、禁按实例名硬编码；同一实例跑两次输出必须一致
-  （确定性探针）。任何违规判 0 分。
-- **诚实说明**：process 模式下候选进程有宿主文件系统访问权（框架的限制）；本基准
-  依赖"运行时生成 + env 剥离 + 静态检查"多层防御，评测器（`verification/simulator.py`）
-  是有意暴露给候选做内部搜索的白盒。
+```powershell
+$env:TELECOM_EVAL_GENERATE_SEED = "<non-public SEED>"
+python -m frontier_eval task=unified task.benchmark=PowerSystems/TelecomBackup algorithm.iterations=0 `
+  algorithm.evaluator.timeout=1200 "task.runtime.shell=<path to Git Bash>"
+```
 
-## 参考分数（实测，固定 8 实例）
+To reproduce the documented reference score, score the bundled reference solver with the explicit
+bypass (the integrity checks reject it, since it has no EVOLVE-BLOCK region):
 
-| 策略                                | 平均备电时长                      |
-| --------------------------------- | --------------------------- |
-| baseline（朴素全程开启，不调度）           | **176.2** 分钟               |
-| agent（AB-MCTS，15 迭代，最优保存程序实测）   | **266.9** 分钟（+52%）      |
-| 参考启发式（`verification/ref_solver.py`，多路休息轮换） | **271.2** 分钟（+54%） |
-| agent（ShinkaEvolve，15 代，最佳代程序实测）  | **312.5** 分钟（+77%）      |
-| agent（openevolve，25 迭代，最优保存程序实测） | **414.4** 分钟（+135%）    |
-| horizon（覆盖永不跌破 80% 的上限）         | 480 分钟                   |
+```powershell
+python verification/evaluate.py verification/ref_solver.py --reference --local   # -> 271.25
+```
 
-baseline 只做"全程开启"（覆盖最高但电池并行耗尽）；`ref_solver.py` 的"多路轮流休息"错峰调度
-能显著延长备电时长；三个 agent 框架在足够迭代下都能发现超过全程开启的调度，其中 openevolve
-在 25 迭代下找到接近 horizon 上限的**最小覆盖子集轮换**调度（甚至超过简单参考启发式 53%）。
-实例已校准（静默功耗便宜、工作功耗贵），生成器保证错峰相对全程开启每实例 ≥25% 的可复现提升
-（实测 +28%..+119%，平均 +54%）。
+### Integrity / anti-cheating (threat model)
 
-> 注意：agent 分数以**保存程序直跑**为准，且必须**从任务目录内**重新评估——候选求解器按自身
-> 位置解析 `verification/simulator.py`，从任意路径直跑会静默退化为全程开启（分数虚低）。
-> ShinkaEvolve 的"保存 best"会低估其最佳代（框架追踪问题），取其最高分代为准。
-> ShinkaEvolve 25 代时曾产生更高分（~409）但为**时间型模拟退火、非确定性**，不过确定性探针，
-> 故不计（有效最高为 15 代的 312.5）。
-> 5~15 迭代时 agent 大多停在基线附近；迭代越多越能充分搜索——本任务奖励"彻底的模拟器内搜索"。
+- **Runtime-generated instances**: in official mode the evaluator generates fresh instances at
+  evaluation time (they exist only in a temp dir, never in the repo or the sandbox), so a candidate
+  cannot pre-position solutions for them. Public fixed instances are not scored officially.
+- **Candidate env stripping**: the candidate subprocess environment strips `FRONTIER_*` and
+  `TELECOM_EVAL_*`, closing the side channel that would let it locate the evaluation baseline.
+- **Static checks**: before scoring, the candidate is checked for the EVOLVE-BLOCK markers and for
+  byte-identity of the code outside them (vs the initial baseline), forbidden imports of the
+  evaluation/generation modules, absolute paths, and per-instance hardcoding; the same instance
+  must produce identical output across two runs (determinism probe). Any violation scores 0.
+- **Honest note**: in process mode the candidate has host filesystem access (a framework
+  limitation); this benchmark relies on the layered defenses above, and `verification/simulator.py`
+  is intentionally exposed as a white-box scorer for candidate-side search.
 
-## 优化方向提示
+## Reference scores (measured)
 
-1. 备电终点几乎总是"某电源耗尽导致覆盖跌破"——策略本质是**让电池错峰放电**。
-2. 覆盖是**冗余**的（80% 约束远小于全开覆盖），可以让部分电源轮换休息（静默省电），
-   只要保证任意时刻覆盖 ≥ 80%。
-3. 关闭电源的负载会迁移到剩余站点，其功耗上升——轮换分组要**地理邻近**（同簇一组），
-   避免单组覆盖不足。
-4. 你可以在求解器里 `import verification/simulator.py`（只读）来评估候选调度的备电时长，
-   做"生成-模拟-改进"的搜索（时间预算内迭代）。
-5. 先保证输出**永远合法**（宁可全开也别格式错），再追求调度质量。
+| Strategy | Mean backup time |
+| --- | --- |
+| baseline (naive always-on, no scheduling) | **176.2** min |
+| agent (AB-MCTS, 15 iterations, best saved program) | **266.9** min (+52%) |
+| reference heuristic (`verification/ref_solver.py`, multi-rest rotation) | **271.2** min (+54%) |
+| agent (ShinkaEvolve, 15 generations, best generation program) | **312.5** min (+77%) |
+| agent (openevolve, 25 iterations, best saved program) | **414.4** min (+135%) |
+| horizon (upper bound if coverage never drops below 80%) | 480 min |
 
+The baseline only runs "always on" (highest coverage but the batteries drain in parallel);
+`ref_solver.py`'s multi-rest rotation staggers the discharge and substantially extends backup time;
+the three agent frameworks all discover schedules that beat always-on given enough iterations, and
+openevolve at 25 iterations finds a near-horizon **minimum-covering-subset rotation** (surpassing
+the simple reference heuristic by 53%). Instances are calibrated (silent power is cheap, working
+power is expensive) and the generator guarantees a reproducible stagger-over-always-on gain of
+≥ 25% per instance (measured **+27.9% .. +119.0%, mean +57.5%** — note this is the generator's
+*acceptance* headroom, a different quantity from the reference solver's +54% over the baseline).
+
+> Note: agent scores are for the **saved programs run directly**, and must be re-evaluated **from
+> inside the task directory** — candidate solvers resolve `verification/simulator.py` relative to
+> their own location, so running a saved program from an arbitrary path silently degrades it to the
+> always-on fallback (an artificially low score). ShinkaEvolve's "saved best" understates its best
+> generation (a framework tracking issue); its highest-scoring generation is used instead.
+> ShinkaEvolve's 25-generation run once produced a higher score (~409) but as a **time-budgeted
+> simulated annealer that is non-deterministic**, which fails the determinism probe, so it does not
+> count (the valid best is 312.5 from the 15-generation run).
+> At 5–15 iterations agents mostly plateau near the baseline; more iterations let them search more
+> thoroughly — this task rewards exhaustive in-simulator search.
+
+## Optimization hints
+
+1. The backup endpoint is almost always caused by a supply depleting and coverage dropping below
+   the bar — the strategy is essentially to **stagger the batteries' discharge**.
+2. Coverage is **redundant** (the 80% constraint is far below full-on coverage), so you can rotate
+   some supplies to rest (saving silent power) as long as coverage stays ≥ 80% at all times.
+3. Load migrates when a supply is turned off, raising the remaining sites' draw — so rotation
+   groups should be **geographically close** (same cluster in one group), otherwise one group may
+   fail to cover its area.
+4. You may `import verification/simulator.py` (read-only) inside your solver to evaluate candidate
+   schedules' backup time and run a "generate–simulate–improve" search within the budget.
+5. Make sure the output is **always legal** first (better fully-on than malformed), then optimize.

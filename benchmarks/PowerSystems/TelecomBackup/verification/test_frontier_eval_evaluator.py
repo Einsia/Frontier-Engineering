@@ -51,6 +51,53 @@ class TestSandboxHostLoad(unittest.TestCase):
         self.assertGreaterEqual(m["num_instances"], 12)  # 8 fixed + generated
 
 
+class TestSandboxOfficialMode(unittest.TestCase):
+    """official mode: mandatory generation, public instances excluded."""
+
+    def _clear(self):
+        for key in (
+            "TELECOM_EVAL_MODE",
+            "TELECOM_EVAL_GENERATE_SEED",
+            "TELECOM_EVAL_GENERATE_COUNT",
+            "TELECOM_EVAL_TIME_BUDGET",
+            "FRONTIER_EVAL_UNIFIED_SOURCE_BENCHMARK_DIR",
+        ):
+            os.environ.pop(key, None)
+
+    def test_official_mode_requires_seed(self):
+        self._clear()
+        os.environ["TELECOM_EVAL_MODE"] = "official"
+        try:
+            with self.assertRaises(RuntimeError) as ctx:
+                _sb.evaluate(str(BASELINE))
+        finally:
+            self._clear()
+        self.assertIn("TELECOM_EVAL_GENERATE_SEED", str(ctx.exception))
+
+    def test_official_mode_excludes_public_instances(self):
+        self._clear()
+        os.environ["TELECOM_EVAL_MODE"] = "official"
+        os.environ["TELECOM_EVAL_GENERATE_SEED"] = "5"
+        os.environ["TELECOM_EVAL_GENERATE_COUNT"] = "4"
+        os.environ["FRONTIER_EVAL_UNIFIED_SOURCE_BENCHMARK_DIR"] = str(TASK_ROOT)
+        try:
+            m = _sb.evaluate(str(BASELINE))["metrics"]
+        finally:
+            self._clear()
+        self.assertEqual(m["num_fixed_instances"], 0)
+        self.assertEqual(m["num_generated_instances"], 4)
+        self.assertEqual(m["valid"], 1.0)
+
+    def test_time_budget_env_is_respected(self):
+        self._clear()
+        os.environ["TELECOM_EVAL_TIME_BUDGET"] = "10"
+        try:
+            m = _sb.evaluate(str(BASELINE))["metrics"]
+        finally:
+            self._clear()
+        self.assertEqual(m["time_budget_s"], 10.0)
+
+
 class TestSandboxRejectsRefSolver(unittest.TestCase):
     def test_ref_solver_cheat_rejected(self):
         src = BASELINE.read_text(encoding="utf-8")

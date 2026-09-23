@@ -1,1 +1,1 @@
-FRONTIER_EVAL_UNIFIED_SOURCE_BENCHMARK_DIR={benchmark_source} {python} frontier_eval/run_eval.py --candidate {candidate} --metrics-out metrics.json --artifacts-out artifacts.json
+TELECOM_EVAL_MODE=official FRONTIER_EVAL_UNIFIED_SOURCE_BENCHMARK_DIR={benchmark_source} {python} frontier_eval/run_eval.py --candidate {candidate} --metrics-out metrics.json --artifacts-out artifacts.json

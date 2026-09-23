@@ -46,8 +46,15 @@ class EvaluatorTestCase(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
-        os.environ.pop("TELECOM_EVAL_GENERATE_SEED", None)
-        os.environ.pop("TELECOM_EVAL_GENERATE_COUNT", None)
+        for key in (
+            "TELECOM_EVAL_MODE",
+            "TELECOM_EVAL_GENERATE_SEED",
+            "TELECOM_EVAL_GENERATE_COUNT",
+            "TELECOM_EVAL_REFERENCE",
+            "TELECOM_EVAL_TIME_BUDGET",
+            "FRONTIER_EVAL_EVALUATOR_TIMEOUT_S",
+        ):
+            os.environ.pop(key, None)
 
     def _write(self, name: str, src: str) -> Path:
         p = self.tmp / name
@@ -101,7 +108,7 @@ class EvaluatorTestCase(unittest.TestCase):
         solver = self._write("always_on2.py", ALWAYS_ON)
         result = self._run(solver)
         self.assertEqual(result["num_instances"], 3 + 4)
-        self.assertEqual(result["generate_seed"], "7")
+        self.assertEqual(result["generate_seed"], 7)
         self.assertEqual(result["valid"], 1.0)
 
     def test_generated_instances_are_reproducible(self):
@@ -111,6 +118,64 @@ class EvaluatorTestCase(unittest.TestCase):
         a = self._run(solver)
         b = self._run(solver)
         self.assertEqual(a["combined_score"], b["combined_score"])
+
+    # --- official mode: mandatory runtime generation (review blocker 1) ---
+
+    def test_official_mode_requires_seed(self):
+        """official mode without a seed must fail loudly, not score public instances."""
+        solver = self._write("always_on4.py", ALWAYS_ON)
+        with self.assertRaises(ev.OfficialModeConfigError):
+            ev.evaluate(str(solver), time_budget=10.0, mode="official",
+                        data_dir=self.inst_dir)
+
+    def test_official_mode_scores_only_generated_instances(self):
+        os.environ["TELECOM_EVAL_GENERATE_SEED"] = "42"
+        os.environ["TELECOM_EVAL_GENERATE_COUNT"] = "3"
+        solver = self._write("always_on5.py", ALWAYS_ON)
+        result = ev.evaluate(str(solver), time_budget=10.0, mode="official",
+                             data_dir=self.inst_dir)
+        self.assertTrue(result["official"])
+        self.assertEqual(result["num_fixed_instances"], 0)   # public instances excluded
+        self.assertEqual(result["num_generated_instances"], 3)
+        self.assertEqual(result["num_instances"], 3)
+        self.assertEqual(result["generate_seed"], 42)
+        self.assertEqual(result["valid"], 1.0)
+
+    def test_bad_mode_value_rejected(self):
+        solver = self._write("always_on6.py", ALWAYS_ON)
+        os.environ["TELECOM_EVAL_MODE"] = "offical"  # typo
+        with self.assertRaises(ev.OfficialModeConfigError):
+            ev.evaluate(str(solver), time_budget=10.0)
+
+    # --- reference scoring path (review blocker 2) ---
+
+    def test_reference_bypasses_preflight(self):
+        """--reference scores ref_solver.py, which normal preflight rejects."""
+        ref = Path(ev.__file__).resolve().parent / "ref_solver.py"
+        result = ev.evaluate(str(ref), time_budget=10.0, data_dir=self.inst_dir,
+                             mode="local", reference=True)
+        self.assertTrue(result["preflight_bypassed"])
+        self.assertEqual(result["valid"], 1.0)
+        self.assertGreater(result["combined_score"], 0.0)
+
+    def test_reference_bypass_is_not_the_default(self):
+        ref = Path(ev.__file__).resolve().parent / "ref_solver.py"
+        result = ev.evaluate(str(ref), time_budget=10.0, data_dir=self.inst_dir,
+                             mode="local")
+        self.assertFalse(result["preflight_bypassed"])
+        self.assertEqual(result["valid"], 0.0)
+
+    # --- per-instance budget self-limits to the framework timeout (review item 3) ---
+
+    def test_budget_self_limits_to_framework_timeout(self):
+        os.environ["TELECOM_EVAL_GENERATE_SEED"] = "7"
+        os.environ["TELECOM_EVAL_GENERATE_COUNT"] = "1"
+        os.environ["FRONTIER_EVAL_EVALUATOR_TIMEOUT_S"] = "120"
+        solver = self._write("always_on7.py", ALWAYS_ON)
+        result = self._run(solver)
+        self.assertTrue(result["budget_shrunk"])
+        self.assertLess(result["effective_time_budget_s"], 60.0)
+        self.assertEqual(result["framework_timeout_s"], 120.0)
 
 
 if __name__ == "__main__":

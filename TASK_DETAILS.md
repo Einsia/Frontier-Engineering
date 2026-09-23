@@ -342,9 +342,13 @@ We welcome new engineering problem ideas — even without complete verification 
       <td>Importance-sampling BER estimator for Hamming(127,120)</td>
     </tr>
     <tr>
-      <td><b>PowerSystems</b></td>
+      <td rowspan="2"><b>PowerSystems</b></td>
       <td><code>EV2GymSmartCharging</code></td>
       <td>Upstream-aligned EV smart charging scheduling</td>
+    </tr>
+    <tr>
+      <td><code>TelecomBackup</code></td>
+      <td>Time-sequenced backup-power scheduling for telecom sites under a coverage constraint</td>
     </tr>
     <tr>
       <td><b>AdditiveManufacturing</b></td>

@@ -155,20 +155,22 @@ def _framework_timeout_s() -> float | None:
 
 
 def _fit_budget(requested: float, n_runs: int) -> tuple[float, bool, float | None]:
-    """按框架整体超时收缩每实例预算，避免评测被框架硬杀。
+    """按框架整体超时收缩每实例预算，保证评测总时长不超过观测到的框架上限。
 
     仅在框架显式设置 ``FRONTIER_EVAL_EVALUATOR_TIMEOUT_S`` 时收缩（独立 CLI 不受影响）。
-    返回 (有效预算, 是否收缩, 框架超时)。
+    返回 (有效预算, 是否收缩, 框架超时)。不设下限：``n_runs * budget`` 恒 ≤ 上限，
+    因此合规求解器即使跑满预算也不会被框架硬杀（超过上限会被判 -1e18，比低分更糟）。
     """
     timeout = _framework_timeout_s()
     if timeout is None or n_runs <= 0:
         return requested, False, timeout
     available = timeout - BUDGET_RESERVE_S
     if available <= 0:
-        return max(1.0, requested), False, timeout
+        # 上限比固定开销还小：用上限的一半均摊，仍然不越过该上限。
+        available = timeout / 2.0
     fit = available / n_runs
     if fit < requested:
-        return max(1.0, fit), True, timeout
+        return fit, True, timeout
     return requested, False, timeout
 
 
@@ -293,13 +295,16 @@ def _generate_instances(base_seed: int, count: int, out_dir: Path) -> list[Path]
 
 
 def _select_probes(instances: list[Path], n: int = 3) -> list[Path]:
-    """跨规模选确定性探针：按排序取 小/中/大 各一（外加一个生成实例，若有）。"""
+    """跨规模选确定性探针：按排序取 小/中/大 各一（外加一个生成实例，若有）。
+
+    去重：official 模式下实例本身全是生成实例，`gen[0]` 可能已在探针里，不重复添加。
+    """
     if len(instances) <= n:
         return list(instances)
     idxs = sorted({0, len(instances) // 2, len(instances) - 1})
     probes = [instances[i] for i in idxs]
     gen = [p for p in instances if p.name.startswith("gen_")]
-    if gen:
+    if gen and gen[0] not in probes:
         probes.append(gen[0])
     return probes
 

@@ -107,13 +107,14 @@ python -m frontier_eval task=unified task.benchmark=PowerSystems/TelecomBackup a
 python -m unittest discover -s verification -p "test_*.py"
 ```
 
-43 tests across five modules (simulator / validator / evaluator / sandbox wiring): simulator
+43 tests across four modules (simulator / validator / evaluator / sandbox wiring): simulator
 correctness (manual golden cases, interval normalization, battery depletion, coverage constraint,
 determinism); validator integrity (EVOLVE-BLOCK / forbidden references / absolute paths /
 per-instance hardcoding / env stripping / determinism probe); evaluator behavior (scoring,
 malformed/timeout/preflight handling, runtime generation, reproducibility, **official mode requires
 a seed and excludes the public instances**, **`--reference` bypass**, **per-instance budget
-self-limits to the framework timeout**).
+self-limits to the framework timeout**); and the sandbox wiring (host-loaded generation, official
+mode selected by `eval_command.txt`, the reference-solver cheat still rejected).
 
 ## Running inside the Frontier-Eng framework (official path)
 
@@ -138,11 +139,12 @@ fresh seed per official run; the seed actually used is recorded in the metrics
 (`generate_seed`) so any run can be replayed.
 
 **Timeout.** The framework caps the whole evaluation with `FRONTIER_EVAL_EVALUATOR_TIMEOUT_S`
-(the algorithm side defaults it to 300 s). The task's worst case is roughly
-`instances × budget + determinism probes` ≈ 8×60 + 8×60 ≈ 960 s, which exceeds 300 s — so the
-official run must raise the cap (e.g. `algorithm.evaluator.timeout=1200`, as above). If the cap is
-still too small the evaluator **shrinks the per-instance budget to fit** (recording
-`budget_shrunk` and `effective_time_budget_s`) instead of being killed mid-run.
+(the algorithm side defaults it to 300 s). An official run scores 8 generated instances plus a
+cross-size determinism probe (3 instances run twice) = 14 solver runs, so the worst case is
+`14 × 60 s = 840 s`, which exceeds 300 s — the official run must raise the cap (e.g.
+`algorithm.evaluator.timeout=1200`, as above). If the observed cap is too small the evaluator
+**shrinks the per-instance budget so the run still fits** (recording `budget_shrunk` and
+`effective_time_budget_s`) rather than being killed mid-run.
 
 ## Time Budget Tiers (from the original problem)
 
@@ -205,7 +207,7 @@ path reads this variable; the default is the 60 s advanced tier).
   - reference heuristic (`verification/ref_solver.py`, multi-rest rotation): **271.2** minutes (+54%)
   - agent (openevolve, 25 iterations, best saved program): **414.4** minutes (+135%; run `20260816_130700`)
   - agent (ShinkaEvolve, 15 generations, best generation program): **312.5** minutes (+77%; run `20260816_214014`, gen 3)
-  - agent (AB-MCTS, 15 iterations, best saved program): **266.9** minutes (+52%; run `20260816_220646`)
+  - agent (AB-MCTS, 15 iterations, best saved program): **266.9** minutes (+51%; run `20260816_220646`)
   - **multi-run statistics** (3 runs per framework, best valid saved program per run):
     - openevolve (25 iterations): 414.4 / 298.1 / 357.5 → **mean 356.7 ± 47.5**
     - ShinkaEvolve (15 generations): 312.5 / 357.5 / 325.6 → **mean 331.9 ± 18.9**

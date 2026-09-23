@@ -100,7 +100,8 @@ python -m frontier_eval task=unified task.benchmark=PowerSystems/TelecomBackup a
 ```
 
 To reproduce the documented reference score, score the bundled reference solver with the explicit
-bypass (the integrity checks reject it, since it has no EVOLVE-BLOCK region):
+bypass (the integrity checks reject it: it has no EVOLVE-BLOCK region and it contains a token the
+validator forbids):
 
 ```powershell
 python verification/evaluate.py verification/ref_solver.py --reference --local   # -> 271.25
@@ -126,7 +127,7 @@ python verification/evaluate.py verification/ref_solver.py --reference --local  
 | Strategy | Mean backup time |
 | --- | --- |
 | baseline (naive always-on, no scheduling) | **176.2** min |
-| agent (AB-MCTS, 15 iterations, best saved program) | **266.9** min (+52%) |
+| agent (AB-MCTS, 15 iterations, best saved program) | **266.9** min (+51%) |
 | reference heuristic (`verification/ref_solver.py`, multi-rest rotation) | **271.2** min (+54%) |
 | agent (ShinkaEvolve, 15 generations, best generation program) | **312.5** min (+77%) |
 | agent (openevolve, 25 iterations, best saved program) | **414.4** min (+135%) |

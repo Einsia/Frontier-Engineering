@@ -152,7 +152,9 @@ class EvaluatorTestCase(unittest.TestCase):
     def test_reference_bypasses_preflight(self):
         """--reference scores ref_solver.py, which normal preflight rejects."""
         ref = Path(ev.__file__).resolve().parent / "ref_solver.py"
-        result = ev.evaluate(str(ref), time_budget=10.0, data_dir=self.inst_dir,
+        # generous budget: ref_solver does a real search, so a tight budget can
+        # flake to 0 under CPU contention
+        result = ev.evaluate(str(ref), time_budget=30.0, data_dir=self.inst_dir,
                              mode="local", reference=True)
         self.assertTrue(result["preflight_bypassed"])
         self.assertEqual(result["valid"], 1.0)

@@ -98,6 +98,18 @@ class TestSandboxOfficialMode(unittest.TestCase):
         self.assertEqual(m["time_budget_s"], 10.0)
 
 
+class TestEvalCommandSelectsOfficialMode(unittest.TestCase):
+    """The framework reads eval_command.txt; it must select official mode.
+
+    Without this, dropping the prefix would silently revert the framework path
+    to local (public-instance) scoring -- the exact hole review blocker 1 closed.
+    """
+
+    def test_eval_command_file_selects_official_mode(self):
+        cmd = (TASK_ROOT / "frontier_eval" / "eval_command.txt").read_text(encoding="utf-8")
+        self.assertIn("TELECOM_EVAL_MODE=official", cmd)
+
+
 class TestSandboxRejectsRefSolver(unittest.TestCase):
     def test_ref_solver_cheat_rejected(self):
         src = BASELINE.read_text(encoding="utf-8")
@@ -117,6 +129,12 @@ class TestSandboxRejectsRefSolver(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
         self.assertEqual(m["valid"], 0.0)
         self.assertEqual(m["combined_score"], 0.0)
+        # rejected by the static check (not merely by a runtime crash): the
+        # reported reason must name the forbidden reference token
+        reasons = [r for info in m["per_instance"].values()
+                   for r in info.get("reasons", [])]
+        self.assertTrue(any("ref_solver" in r for r in reasons),
+                        f"expected a ref_solver preflight reason, got {reasons!r}")
 
 
 if __name__ == "__main__":

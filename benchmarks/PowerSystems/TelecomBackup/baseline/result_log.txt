@@ -1,0 +1,52 @@
+TelecomBackup evaluation log
+=============================
+All scores are mean backup time (minutes) over the fixed 8-instance set,
+verified by directly evaluating the saved programs from the task directory
+(candidates resolve verification/simulator.py relative to their own location,
+so re-evaluation must run from the task root). Only deterministic programs
+(passing the cross-size determinism probe) count.
+
+Date       : 2026-08-17
+Evaluator  : python verification/evaluate.py <solver>  (stdlib only, time budget 60s)
+
+Solvers
+-------
+baseline (always-on, no scheduling)              : 176.25   (valid 1.0)
+reference heuristic (verification/ref_solver.py): 271.2    (multi-rest rotation,
+                                                           direct simulate)
+
+Agents (deepseek-v4-flash, run IDs under runs/unified__TelecomBackup/...)
+-----------------------------------------------------------------------
+openevolve  25 iterations  414.38  run 20260816_130700 (openevolve/best/best_program.py)
+ShinkaEvolve 15 generations 312.50  run 20260816_214014 (shinkaevolve/gen_3/main.py)
+AB-MCTS     15 iterations  266.88  run 20260816_220646 (abmcts/best/solver.py)
+
+Notes
+-----
+- A ShinkaEvolve 25-generation run (20260817_035543) reached ~409 in a single
+  evaluation, but that program is a time-budgeted simulated-annealing solver
+  (non-deterministic) and fails the cross-size determinism probe — excluded.
+- openevolve's 25-iteration schedule (414.38) is near the 480-min horizon.
+- AB-MCTS stays ~250-270 regardless of reasoning mode.
+
+Note: the agent scores above are on the fixed 8 instances only (no
+TELECOM_EVAL_GENERATE_SEED was set for those runs). Set the seed to
+additionally score fresh (anti-hardcoding) instances.
+
+Generalization (fixed 8 + 8 generated, TELECOM_EVAL_GENERATE_SEED=42)
+-------------------------------------------------------------------
+openevolve  best program  410.94  (valid 1.0, 16 instances)
+ShinkaEvolve gen_3         319.38  (valid 1.0, 16 instances)
+AB-MCTS     best solver    280.31  (valid 1.0, 16 instances)
+The saved programs generalize to freshly generated instances (not overfit
+to the fixed 8); generated instances pass the same _stagger_ok acceptance.
+
+Multi-run statistics (3 runs per framework; best valid saved program per run)
+------------------------------------------------------------------------------
+openevolve  25 iters: 414.38 / 298.12 / 357.50 -> mean 356.67, std 47.47
+ShinkaEvolve 15 gens: 312.50 / 357.50 / 325.62 -> mean 331.87, std 18.90
+AB-MCTS    15 iters: 266.88 / 208.75 / 227.50 -> mean 234.38, std 24.22
+Run IDs (runs/unified__PowerSystems__TelecomBackup/...):
+  openevolve: 20260816_130700, 20260819_123913, 20260819_135819
+  ShinkaEvolve: 20260816_214014 (gen 3), 20260819_203149 (gen 2), 20260819_221722 (gen 10)
+  AB-MCTS: 20260816_220646, 20260819_151209, 20260819_171751

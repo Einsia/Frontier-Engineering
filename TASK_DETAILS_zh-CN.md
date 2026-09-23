@@ -342,9 +342,13 @@ Frontier-Eng 目前已覆盖以下领域的任务。每个任务均配有可运�
       <td>使用 importance sampling 估计 Hamming(127,120) 的 BER</td>
     </tr>
     <tr>
-      <td><b>PowerSystems</b></td>
+      <td rowspan="2"><b>PowerSystems</b></td>
       <td><code>EV2GymSmartCharging</code></td>
       <td>上游对齐的电动车智能充电调度</td>
+    </tr>
+    <tr>
+      <td><code>TelecomBackup</code></td>
+      <td>覆盖约束下的通信基站备电时序调度</td>
     </tr>
     <tr>
       <td><b>AdditiveManufacturing</b></td>

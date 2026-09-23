@@ -1,0 +1,12 @@
+UnifiedTask constraints:
+1) Only modify `baseline/solver.py`, and only inside the EVOLVE-BLOCK-START / EVOLVE-BLOCK-END region.
+2) Preserve the public contract: run as `python baseline/solver.py <instance.json>`, print a single JSON object
+   `{"on": [[[a,b),...], ...]}` to stdout -- one list of half-open slot intervals [a, b) per power supply,
+   each interval within [0, horizon] and a <= b ([[0, horizon]] means "always on", [] means "never on").
+3) Do not modify benchmark assets, documentation, verification code, instance data, or `frontier_eval/` metadata.
+4) Your output must always be a valid schedule. Malformed output, out-of-range intervals, crashes, or timeouts
+   score 0 for that instance (the simulator validates every schedule).
+5) You may import `verification/simulator.py` (read-only) to evaluate candidate schedules while searching,
+   but the schedule you finally print must come from your own algorithm.
+6) Prioritize validity before optimization. The solver is given a fixed time budget per instance (default 60s);
+   keep it fast enough, or your schedule is discarded.

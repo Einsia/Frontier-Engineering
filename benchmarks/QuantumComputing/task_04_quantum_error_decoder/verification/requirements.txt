@@ -1,0 +1,13 @@
+# Evaluator-side dependencies. The candidate decoder may NOT import stim or
+# pymatching (see frontier_eval/constraints.txt); these are here because the
+# evaluator generates the circuits and recomputes the MWPM anchor itself.
+#
+# Pinned deliberately: the anchor is recomputed at evaluation time from the same
+# seeded shots, but Stim's seeded sampling stream is not stable across versions,
+# so a different Stim shifts both the trivial and the MWPM reference by roughly
+# 1-2% of score. Pin the versions to keep reported numbers comparable across
+# machines. stim 1.16 has no cp38 wheel and needs a C++20 toolchain to build;
+# 1.13 ships wheels for CPython 3.8-3.12.
+stim==1.13.0
+pymatching==2.4.0
+numpy>=1.24,<2

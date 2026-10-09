@@ -56,7 +56,7 @@ Frontier-Eng 目前已覆盖以下领域的任务。每个任务均配有可运�
       <td>跨模态基因表达预测（RNA → ADT），NeurIPS 2021</td>
     </tr>
     <tr>
-      <td rowspan="3"><b>QuantumComputing</b></td>
+      <td rowspan="4"><b>QuantumComputing</b></td>
       <td><code>routing_qftentangled</code></td>
       <td>QFT 线路路由优化，IBM Falcon（gate count &amp; depth）</td>
     </tr>
@@ -67,6 +67,10 @@ Frontier-Eng 目前已覆盖以下领域的任务。每个任务均配有可运�
     <tr>
       <td><code>cross_target_qaoa</code></td>
       <td>跨目标鲁棒 QAOA 优化（IBM &amp; IonQ）</td>
+    </tr>
+    <tr>
+      <td><code>quantum_error_decoder</code></td>
+      <td>表面码解码器，以最小权完美匹配为基准（逻辑错误率）</td>
     </tr>
     <tr>
       <td rowspan="3"><b>Cryptographic</b></td>

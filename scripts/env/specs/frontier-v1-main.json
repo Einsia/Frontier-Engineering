@@ -6,7 +6,8 @@
     "benchmarks/PyPortfolioOpt/requirements.txt",
     "benchmarks/Robotics/QuadrupedGaitOptimization/verification/requirements.txt",
     "benchmarks/Robotics/RobotArmCycleTimeOptimization/verification/requirements.txt",
-    "benchmarks/Optics/requirements.txt"
+    "benchmarks/Optics/requirements.txt",
+    "benchmarks/QuantumComputing/task_04_quantum_error_decoder/verification/requirements.txt"
   ],
   "packages": [
     "mqt.bench",

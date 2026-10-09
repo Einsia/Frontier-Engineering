@@ -56,7 +56,7 @@ We welcome new engineering problem ideas — even without complete verification 
       <td>Cross-modality gene expression prediction (RNA → ADT), NeurIPS 2021</td>
     </tr>
     <tr>
-      <td rowspan="3"><b>QuantumComputing</b></td>
+      <td rowspan="4"><b>QuantumComputing</b></td>
       <td><code>routing_qftentangled</code></td>
       <td>QFT circuit routing optimization on IBM Falcon (gate count &amp; depth)</td>
     </tr>
@@ -67,6 +67,10 @@ We welcome new engineering problem ideas — even without complete verification 
     <tr>
       <td><code>cross_target_qaoa</code></td>
       <td>Cross-target robust QAOA optimization for IBM and IonQ backends</td>
+    </tr>
+    <tr>
+      <td><code>quantum_error_decoder</code></td>
+      <td>Surface-code decoder scored against minimum-weight perfect matching (logical error rate)</td>
     </tr>
     <tr>
       <td rowspan="3"><b>Cryptographic</b></td>

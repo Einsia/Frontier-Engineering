@@ -1,0 +1,19 @@
+QuantumComputing / task_04_quantum_error_decoder constraints:
+1) Only modify `baseline/solution.py`. Keep the entrypoint
+   `decode(problem, detection_events) -> (shots, num_observables)` array of 0/1.
+2) Deterministic CPU code using the Python standard library + numpy + scipy only.
+   Importing `stim` or `pymatching` is an invalid submission: those are the
+   reference decoder and the circuit simulator, and they are the anchor, not the
+   answer. The evaluator installs an import blocker for the duration of your call
+   and rejects a module that has already bound either one.
+3) The syndrome batch is the only evidence. The true logical-observable flips are
+   never handed to your process.
+4) Budget the decoding time. Roughly 32000 shots are decoded in one evaluation
+   (6000 per development regime, 4000 per sealed regime) across up to 336
+   detectors, and the whole run must finish inside the harness timeout
+   (300 s by default). A per-shot Python loop that recomputes shortest paths will
+   not finish: precompute whatever depends only on the error model once per
+   regime, and vectorise across shots where you can. A correct decoder that times
+   out scores nothing.
+5) Do not modify or read `verification/` or `frontier_eval/` to recover the
+   reference decoder, the sample seeds, or the true observable flips.

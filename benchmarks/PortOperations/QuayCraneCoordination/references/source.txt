@@ -1,0 +1,2 @@
+Source package: public Terminal-Bench task 1873/port-coordination.
+The input fixture and scoring contract are retained for reproducibility.

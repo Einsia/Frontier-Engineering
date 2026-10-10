@@ -1,0 +1,2 @@
+Source package: public Terminal-Bench task 1883/noodle-scheduling.
+The input fixture and scoring contract are retained for reproducibility.

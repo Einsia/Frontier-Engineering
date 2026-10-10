@@ -1,0 +1,18 @@
+{
+  "combined_score": 85.7419,
+  "error_info": {},
+  "inventory_score": 24.1817,
+  "negative_inventory_count": 6,
+  "non_frozen_avg_utilization": 0.999987,
+  "overall_score": 85.7419,
+  "player_objective": 85.7419,
+  "raw_score": 85.7419,
+  "required_raw_score": 85.0,
+  "reward": 1,
+  "smooth_score": 7.5444,
+  "supply_score": 54.0158,
+  "switch_count": 50,
+  "unmet_qty": 54150,
+  "valid": true,
+  "validity_score": 1.0
+}

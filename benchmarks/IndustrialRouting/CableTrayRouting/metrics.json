@@ -1,0 +1,24 @@
+{
+  "combined_score": 10.225288923796853,
+  "error_info": {
+    "constraint_counts": {
+      "collision_invalid": 0,
+      "max_connection_invalid": 0,
+      "path_convert_invalid": 0,
+      "pipeLevel_invalid": 0,
+      "pipe_connection_invalid": 0,
+      "start_end_invalid": 0,
+      "turn_angle_invalid": 0
+    },
+    "invalid_group_ids": [],
+    "path_total_length_mm": 221937.23134425285,
+    "success_num": 10
+  },
+  "overall_score": 10.225288923796853,
+  "player_objective": 10.225288923796853,
+  "raw_score": 10.225288923796853,
+  "required_raw_score": 10.22,
+  "reward": 1,
+  "valid": true,
+  "validity_score": 1.0
+}

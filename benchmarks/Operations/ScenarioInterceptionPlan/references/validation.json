@@ -1,0 +1,19 @@
+{
+  "upstream_commit": "bafa7d53162a3b1f128fec396bbde22fe972bf24",
+  "valid": true,
+  "objective": 762,
+  "combined_score": -762.0,
+  "fresh_generations": 2,
+  "identical_output_hashes": true,
+  "artifact_sha256": {
+    "selection.json": "21afc78719e5a47e4b86d5b300cfa9bf8ecd6526aefb453593bb9b75773ff7b2"
+  },
+  "unified_runtime_seconds": 37.85094237327576,
+  "negative_checks": {
+    "verifier_hidden": true,
+    "input_readonly": true,
+    "forged_metrics_without_outputs_rejected": true
+  },
+  "scope": "Baseline regeneration and framework compatibility only; no model optimization or hardness claim.",
+  "runtime": "Linux, Python 3.12.11; unified task runtime NumPy 2.2.6; g++ 12 and OpenJDK 17; privileged outer validation container permits restricted bubblewrap user/PID namespaces."
+}

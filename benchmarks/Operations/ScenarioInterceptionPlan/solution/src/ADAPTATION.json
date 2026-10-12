@@ -1,0 +1,11 @@
+{
+  "upstream": "lxily/PACE2025.DS-HS",
+  "commit": "a7574ce8beace02298ca75535458af1ab47019c1",
+  "changes": [
+    "Fixed all solver random seed entry points to 20261006",
+    "Replaced TimerCpp/TimerC stopping with fixed per-timer work checks",
+    "Removed greedy per-iteration wall-clock branch; retain 16 iterations/no-improvement bound"
+  ],
+  "default_work_checks_per_timer": 1000000,
+  "verified": false
+}

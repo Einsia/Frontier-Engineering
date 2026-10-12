@@ -1,0 +1,1 @@
+Only edit scripts/init.py inside the EVOLVE-BLOCK. All inputs, verifier code and baseline library assets are read-only. Do not embed saved answers or change the CLI. Minimize raw objective subject to all hard constraints.

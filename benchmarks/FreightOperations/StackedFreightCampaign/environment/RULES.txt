@@ -1,0 +1,631 @@
+       Challenge EURO/ROADEF 2022
+                Truck loading
+
+
+   Alain Nguyen, Mohamed-Amine Khatouf,
+              Christian Serrano
+
+              Date: 29/08/2022
+                 Version 1.6
+
+https://www.roadef.org/challenge/2022/en/index.php
+CONTENTS
+
+
+Contents
+1 Introduction                                                                                                        2
+
+2 Problem description                                                                                                 2
+  2.1 Items . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .   2
+  2.2 Trucks . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .    3
+  2.3 Stacks . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .    4
+  2.4 Objective . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .     5
+  2.5 Constraints . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .     5
+
+3 Problem model                                                                                                       5
+  3.1 Notations . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .     5
+      3.1.1 Parameters . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .        5
+      3.1.2 Variables . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .       6
+  3.2 Objective . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .     6
+  3.3 Constraints . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .     6
+      3.3.1 Items constraints . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .       6
+      3.3.2 Stacks constraints . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .        7
+      3.3.3 Placement constraints . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .         7
+      3.3.4 Weight constraints . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .        8
+             3.3.4.1 Parameters . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .         8
+             3.3.4.2 Variables . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .        8
+             3.3.4.3 Formula to compute the weights on harness and axles . . . . . . . . . . . . . . .                9
+
+4 Annexes                                                                                                             10
+  4.1 Placement order of suppliers and plant’s dock (Constraint P4) . . . . . . . . . . . . . . . . . . . .           10
+  4.2 Placement order of multi-docks stacks (Constraint P4) . . . . . . . . . . . . . . . . . . . . . . . .           11
+  4.3 Placement order of suppliers’ docks (Constraint P4) . . . . . . . . . . . . . . . . . . . . . . . . .           12
+  4.4 Parameters and variables related to the tractor and the trailer of a truck . . . . . . . . . . . . . .          13
+
+
+
+
+                                                           1
+2   PROBLEM DESCRIPTION
+
+
+1     Introduction
+RENAULT’s supply chain spans over 40 plants in 17 countries and 1500 suppliers. Every week, 6000 trucks
+deliver parts from suppliers to plants. The filling rate of these trucks is critical, since the inbound transportation
+annual budget is over several hundred millions of euros.
+The objective is to pack a set of items from suppliers into stacks and to pack the stacks into trucks which
+deliver the plants, in order to minimize (a) the number of the trucks used and (b) the inventory in the plants
+due to early deliveries. Items have a time window [earliest arrival time, latest arrival time] for their delivery
+that ranges from 1 to 5 days. It is possible to deliver the items early (for instance at their earliest arrival time)
+in order to better fill the trucks, but the early deliveries generate inventory costs for plants. Inventory costs are
+very sensitive at Renault, since they also represent several hundred of millions of euros. So the best solution is
+to deliver items to plants at the latest possible time, while minimizing the number of trucks used.
+Renault hired trucks from transporters to deliver the items from the suppliers to the plants. These hired trucks
+are defined in an annual planning and are called "planned" trucks. All items must be delivered in time to their
+plants. For every item, there is at least one planned truck with an arrival time included in the item’s time
+window, that is the planned truck can theoretically deliver the item to the plant in time. But it may occur that
+there are not enough planned trucks to deliver all the items in time. In such cases, "extra" trucks can be called
+from the transporter to deliver the items. These extra trucks cost more than planned trucks.
+In terms of data volume, a large instance can contain up to 260000 items and 5000 planned trucks, over a
+horizon of 7 weeks.
+
+
+2     Problem description
+Three-dimensional trucks contain stacks packed on the two-dimensional floor. Each stack contains items that
+are packed one above another. There are three correlated dimensions (length, width, height) and an additional
+weight dimension. We will call horizontal dimensions the length and the width. The position of any element
+(item or stack) is described in a solution by its position in the three axis X, Y and Z. There is one origin per
+truck, corresponding with the leftmost downward position (cf Figure 1).
+
+
+
+
+Figure 1: Views from top to bottom : right view, above view and left view of a truck, seen from the rear of the
+truck. The truck contains 96 items (A1 to AD3) packed into 30 stacks (A to AD).
+
+
+2.1    Items
+An item i is a packaging containing a product IRi . It is characterized by its space dimensions length/width/height
+(ILi , IWi , IHi ), its weigth IMi , a stackability code ISi . By convention, the length is larger than the width.
+
+
+                                                          2
+2   PROBLEM DESCRIPTION
+
+
+
+
+The stackability code is used to define which items can be packed into the same stack: only items with the
+same stackability code can be packed into the same stack. Items with the same stackability code share the
+same length and width. But the opposite is false : items with identical length/width may not share the same
+stackability code.
+
+An item i is associated with maximal stackability ISMi . It represents the maximal number of items i in a stack.
+
+The items may be rotated only in one dimension (horizontal), i.e. the bottom of an item remains the bottom.
+An item may be oriented lengthwise (the item’s length is parallel with the length of the truck), or widthwise
+(the item’s length is parallel with the width of the truck). In Figure 1, the stack X is oriented widthwise,
+while the stack Y is oriented lengthwise. Item i may have a forced orientation IOi , in which case the stack s
+containing item i must have the same orientation.
+
+An item i must be delivered to a plant IPi in a time window [IDEi , IDLi ], with IDEi is the earliest arrival
+time and IDLi the latest arrival time. An item i is produced by a supplier IUi . Parameters IPi , IUi , IRi and
+[IDEi , IDLi ] will determine which trucks can be used to load the item i.
+
+An item i is loaded at a supplier dock IKi and unloaded at a plant dock IGi . These docks will impact the
+placement of items into trucks.
+
+An item i has an unitary inventory cost ICi , which will be used to calculate the inventory cost in the objective
+function.
+
+An item i has a nesting height IH
+                                c i , which is used for the calculation of the height of stacks : if item i1 is packed
+above item i2 , then the total height is IHi1 + IHi2 - IHc i (cf Figure 2). For the majority of items, the nesting
+                                                            1
+height is equal to zero.
+
+
+
+
+                           Figure 2: Example of a stack of 2 items with nesting height
+
+
+
+2.2    Trucks
+A planned truck t is characterized by its dimensions length/width/height (T Lt , T Wt , T Ht ), its maximum au-
+thorized loading weight T Mtm , its cost T Ct . The truck’s cost represents a fixed cost that does not depend on
+the number of items loaded into the truck.
+
+A truck t is planned to arrive at the plant T Pt at the arrival time T DAt . It can pickup the set of products T
+                                                                                                               g Rt
+from a set of suppliers T U t . We define the set of products related to a truck because it happens that a truck
+                        g
+cannot pickup all the products of a supplier. It occurs when a product must be unloaded at a specific plant
+dock and the truck does not stop at this plant dock. There is a loading order between the picked-up suppliers.
+
+As said in the introduction, in case there are not enough planned trucks to deliver all the items in time, extra
+trucks can be called from the transporter to deliver the items. An extra truck b    tj is based on a planned truck,
+i.e. b
+     tj has the same characteristics than a planned truck t (T Lbtj = T Lt , T Wbtj = T Wt , T Hbtj = T Ht , T Mbtm =
+                                                                                                                 j
+
+
+
+
+                                                          3
+2   PROBLEM DESCRIPTION
+
+
+T Mtm , T DAbtj = T DAt , Tg Rbtj = T
+                                    g Rt , T
+                                           g U btj = T
+                                                     g U t ), except for the cost (T Cbtj = (1+αE )T Ct , with the cost
+coefficient αE for extra trucks). We can call several identical extra trucks b  tj if needed. There is no constraint on
+the number of extra trucks. Of course, it does not make sense to call more extra trucks than the number of items.
+
+An example to illustrate the use of extra trucks : 200 items of supplier A must arrive at the latest at date D.
+There is only one planned truck t to deliver the items on time, and a truck can load a maximum of 80 items.
+So 80 of the 200 items will be delivered by the planned truck t. And two extra trucks b
+                                                                                      t1 and b
+                                                                                             t2 (with the same
+characteristics than t) will be called to deliver the remaining 120 items.
+
+All the stacks packed into truck t must satisfy a maximal density T EMt .
+
+A truck t is associated with a flag "stack with multiple docks" T Ft (yes/no). If (T Ft = yes), a stack packed into
+truck t may include items associated with different plant docks (a maximum of 2 plant docks, with consecutive
+loading order). If (T Ft = no), all the stacks packed into truck t must have a single plant dock among its items.
+
+There is a maximal total weight T M Mt γ for all the items packed above the bottom item associated with product
+γ in any stack loaded into truck t.
+
+
+2.3    Stacks
+While items and planned trucks are parameters for the problem, stacks represent the results of the optimization.
+A stack contains items, packed one above the other, and is loaded into a truck. A stack s is characterized by
+its dimensions length/width/height (sls , sws , shs ) and its weight sms . The length and width of a stack are the
+length and width of its items (all the items of a stack share the same length/width). A stack’s orientation is the
+orientation of all its items. There is a unique orientation (lengthwise or widthwise) for all the items of a stack.
+The stack is characterized by the coordinates of its origin (sxos , syso , szso ) and extremity points (sxes , syse , szse ).
+
+
+
+
+                                   Figure 3: Origin and extremity points of a stack
+
+As shown in Figure 3, the origin is the leftmost bottom point of the stack (the point nearest the origin of the
+truck), while the extremity point is the rightmost top point of the stack (the farthest point from the origin of
+the truck). The coordinates of origin and extremity points of a stack must satisfy the following assumptions :
+    • sxes − sxos = sls and syse − syso = sws if stack s is oriented lengthwise
+
+    • sxes − sxos = sws and syse − syso = sls if stack s is oriented widthwise
+    • szso = 0 and szse = shs
+A stack’s weight sms is the sum of the weights of the items it contains : sms = i∈Is IMi .
+                                                                               P
+The stack’s height shs is the sum of the heights of its items, minus their nesting heights (cf Figure 2) :
+      P            P
+shs = i∈Is IHi − i∈Is and i̸=bottom_item IHc i.
+
+
+
+
+                                                             4
+3   PROBLEM MODEL
+
+
+2.4     Objective
+The objective is to minimize simultaneously the total transportation and inventory cost. The transportation
+cost is the total cost of planned and extra trucks, it is a fixed cost which depends only on the number of trucks,
+not the number of loaded items. The inventory cost is a variable cost due to early deliveries of items, calculated
+on the interval between the arrival time of items at the plant and the latest arrival time of these items. The
+inventory cost does not include a fixed part.
+
+2.5     Constraints
+There are 4 sets of constraints :
+    • item constraints that ensure the compatibility between items and trucks, that is which items can be loaded
+      into which trucks.
+    • stack constraints that control the composition of stacks, mainly which items can be packed into the same
+      stack
+    • placement constraints related to the placement of stacks into trucks, especially the placement order of
+      stacks according to suppliers’ and plant’s docks
+
+    • weight constraints that impose the maximal authorized weights of stacks in the truck, and also specifically
+      on each of the 2 axles of the truck.
+
+
+
+3       Problem model
+3.1     Notations
+By convention, parameters are declared with uppercase letters, variables with lowercase letters and sets with
+widetile uppercase letters (ex: U
+                                e ). Parameters related to items are prefixed with I, parameters related to trucks
+with T and variables related to stacks with s.
+Parameters and variables related to weight constraints will be defined in Section 3.3.4.
+
+3.1.1    Parameters
+The parameters are defined in input files of each data instance.
+
+Ie : set of items i
+Pe : set of plants p
+Ue : set of suppliers u
+Ge : set of plant docks g
+Ke : set of supplier docks k
+e : set of products γ
+γ
+
+ILi , IWi , IHi , IH
+                  c i , IMi : length/width/height/nesting height/weight of item i
+ISi : stackability code of item i
+ISMi : maximal stackability of item i
+IRi : product (∈ γ e) of item i
+IOi : forced orientation of item i
+IDEi , IDLi : earliest and latest arrival time of item i
+IPi : destination plant of item i
+IGi : plant dock of item i
+IUi : supplier of item i
+IKi : supplier dock of item i
+ICi : inventory cost of item i
+
+T
+g Rt : set of candidate products picked-up by truck t
+T
+g U t : set of candidate suppliers picked-up by truck t
+T
+^ Kut : set of candidate supplier docks k of supplier u loaded into truck t
+T Gpt : set of candidate plant docks g of plant p delivered by truck t
+]
+
+
+
+
+                                                        5
+3   PROBLEM MODEL
+
+
+T Lt , T Wt , T Ht , T Mtm : length/width/height/max authorized loading weight of truck t
+T Pt : destination plant of truck t
+T DAt : arrival time of truck t at T Pt
+T M Mt γ : maximal total weight of all the items packed above the bottom item associated with product γ in
+any stack of truck t
+T Ft : flag "stack with multiple docks" for truck t
+T EMt : maximal density of stacks in truck t
+
+T Ct : cost of truck t
+T Et : supplier loading order for truck t : it is a list indexed by the elements of T
+                                                                                    g U t containing for each supplier
+its loading order
+T KEut : dock loading order of supplier u for truck t : it is a list indexed by the elements of T    ^ Kut containing
+for each supplier dock its loading order
+T GEpt : dock loading order of plant p for truck t : it is a list indexed by the elements of T]    Gpt containing for
+each plant dock its loading order
+
+The dock loading order T KEut ranges from 1 to |T     ^  Kut |. When the loading order a supplier dock k is 1, it
+means that items associated with supplier dock k should be loaded first in the truck t, i.e. these items should
+be placed at the front of the truck, near the driver’s cabin.
+The dock loading order T GEpt ranges from 1 to |G   gpt |. When the loading order of a plant dock g is 1, it means
+that items associated with plant dock g should be loaded first in the truck t, i.e. these items should be placed
+at the front of the truck, near the driver’s cabin.
+
+αT : coefficient of transportation cost in the objective function
+αI : coefficient of inventory cost in the objective function
+αE : coefficient of cost for extra trucks
+
+
+3.1.2   Variables
+The variables describe the solution and must be written in results files of each data instance.
+
+Te : set of used trucks t (planned and extra trucks)
+TfS t : set of the stacks packed into truck t
+
+f s : set of the items of stack s
+SI
+gs : set of the plant docks of stack s
+SG
+sls , sws , shs , sms : length, width, height, weight of stack s
+sxos , syso , szso : coordinates of the origin point of stack s
+sxes , syse , szse : coordinates of the extremity point of stack s
+sos : orientation of stack s
+sus : supplier of stack s
+sks : supplier dock of stack s
+sts : truck of stack s
+
+idai : arrival time of item i
+
+
+3.2     Objective
+The objective function is : Min (αT × ( t∈Te T Ct ) + αI × ( i∈Ie ICi ∗ (IDLi − idai )))
+                                       P                    P
+
+
+The difference (IDLi - idai ) is computed in terms of days. Consequently, if an item is delivered to the plant at
+the same day than its latest arrival time, then the inventory cost for this item is zero.
+
+3.3     Constraints
+3.3.1   Items constraints
+    • All items must be packed into stacks, which must be loaded into trucks (planned or extra)            (I1)
+
+
+
+
+                                                            6
+3   PROBLEM MODEL
+
+
+    • An item i can be loaded into a truck t if and only if :
+          – t arrives at the item’s plant IPi        (I2)
+          – t can pickup the item’s product IRi           (I3)
+          – t stops by the item’s supplier IUi         (I4)
+          – t arrives at the plant in the item’s time window : IDEi ≤ T DAt ≤ IDLi                  (I5)
+
+3.3.2     Stacks constraints
+    • All the items packed in a stack must share the same supplier, plant, stackability code and supplier dock.
+      (S1)
+
+
+    • For any stack s packed into truck t and if (T Ft = no), then all the items of stack s must share the same
+      plant dock.     (S2)
+
+
+    • For any stack s packed into truck t, if (T Ft = yes), s may contain items with 2 plant docks with consec-
+      utive loading orders.       (S3)
+      There is a restriction : for every stackability code SC present among the stacks of a truck t, only one stack
+      with the stackability code SC can contain items with 2 plant docks.
+
+
+    • If one item i of a stack s has a forced orientation IOi , then all the items of stack s must share the same
+      orientation (sos = IOi ).      (S4)
+      Consequently, there cannot be 2 different forced orientations of items in the same stack.
+
+
+    • For any stack s packed into truck t, the total weight of the items packed above the bottom item associated
+      with product γ must not exceed the maximal weight T M Mt γ : i∈SI
+                                                                         P
+                                                                             f s and i̸=bottom_item IMi ≤ T M Mt γ
+      (S5)
+
+
+    • The number of items packed into a stack s must not exceed the smallest "max stackability" ISMi of the
+      items i present in stack s.     (S6)
+      In other words, for each item i of a stack s, the number of items of s must not exceed ISMi .
+
+
+    • The density of a stack s must not exceed the maximal stack density defined for the truck t into which the
+      stack s is loaded : slssm
+                              ×sws ≤ T EMt
+                                s
+                                              (S7)
+
+
+3.3.3     Placement constraints
+    • The placement of a stack s into a truck t must not exceed the truck’s dimensions :
+      ∀t ∈ Te, ∀s ∈ TfS t , sxes ≤ T Lt and syse ≤ T Wt and szse ≤ T Ht  (P1)
+
+
+    • The stacks packed into a truck t cannot overlap :
+      ∀t ∈ Te, ∀s1 , s2 ∈ TfS t with sxos1 ≤ sxos2 , if (sxos2 < sxes1 ) then syso2 ≥ syse1 or syse2 ≤ syso1   (P2)
+      If s1 and s2 overlap in the X axis, then they cannot overlap in the Y axis.
+
+
+    • Any stack must be adjacent to another stack on its left on the X axis, or if there is a single stack in the
+      truck, the unique stack must be placed at the front of the truck (adjacent to the truck driver) :
+      ∀t ∈ Te, ∀s1 ∈ TfS t with sxos1 > 0,  ∃s2 ∈ TfS t with (sxes2 = sxos1 ) and (syso2 ∈ [syso1 , syse1 ] or syse2 ∈
+         o      e
+      [sys1 , sys1 ]) (P3)
+
+        In Figure 4, the placement of stacks A and B is forbidden (and by consequence the placement of stack D
+        is also forbidden since it is adjacent only to the forbidden stack B), while the placement of all the other
+        stacks is allowed. The business motivation is that in case the driver should brake abruptly, any stack
+        should be retained either by another stack or by the front of the truck.
+
+
+                                                              7
+3   PROBLEM MODEL
+
+
+
+
+                             Figure 4: The placements of stacks A and B are forbidden
+
+
+    • Stacks must be placed in an increasing fashion from the front to the rear of the truck, (1) according to the
+      suppliers’ pickup order, and among the stacks of the same supplier, stacks must be placed in an increasing
+      fashion (2) according to the supplier dock loading order, and among the stacks with the same supplier
+      and supplier dock, stacks must be placed in an increasing fashion (3) according to the plant dock loading
+      order. We do not try to optimize the unloading of the stacks, other than the satisfaction of the 3 precited
+      orders.      (P4)
+
+        ∀t ∈ Te, ∀s1 ∈ TfS t , ∀s2 ∈ TfS t ,
+        (1) if T Eus1 < T Eus2 then sxos1 ≤ sxos2
+        (2) if (us1 = us2 and KEks1 < KEks2 ) then sxos1 ≤ sxos2
+        (3) if (us1 = us2 and KEks1 = KEks2 and GEgs1 < GEgs2 , ∀gs1 ∈ SG
+                                                                       ] s1 , ∀gs2 ∈ SGs2 ) then sxs1 ≤ sxs2
+                                                                                     ]             o      o
+
+
+        In annexes, Figures 5 to 9 illustrate this constraint. Figure 7 illustrates the specific case of stacks with 2
+        plant docks. These stacks must satisfy the constraint for each of their 2 plant docks.
+        Supplier docks may be unknown for some trucks, in which case there is no constraint on the loading order
+        of supplier docks in these trucks.
+        Plant dock loading order may be equal to 0 for several plant docks in some trucks, in which case, there is
+        no constraint on the loading order for these plant docks in these trucks.
+
+
+3.3.4     Weight constraints
+A truck is made up of a tractor (which includes the driver cabin) and a trailer (where the stacks are loaded),
+as shown in Figures 10 and 11. Parameters will be defined either for the tractor or the trailer, while variables
+are defined only for the trailer.
+
+3.3.4.1     Parameters
+
+CM : weight of the tractor
+CJ f m : distance between the front and middle axles of the tractor
+CJ f c : distance between the front axle and the center of gravity of the tractor
+CJ f h : distance between the front axle and the harness of the tractor
+EM : weight of the empty trailer
+EJ hr : distance between the harness and the rear axle of the trailer
+EJ cr : distance between the center of gravity of the trailer and the rear axle
+EJ eh : distance between the start of the trailer and the harness
+EM mr : max weight on the rear axle of the trailer
+EM mm : max weight on the middle axle of the trailer
+
+3.3.4.2     Variables
+
+tmt : weight of the stacks loaded into the truck t
+ej e : distance between center of gravity of stacks and the start of the trailer
+ej r : distance between center of gravity of stacks and the rear axle of the trailer
+emh : weight on the harness of the trailer
+emr : weight on the rear axle of the trailer
+emm : weight on the middle axle of the trailer
+
+
+
+                                                           8
+3       PROBLEM MODEL
+
+
+In the annexes, Figures 10 and 11 show the parameters and variables on the tractor and trailer.
+
+3.3.4.3         Formula to compute the weights on harness and axles
+                                 (sxe    o
+                                    s −sxs ) )×sm
+                        (sxo
+           P
+                           s+                    s
+ej =e          s∈T St                 2
+                 g
+                                 tmt
+
+ej r = EJ eh + EJ hr - ej e
+                        r                  cr
+emh = tmt ×ej EJ
+              +EM ×EJ
+                 hr
+
+
+
+emr = tmt + EM - emh
+                            fc         h        fh
+emm = CM ×CJ CJ+em
+                fm
+                   ×CJ
+
+
+
+
+        • The weights of the stacks packed in
+                                           P a truck t should not exceed the truck’s maximal loading weight :
+          ∀t ∈ Te tmt ≤ T Mtm with tmt = s∈St sms         (W1)
+
+
+        • The weights on the middle axle and on the rear axle of a truck must not exceed the max weights authorized
+          for these 2 axles : emm ≤ EM mm and emr ≤ EM mr             (W2)
+
+
+The Constraint (W2) must be satisfied whenever the truck is on the road. For example, if the truck pickups
+supplier A, then supplier B, then goes to the plant, the constraint must be satisfied (1) with only items from
+supplier A in the truck (drive from supplier A to B) and (2) with all the items from suppliers A and B (drive
+from supplier B to the plant). In other words, checking Constraint (W2) is done in 2 steps :
+
+
+        • the variables tmta , ej ea , ej ra , emha , emra , emma are calculated with only the stacks of supplier A and
+          the Constraint (W2a ) must be satisfied. The deliveries to plant docks (inside the destination plant) are
+          not considered as ’a road’ so Constraint (W2) does not apply between the different plant docks.
+        • the variables tmtab , ej eab , ej rab , emhab , emrab , emmab are calculated with the stacks of suppliers A and
+          B, and the constraint (W2ab ) must be satisfied.
+
+
+                                                     emma ≤EMmm and emra ≤EMmr     (W2a )
+
+                                                     emmab ≤EMmm and emrab ≤EMmr   (W2ab )
+
+
+
+
+                                                                      9
+4   ANNEXES
+
+
+4     Annexes
+4.1   Placement order of suppliers and plant’s dock (Constraint P4)
+Figures 5 and 6 show a real-life example of placement of stacks satisfying the suppliers’ pickup order and the
+plant docks’ loading order. The first picked-up supplier 0061910800 has the plant dock G08, the second picked-
+up supplier 0011141500 the plant docks G08 and V09, the third picked-up supplier 0011501900 the plant docks
+G08 and V11 and the fourth picked-up supplier 0011579600 the plant dock G08.
+Pickup order of suppliers : (1) 0061910800, (2) 0011141500, (3) 0011501900, (4) 0011579600.
+Loading order of plant docks : (1) G08, (2) V11, (3) V09.
+
+
+
+
+                                Figure 5: A truck with 4 picked-up suppliers
+
+
+
+
+               Figure 6: The same truck than Figure 5, with the plant docks for every supplier
+
+
+
+                                                     10
+4   ANNEXES
+
+
+4.2    Placement order of multi-docks stacks (Constraint P4)
+Figure 7 shows a real-life example of well-placed multi-docks stacks within a single supplier. The loading order
+of plant docks : (1) V55, (2) G08, (3) V02, (4) V11, (5)V09, (6) V33. Stacks C, N and O have multiple plant
+docks. Stack C has plant docks G08 and V02, stacks O and N have plant docks V09 and V33. These couples
+of plant docks (G08-V02 and V09-V33) have consecutive loading orders.
+
+
+
+
+                       Figure 7: A truck with multi-docks stacks and a single supplier
+
+
+
+
+                                                      11
+4   ANNEXES
+
+
+4.3    Placement order of suppliers’ docks (Constraint P4)
+Figures 8 and 9 show a real-life example of placement of stacks with suppliers’ docks. The truck pickups 2 sup-
+pliers, first 0090016100, then 0090015100. Supplier 0090016100 has one supplier’s dock (G16), while supplier
+0090015100 has 2 supplier’s docks (X16868 and X16324). The loading order of supplier 0090015100 docks : (1)
+X16868 and (2) X16324.
+
+
+
+
+                  Figure 8: A truck with 2 picked-up suppliers, 0090016100 and 0090015100
+
+.
+
+
+
+
+           Figure 9: The same truck than Figure 8 with suppliers’ docks G16, X16868 and X16324
+
+
+
+                                                      12
+4   ANNEXES
+
+
+4.4   Parameters and variables related to the tractor and the trailer of a truck
+
+
+
+
+                             Figure 10: Parameters on the tractor
+
+
+
+
+                       Figure 11: Parameters and variables on the trailer
+
+
+
+
+                                              13
+

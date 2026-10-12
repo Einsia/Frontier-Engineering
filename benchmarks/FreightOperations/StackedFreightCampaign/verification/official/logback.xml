@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+	<!-- to stop logback configuration error messages -->
+	<statusListener class="ch.qos.logback.core.status.NopStatusListener" />
+	
+	<!-- An appender to the standard output -->
+	<appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+		<encoder>
+			<pattern>%d{yyyy-MM-dd HH:mm:ss.SSS, Europe/Paris} [%-8.8thread] %-5level - %msg%n</pattern>
+		</encoder>
+	</appender>
+	
+	<!-- Insert the current time formatted as "yyyyMMdd'T'HHmmss" under
+	the key "bySecond" into the logger context. This value will be
+	available to all subsequent configuration elements. -->
+	<timestamp key="bySecond" datePattern="yyyyMMdd'_'HHmmss"/>
+	 
+	<appender name="FILE" class="ch.qos.logback.core.FileAppender">
+		<!-- use the previously created timestamp to create a uniquely named log file -->
+		<file>${LOG_FILENAME}_${bySecond}.txt</file>
+		<append>false</append>
+		<encoder>
+			<pattern>%d{yyyy-MM-dd HH:mm:ss.SSS, Europe/Paris} [%-8.8thread] %-5level %-36.36logger{36} - %msg%n</pattern>
+		</encoder>
+	</appender>
+	
+  <root level="INFO">
+	<appender-ref ref="STDOUT" />
+    <appender-ref ref="FILE" />
+  </root>
+	
+	
+</configuration>

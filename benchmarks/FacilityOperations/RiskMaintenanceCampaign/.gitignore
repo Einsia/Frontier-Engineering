@@ -1,0 +1,6 @@
+/solution/src/include/
+/solution/src/simdjson/simdjson.h
+/solution/src/simdjson/simdjson.cpp
+/metrics.json
+__pycache__/
+*.pyc

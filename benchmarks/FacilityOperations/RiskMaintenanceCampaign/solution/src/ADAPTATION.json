@@ -1,0 +1,19 @@
+{
+  "team": "S19",
+  "rank": 4,
+  "champion_claim": false,
+  "upstream": "fontanf/localsearchsolver",
+  "commit": "f5c7ae49fa0dc02529670104ea0aa1dbc8a7e73e",
+  "dependency_commits": {
+    "optimizationtools": "c2df60575bed9af3cfb8652bc3c859f98b52b58c",
+    "orproblems": "fc79928142b227d5da73c952061dd1bdafbb6b45"
+  },
+  "changes": [
+    "Original ROADEF2020 example target built directly; unrelated commercial solver examples not linked",
+    "One search thread and one worker; seed 0; fixed 100 best-first search nodes instead of time limit",
+    "simdjson pinned at 0.9.2; nlohmann JSON header 3.11.2",
+    "Replace old string_view.to_string extension with std::string(view), preserving parsed string contents"
+  ],
+  "warning": "Expert source internally scales/rounds floating data. Official checker, not its internal score, defines feasibility and objective. Historical competition best reproduction is not claimed.",
+  "verified": false
+}

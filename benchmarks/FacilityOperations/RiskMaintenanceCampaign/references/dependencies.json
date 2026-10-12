@@ -1,0 +1,241 @@
+{
+  "nlohmann_json_version": "3.11.2",
+  "nlohmann_commit": "bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d",
+  "simdjson_version": "0.9.2",
+  "simdjson_commit": "c6c29c28278aeb29998e89f008908d951bb40c39",
+  "files": [
+    {
+      "path": "solution/src/include/nlohmann/adl_serializer.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/adl_serializer.hpp",
+      "sha256": "0c4ce295a3f4092cff092901c340c961b10c48ec8d555110fe3df9f619740a19"
+    },
+    {
+      "path": "solution/src/include/nlohmann/byte_container_with_subtype.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/byte_container_with_subtype.hpp",
+      "sha256": "b56733d3a5b84004f4c7da8ac29ff030509d6a013eeb090541bfcdc46c1a5dc0"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/abi_macros.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/abi_macros.hpp",
+      "sha256": "702af5c60305125d8e5a4c813d271882b93bb2ba43cdfe91ee4edcef3fbeeb71"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/conversions/from_json.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/conversions/from_json.hpp",
+      "sha256": "8cad2ff4a90591110a5cc6134eef25e5a16c33f97b531e1576ed551319d16896"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/conversions/to_chars.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/conversions/to_chars.hpp",
+      "sha256": "c2766aef57d381b2732a29a0f3facaf1c5a7bcbdda80542514ab834247f26c68"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/conversions/to_json.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/conversions/to_json.hpp",
+      "sha256": "2b87b28c17cef8ecc192a5137c67fd6c56a37746c7e478ca0aacbe354098016c"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/exceptions.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/exceptions.hpp",
+      "sha256": "208d2c515d55bccadaab2d6d7609c4179b343e393137a5ebe1c96f293dfca101"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/hash.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/hash.hpp",
+      "sha256": "54f7dd4f4d6cc7bd4c09fec7bda7e47992ee5799bf235104384ee70108023cff"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/input/binary_reader.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/input/binary_reader.hpp",
+      "sha256": "84ebe37454150101a5896d8f50ec1e2f0fc57e0cc9dc810190acd7d43ce9cb42"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/input/input_adapters.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/input/input_adapters.hpp",
+      "sha256": "581e5a0982c01bf63449479547e555101b70641dbfc65c31078e0fc4a4e61671"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/input/json_sax.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/input/json_sax.hpp",
+      "sha256": "ee9c45bd7361bb98283bd1e9c87e87f639b3bd27a631769a2499962e03b05298"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/input/lexer.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/input/lexer.hpp",
+      "sha256": "723a7ae568a1460da5235cd1f844db6b12b0f684b5284d5a4c7db4dbe165c980"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/input/parser.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/input/parser.hpp",
+      "sha256": "fd687a688fc68835ee1337f4e1e7e935bea6cd17dffabb43399628a69424d669"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/input/position_t.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/input/position_t.hpp",
+      "sha256": "9007ed8be12f1b0d001c292c1525fdeb1418bed8cd63bf8a00b118574f5bd5d1"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/iterators/internal_iterator.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/iterators/internal_iterator.hpp",
+      "sha256": "2414d89c20b4eb1278672a21b0f09858c4861ffe878432ec942e23e4d277479a"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/iterators/iter_impl.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/iterators/iter_impl.hpp",
+      "sha256": "db2f4f0f905ab2b80e8e01e96e177aeafe4d5a1a78b42facbc91fb79013eb794"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/iterators/iteration_proxy.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/iterators/iteration_proxy.hpp",
+      "sha256": "78fa90bcd26822953d451693b379b139c6f22629dbb64517ff3d58c0acb964ad"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/iterators/iterator_traits.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/iterators/iterator_traits.hpp",
+      "sha256": "78a1c32b2bad6782f97063cf642a6dc02588960b9420c1924ca5ef76fb8df9d8"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/iterators/json_reverse_iterator.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/iterators/json_reverse_iterator.hpp",
+      "sha256": "3872b8f61110ff09a77c3a3dca852c0fee9defcaab5b778dc990a253883a5329"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/iterators/primitive_iterator.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/iterators/primitive_iterator.hpp",
+      "sha256": "274ba54c5c2b2cd8e7c1e635392b09e73fd65d4183571f821ad149b3954ed818"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/json_pointer.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/json_pointer.hpp",
+      "sha256": "cd86782e5a17b0b707fda35d5a39da85fc8c481e642b69ca1f95485131110c24"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/json_ref.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/json_ref.hpp",
+      "sha256": "ef04660db0236f2f3341bd36de00cbc3f494018278800294be82f85e1fcc4b7c"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/macro_scope.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/macro_scope.hpp",
+      "sha256": "8d8a504d5ae8fcf34b676d9efd5eca07001bbb9a3417313b443c9d75018163f8"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/macro_unscope.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/macro_unscope.hpp",
+      "sha256": "65bb2a65eb2935643f5b788efb7b4092f1a329d0b4fbbc9a1b7343775f58797f"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/meta/call_std/begin.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/meta/call_std/begin.hpp",
+      "sha256": "f79ecf122600e2e64f344dd95277910816206e37a80bed18737d22f281dbb465"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/meta/call_std/end.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/meta/call_std/end.hpp",
+      "sha256": "f0d1493594068a73102b52c47f48d3443ea589afbcaaa2672b0e71499f61d696"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/meta/cpp_future.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/meta/cpp_future.hpp",
+      "sha256": "519285d9ceca3d6d3afa0c647c71f8790b91179da66a08b68a9f73a8218016f3"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/meta/detected.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/meta/detected.hpp",
+      "sha256": "01963ca48427b32286a4bda3741c0817648af65eef673fe7cc9fc9d94cf343a8"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/meta/identity_tag.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/meta/identity_tag.hpp",
+      "sha256": "9a95aaad68fe15b01570b4f9efaebd1ed2e5ad703767f4b93fc2cd855142199c"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/meta/is_sax.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/meta/is_sax.hpp",
+      "sha256": "876aaf9f4ccbed679a9340cf51b3dbe38eaf0b18122e0affe0c5e711a2f73533"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/meta/std_fs.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/meta/std_fs.hpp",
+      "sha256": "68e8e979cca53bd97bc2e85b9e8a78066b5e791a951b0c73290cd7e5c740bc6a"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/meta/type_traits.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/meta/type_traits.hpp",
+      "sha256": "b13c458f9cd6a2d8577031f12e11a951e4ae7b508cce64ffadff42f248ad8b4b"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/meta/void_t.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/meta/void_t.hpp",
+      "sha256": "30cf458ad751b37097da34c3e28d9e387bbb37fab29d180984baba4e67d3a831"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/output/binary_writer.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/output/binary_writer.hpp",
+      "sha256": "a6ccc235e52fa612c2717e278939ed1632c456e96881805d084847cf3cc3d06d"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/output/output_adapters.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/output/output_adapters.hpp",
+      "sha256": "fec93f451953874aad7a30c79b921cd0c4ade1698e36e964bfe89f1a4a6a3c0f"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/output/serializer.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/output/serializer.hpp",
+      "sha256": "5eaa3faae3791c53ada6800967e166cad8159bd9545b5abdfc18cda5ea9826e4"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/string_concat.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/string_concat.hpp",
+      "sha256": "33a2a25c74cb00124b1e69108a06b4c2bb02fd369d40bfe5aed56c401c8f5011"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/string_escape.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/string_escape.hpp",
+      "sha256": "16899a2c01c9aee2cd0af5b9ede0d3f579af00b58303197e2692f756310317c9"
+    },
+    {
+      "path": "solution/src/include/nlohmann/detail/value_t.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/detail/value_t.hpp",
+      "sha256": "f16e2a05c4fdfbe22fc2cee90f7adc0e6ca2c5345348fa1f8c855a8e04f263b6"
+    },
+    {
+      "path": "solution/src/include/nlohmann/json.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/json.hpp",
+      "sha256": "bbf96a24a8d59ef79467761e2a803537e1476909bb7d6baed23094a1833c088c"
+    },
+    {
+      "path": "solution/src/include/nlohmann/json_fwd.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/json_fwd.hpp",
+      "sha256": "7b116cea514a11fdb71da0bd6a4273b2816750d29979711313e4a76a8fe5bd02"
+    },
+    {
+      "path": "solution/src/include/nlohmann/ordered_map.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/ordered_map.hpp",
+      "sha256": "9d7070944cc64da4818120698975b74d8b7e61152b5d10aff81985493d5b4f6d"
+    },
+    {
+      "path": "solution/src/include/nlohmann/thirdparty/hedley/hedley.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/thirdparty/hedley/hedley.hpp",
+      "sha256": "6c5cdf981e43776f4cd320dc7476309efa7332f457288c4f33051b7fa4f7611d"
+    },
+    {
+      "path": "solution/src/include/nlohmann/thirdparty/hedley/hedley_undef.hpp",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/bc889afb4c5bf1c0d8ee29ef35eaaf4c8bef8a5d/include/nlohmann/thirdparty/hedley/hedley_undef.hpp",
+      "sha256": "2e5aff1a15cbfd8786a2776d0ec0e38e14d2ceadeea229bce5c583bafc26803c"
+    },
+    {
+      "path": "solution/src/simdjson/simdjson.cpp",
+      "url": "https://raw.githubusercontent.com/simdjson/simdjson/c6c29c28278aeb29998e89f008908d951bb40c39/singleheader/simdjson.cpp",
+      "sha256": "de1c34b212b134941d1e191e48f0c419bb549437fb6a25bbf1d2c10d4b42d052"
+    },
+    {
+      "path": "solution/src/simdjson/simdjson.h",
+      "url": "https://raw.githubusercontent.com/simdjson/simdjson/c6c29c28278aeb29998e89f008908d951bb40c39/singleheader/simdjson.h",
+      "sha256": "ecc206767a7dd05cb27bc37a8aa4f25ac4a0f4208c367510288aa2e0ccd3ae15"
+    }
+  ],
+  "archive": "references/vendor-dependencies.tar.gz",
+  "archive_sha256": "caa46bd047de02a8a741cecc9b4c0de5b514064cbfbb3161b52fd775effcccd3",
+  "setup_network_required": false
+}

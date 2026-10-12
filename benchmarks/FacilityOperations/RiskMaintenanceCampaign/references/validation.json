@@ -1,0 +1,26 @@
+{
+  "upstream_commit": "bafa7d53162a3b1f128fec396bbde22fe972bf24",
+  "valid": true,
+  "objective": 2743.5078649237475,
+  "combined_score": -2743.5078649237475,
+  "fresh_generations": 2,
+  "identical_output_hashes": true,
+  "artifact_sha256": {
+    "campaign-01.json": "ec791a3b819732a0aaa324580372c46f7c16397202566d74952cad6a661da4a0",
+    "campaign-02.json": "fc0648b8793fa0edb8735d950dfc988eced2066ac322fba894beff0a4b2a62cf"
+  },
+  "unified_runtime_seconds": 43.43742775917053,
+  "negative_checks": {
+    "verifier_hidden": true,
+    "input_readonly": true,
+    "forged_metrics_without_outputs_rejected": true
+  },
+  "scope": "Baseline regeneration and framework compatibility only; no model optimization or hardness claim.",
+  "runtime": "Linux; Python 3.12.12 and NumPy 2.2.6 task runtime; separate framework driver; no outer or candidate network; privileged outer container permits bubblewrap namespaces.",
+  "packaging_fix": {
+    "offline_cold_setup_passed": true,
+    "archive_and_file_hashes_checked": true,
+    "corrupt_archive_rejected": true,
+    "same_objective_and_artifact_hashes_as_original_pr": true
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "repo": "simdjson/simdjson",
+  "commit": "c6c29c28278aeb29998e89f008908d951bb40c39",
+  "files": [
+    {
+      "path": "LICENSE",
+      "git_sha": "45b1ea773beb97c562fb37c71759455ee5c89f76",
+      "sha256": "664f4e8a5ae846b8a94960da2418187c0b4176d64266ba5fdb8316a8ddf50f27"
+    },
+    {
+      "path": "singleheader/simdjson.cpp",
+      "git_sha": "37f75fd5e5085515163f5abb85b42b35d388e401",
+      "sha256": "de1c34b212b134941d1e191e48f0c419bb549437fb6a25bbf1d2c10d4b42d052"
+    },
+    {
+      "path": "singleheader/simdjson.h",
+      "git_sha": "785b765ee4c3ae022e41b2af5e6b0d7bdbec621d",
+      "sha256": "ecc206767a7dd05cb27bc37a8aa4f25ac4a0f4208c367510288aa2e0ccd3ae15"
+    }
+  ]
+}
